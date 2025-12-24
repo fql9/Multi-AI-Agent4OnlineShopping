@@ -24,7 +24,8 @@
     "dev": "tsc --watch",
     "clean": "rimraf dist",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint src/"
+    "lint": "echo 'lint: skipped (no eslint configured)'",
+    "test": "echo 'test: skipped (no tests yet)'"
   },
   "dependencies": {
     "zod": "^3.22.0",

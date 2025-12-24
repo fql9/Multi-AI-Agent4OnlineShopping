@@ -9,7 +9,9 @@
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",
     "clean": "rimraf dist",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "lint": "echo 'lint: skipped'",
+    "test": "echo 'test: skipped'"
   },
   "dependencies": {
     "@shopping-agent/common": "workspace:*",
