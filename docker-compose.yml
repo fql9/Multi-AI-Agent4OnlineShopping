@@ -1,8 +1,6 @@
 # 根目录 docker-compose.yml - 指向 infra/docker
 # 使用: docker compose up -d
 
-version: '3.8'
-
 services:
   postgres:
     image: pgvector/pgvector:pg16
