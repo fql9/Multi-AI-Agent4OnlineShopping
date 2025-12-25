@@ -3,12 +3,11 @@ Intent Agent Node implementation.
 """
 
 import structlog
+from langchain_core.messages import AIMessage, HumanMessage
 from langchain_openai import ChatOpenAI
-from langchain_core.messages import HumanMessage, AIMessage
 
-from ..graph.state import AgentState
-from ..models.mission import MissionSpec
 from ..config import get_settings
+from ..graph.state import AgentState
 
 logger = structlog.get_logger()
 
@@ -35,7 +34,7 @@ Output format: JSON matching MissionSpec schema.
 async def intent_node(state: AgentState) -> AgentState:
     """
     Intent Agent 节点
-    
+
     解析用户意图并生成结构化 MissionSpec
     """
     settings = get_settings()

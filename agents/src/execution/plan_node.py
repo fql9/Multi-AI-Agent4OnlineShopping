@@ -3,6 +3,7 @@ Plan Generation Node - 生成可执行方案
 """
 
 import structlog
+
 from ..graph.state import AgentState
 
 logger = structlog.get_logger()
@@ -11,7 +12,7 @@ logger = structlog.get_logger()
 async def plan_node(state: AgentState) -> AgentState:
     """
     Plan 节点
-    
+
     基于核验后的候选生成 2-3 个可执行方案
     """
     logger.info("plan_node.start", verified_count=len(state.get("verified_candidates", [])))
@@ -83,7 +84,7 @@ async def plan_node(state: AgentState) -> AgentState:
                 [opt.get("eta_min_days", 30) for opt in candidate.get("shipping_options", [{"eta_min_days": 30}])]
             ))
             risk_score = 1.0 - candidate.get("risk_profile", {}).get("overall_risk", 0.5)
-            
+
             return (
                 objective_weights.get("price", 0.4) * price_score +
                 objective_weights.get("speed", 0.3) * speed_score +

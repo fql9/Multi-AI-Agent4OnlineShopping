@@ -3,11 +3,12 @@ Agent 主入口
 """
 
 import asyncio
+
 import structlog
 from langchain_core.messages import HumanMessage
 
-from .graph import build_agent_graph, AgentState
 from .config import get_settings
+from .graph import AgentState, build_agent_graph
 
 # 配置日志
 structlog.configure(
@@ -34,11 +35,11 @@ logger = structlog.get_logger()
 async def run_agent(user_message: str, config: dict | None = None) -> dict:
     """
     运行 Agent
-    
+
     Args:
         user_message: 用户消息
         config: LangGraph 配置（包含 thread_id 等）
-    
+
     Returns:
         Agent 最终状态
     """
@@ -73,7 +74,7 @@ async def run_agent(user_message: str, config: dict | None = None) -> dict:
 
     # 运行 graph
     config = config or {"configurable": {"thread_id": "default"}}
-    
+
     try:
         final_state = await graph.ainvoke(initial_state, config)
         logger.info(
@@ -109,19 +110,19 @@ async def main():
     for query in test_queries:
         print(f"Query: {query}")
         print("-" * 40)
-        
+
         result = await run_agent(query)
-        
+
         print(f"Current Step: {result.get('current_step')}")
         print(f"Candidates Found: {len(result.get('candidates', []))}")
         print(f"Verified Candidates: {len(result.get('verified_candidates', []))}")
         print(f"Plans Generated: {len(result.get('plans', []))}")
         print(f"Draft Order ID: {result.get('draft_order_id')}")
         print(f"Token Used: {result.get('token_used')}")
-        
+
         if result.get("error"):
             print(f"Error: {result.get('error')}")
-        
+
         print()
         print("=" * 60)
         print()

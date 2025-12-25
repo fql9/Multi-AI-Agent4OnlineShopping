@@ -2,8 +2,8 @@
 Base tool utilities.
 """
 
-import uuid
 import hashlib
+import uuid
 from datetime import datetime
 from typing import Any
 
@@ -76,14 +76,14 @@ async def call_tool(
 ) -> dict[str, Any]:
     """
     统一工具调用接口
-    
+
     Args:
         mcp_server: MCP server 类型 (core, checkout)
         tool_name: 工具名称
         params: 工具参数
         user_id: 用户 ID
         idempotency_key: 幂等键
-    
+
     Returns:
         标准响应 Envelope
     """

@@ -2,14 +2,15 @@
 Agent State Definition for LangGraph.
 """
 
-from typing import TypedDict, Annotated
+from typing import Annotated, TypedDict
+
 from langgraph.graph.message import add_messages
 
 
 class AgentState(TypedDict):
     """
     Agent 全局状态
-    
+
     这个状态对象在整个 Agent 流程中共享，每个节点可以读写。
     LangGraph 会自动处理状态的持久化和恢复。
     """

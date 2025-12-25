@@ -4,7 +4,7 @@ Shipping tools - 物流与地址
 
 from typing import Any
 
-from .base import call_tool, mock_response, MOCK_MODE
+from .base import MOCK_MODE, call_tool, mock_response
 
 
 async def validate_address(
@@ -17,7 +17,7 @@ async def validate_address(
 ) -> dict[str, Any]:
     """
     shipping.validate_address - 地址校验
-    
+
     Returns:
         标准响应 Envelope，data 包含规范化地址和可达性
     """
@@ -56,12 +56,12 @@ async def quote_shipping_options(
 ) -> dict[str, Any]:
     """
     shipping.quote_options - 获取物流选项
-    
+
     Args:
         items: 商品列表 [{"sku_id": "...", "qty": 1}]
         destination_country: 目的国
         destination_postal_code: 目的地邮编
-    
+
     Returns:
         标准响应 Envelope，data 包含物流选项
     """

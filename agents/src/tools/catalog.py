@@ -4,7 +4,7 @@ Catalog tools - 商品搜索与检索
 
 from typing import Any
 
-from .base import call_tool, mock_response, MOCK_MODE
+from .base import MOCK_MODE, call_tool, mock_response
 
 
 async def search_offers(
@@ -21,7 +21,7 @@ async def search_offers(
 ) -> dict[str, Any]:
     """
     catalog.search_offers - 搜索商品
-    
+
     Args:
         query: 搜索关键词
         destination_country: 目的国
@@ -32,7 +32,7 @@ async def search_offers(
         must_in_stock: 是否必须有库存
         sort: 排序方式 (relevance|price|sales|rating)
         limit: 返回数量
-    
+
     Returns:
         标准响应 Envelope，data 包含 offer_ids 和 scores
     """
@@ -76,10 +76,10 @@ async def get_offer_card(
 ) -> dict[str, Any]:
     """
     catalog.get_offer_card - 获取 AROC (AI-Ready Offer Card)
-    
+
     Args:
         offer_id: 商品 ID
-    
+
     Returns:
         标准响应 Envelope，data 包含完整 AROC
     """

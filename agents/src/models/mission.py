@@ -4,6 +4,7 @@ Mission (采购委托) model definitions.
 
 from datetime import date
 from typing import Literal
+
 from pydantic import BaseModel, Field
 
 

@@ -3,10 +3,11 @@ Verifier Agent Node implementation.
 """
 
 import structlog
+
 from ..graph.state import AgentState
+from ..tools.compliance import check_compliance
 from ..tools.pricing import get_realtime_quote
 from ..tools.shipping import quote_shipping_options
-from ..tools.compliance import check_compliance
 
 logger = structlog.get_logger()
 
@@ -14,7 +15,7 @@ logger = structlog.get_logger()
 async def verifier_node(state: AgentState) -> AgentState:
     """
     Verifier Agent 节点
-    
+
     对候选进行实时核验
     """
     logger.info("verifier_node.start", candidates_count=len(state.get("candidates", [])))
@@ -29,7 +30,7 @@ async def verifier_node(state: AgentState) -> AgentState:
 
         for candidate in candidates[:20]:  # 限制核验数量（Token 预算控制）
             sku_id = candidate.get("sku_id") or candidate.get("skus", [{}])[0].get("sku_id")
-            offer_id = candidate.get("offer_id")
+            candidate.get("offer_id")
 
             if not sku_id:
                 continue

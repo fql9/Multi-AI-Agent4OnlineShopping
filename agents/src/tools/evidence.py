@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from .base import call_tool, mock_response, MOCK_MODE
+from .base import MOCK_MODE, call_tool, mock_response
 
 
 async def create_evidence_snapshot(
@@ -19,7 +19,7 @@ async def create_evidence_snapshot(
 ) -> dict[str, Any]:
     """
     evidence.create_snapshot - 创建证据快照
-    
+
     Args:
         user_id: 用户 ID
         session_id: 会话 ID
@@ -27,7 +27,7 @@ async def create_evidence_snapshot(
         objects: 关联对象 {"offer_ids": [...], "sku_ids": [...]}
         tool_call_records: 工具调用记录
         citations: 证据引用
-    
+
     Returns:
         标准响应 Envelope，data 包含 snapshot_id
     """
@@ -67,7 +67,7 @@ async def attach_to_draft_order(
 ) -> dict[str, Any]:
     """
     evidence.attach_to_draft_order - 将证据快照绑定到草稿订单
-    
+
     Returns:
         标准响应 Envelope
     """

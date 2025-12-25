@@ -1,19 +1,32 @@
 -- 初始化数据库脚本
--- 启用 pgvector 扩展
-CREATE EXTENSION IF NOT EXISTS vector;
+-- Multi-AI-Agent4OnlineShopping
 
--- 启用 uuid-ossp 扩展
+-- 启用扩展
+CREATE EXTENSION IF NOT EXISTS vector;
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- 创建 schema
 CREATE SCHEMA IF NOT EXISTS agent;
 
 -- ========================================
+-- 类目表
+-- ========================================
+CREATE TABLE IF NOT EXISTS agent.categories (
+    id VARCHAR(255) PRIMARY KEY,
+    name_en VARCHAR(255) NOT NULL,
+    name_zh VARCHAR(255),
+    parent_id VARCHAR(255),
+    path TEXT[] DEFAULT '{}',
+    level INTEGER DEFAULT 0,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- ========================================
 -- 用户与身份
 -- ========================================
 CREATE TABLE IF NOT EXISTS agent.users (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    external_id VARCHAR(255) UNIQUE,
+    id VARCHAR(255) PRIMARY KEY DEFAULT 'user_' || substr(uuid_generate_v4()::text, 1, 8),
     email VARCHAR(255),
     locale VARCHAR(10) DEFAULT 'en-US',
     currency VARCHAR(3) DEFAULT 'USD',
@@ -23,39 +36,12 @@ CREATE TABLE IF NOT EXISTS agent.users (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS agent.user_addresses (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID REFERENCES agent.users(id),
-    label VARCHAR(100),
-    country VARCHAR(2) NOT NULL,
-    state VARCHAR(100),
-    city VARCHAR(100),
-    postal_code VARCHAR(20),
-    address_line1 VARCHAR(500),
-    address_line2 VARCHAR(500),
-    phone VARCHAR(50),
-    is_default BOOLEAN DEFAULT FALSE,
-    is_validated BOOLEAN DEFAULT FALSE,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
-CREATE TABLE IF NOT EXISTS agent.user_preferences (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID REFERENCES agent.users(id) UNIQUE,
-    hard_constraints JSONB DEFAULT '[]',
-    soft_preferences JSONB DEFAULT '[]',
-    brand_blacklist JSONB DEFAULT '[]',
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
 -- ========================================
 -- Mission（采购委托）
 -- ========================================
 CREATE TABLE IF NOT EXISTS agent.missions (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID REFERENCES agent.users(id),
+    id VARCHAR(255) PRIMARY KEY DEFAULT 'm_' || substr(uuid_generate_v4()::text, 1, 12),
+    user_id VARCHAR(255),
     session_id VARCHAR(255),
     status VARCHAR(50) DEFAULT 'created',
     destination_country VARCHAR(2),
@@ -74,33 +60,38 @@ CREATE TABLE IF NOT EXISTS agent.missions (
 -- AROC（AI-Ready Offer Card）
 -- ========================================
 CREATE TABLE IF NOT EXISTS agent.offers (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    offer_id VARCHAR(255) UNIQUE NOT NULL,
+    id VARCHAR(255) PRIMARY KEY,
     spu_id VARCHAR(255),
     merchant_id VARCHAR(255),
-    category_id VARCHAR(255),
-    category_path JSONB,
-    titles JSONB NOT NULL,
-    brand JSONB,
+    category_id VARCHAR(255) REFERENCES agent.categories(id),
+    title_en TEXT,
+    title_zh TEXT,
+    brand_name VARCHAR(255),
+    brand_id VARCHAR(255),
+    base_price DECIMAL(12, 2),
+    currency VARCHAR(3) DEFAULT 'USD',
     attributes JSONB DEFAULT '[]',
-    risk_profile JSONB,
-    policies JSONB,
-    media_refs JSONB,
-    version_hash VARCHAR(64),
-    source VARCHAR(50) DEFAULT 'merchant_feed',
+    weight_g INTEGER DEFAULT 500,
+    dimensions_mm JSONB,
+    risk_tags TEXT[] DEFAULT '{}',
+    certifications TEXT[] DEFAULT '{}',
+    return_policy JSONB,
+    warranty_months INTEGER DEFAULT 12,
+    rating DECIMAL(2, 1) DEFAULT 4.0,
+    reviews_count INTEGER DEFAULT 0,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS agent.skus (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    sku_id VARCHAR(255) UNIQUE NOT NULL,
-    offer_id VARCHAR(255) REFERENCES agent.offers(offer_id),
+    id VARCHAR(255) PRIMARY KEY,
+    offer_id VARCHAR(255) REFERENCES agent.offers(id),
     options JSONB DEFAULT '{}',
+    price DECIMAL(12, 2),
+    currency VARCHAR(3) DEFAULT 'USD',
+    stock INTEGER DEFAULT 100,
     packaging JSONB,
-    risk_tags JSONB DEFAULT '[]',
-    compliance_tags JSONB DEFAULT '[]',
-    barcodes JSONB DEFAULT '[]',
+    risk_tags TEXT[] DEFAULT '{}',
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -109,78 +100,80 @@ CREATE TABLE IF NOT EXISTS agent.skus (
 -- 合规规则
 -- ========================================
 CREATE TABLE IF NOT EXISTS agent.compliance_rules (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    rule_id VARCHAR(255) UNIQUE NOT NULL,
+    id VARCHAR(255) PRIMARY KEY,
+    name JSONB NOT NULL,
     rule_type VARCHAR(50) NOT NULL,
-    applies_to JSONB NOT NULL,
+    priority INTEGER DEFAULT 100,
     condition JSONB NOT NULL,
-    action VARCHAR(50) NOT NULL,
-    severity VARCHAR(20) DEFAULT 'block',
-    message_template JSONB,
+    applies_to JSONB NOT NULL,
+    action JSONB NOT NULL,
+    severity VARCHAR(20) DEFAULT 'error',
     valid_from TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     valid_to TIMESTAMP WITH TIME ZONE,
-    version VARCHAR(50),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
 -- ========================================
--- 购物车与草稿订单
+-- 购物车
 -- ========================================
 CREATE TABLE IF NOT EXISTS agent.carts (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    cart_id VARCHAR(255) UNIQUE NOT NULL,
-    user_id UUID REFERENCES agent.users(id),
-    session_id VARCHAR(255),
+    id VARCHAR(255) PRIMARY KEY,
+    user_id VARCHAR(255),
     status VARCHAR(50) DEFAULT 'active',
     items JSONB DEFAULT '[]',
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    expires_at TIMESTAMP WITH TIME ZONE
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
+-- ========================================
+-- 草稿订单
+-- ========================================
 CREATE TABLE IF NOT EXISTS agent.draft_orders (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    draft_order_id VARCHAR(255) UNIQUE NOT NULL,
-    user_id UUID REFERENCES agent.users(id),
-    cart_id VARCHAR(255) REFERENCES agent.carts(cart_id),
-    mission_id UUID REFERENCES agent.missions(id),
-    status VARCHAR(50) DEFAULT 'created',
+    id VARCHAR(255) PRIMARY KEY,
+    user_id VARCHAR(255),
+    cart_id VARCHAR(255) REFERENCES agent.carts(id),
+    address_id VARCHAR(255),
+    shipping_option_id VARCHAR(255),
+    destination_country VARCHAR(2),
     items JSONB NOT NULL,
-    address_id UUID REFERENCES agent.user_addresses(id),
-    shipping_option JSONB,
-    pricing_breakdown JSONB,
-    tax_estimate JSONB,
-    compliance_summary JSONB,
-    confirmation_items JSONB DEFAULT '[]',
+    subtotal DECIMAL(12, 2),
+    shipping_cost DECIMAL(12, 2),
+    tax_estimate DECIMAL(12, 2),
+    payable_amount DECIMAL(12, 2),
+    currency VARCHAR(3) DEFAULT 'USD',
     consents JSONB DEFAULT '{}',
     evidence_snapshot_id VARCHAR(255),
+    idempotency_key VARCHAR(255),
+    status VARCHAR(50) DEFAULT 'pending',
+    expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    expires_at TIMESTAMP WITH TIME ZONE NOT NULL
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
+CREATE UNIQUE INDEX IF NOT EXISTS idx_draft_orders_idempotency 
+ON agent.draft_orders(idempotency_key) 
+WHERE idempotency_key IS NOT NULL;
+
 -- ========================================
--- Evidence Snapshot
+-- 证据快照
 -- ========================================
 CREATE TABLE IF NOT EXISTS agent.evidence_snapshots (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    snapshot_id VARCHAR(255) UNIQUE NOT NULL,
-    user_id UUID REFERENCES agent.users(id),
-    session_id VARCHAR(255),
-    mission_id UUID REFERENCES agent.missions(id),
-    objects JSONB DEFAULT '{}',
+    id VARCHAR(255) PRIMARY KEY,
+    mission_id VARCHAR(255),
+    draft_order_id VARCHAR(255),
+    context JSONB DEFAULT '{}',
     tool_calls JSONB DEFAULT '[]',
-    policy_versions JSONB DEFAULT '{}',
-    citations JSONB DEFAULT '[]',
-    derived JSONB DEFAULT '{}',
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    metadata JSONB DEFAULT '{}',
+    content_hash VARCHAR(64),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
 -- ========================================
--- 证据库（RAG chunks）
+-- RAG 证据块
 -- ========================================
 CREATE TABLE IF NOT EXISTS agent.evidence_chunks (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    chunk_id VARCHAR(255) UNIQUE NOT NULL,
+    id VARCHAR(255) PRIMARY KEY DEFAULT 'chunk_' || substr(uuid_generate_v4()::text, 1, 12),
     text TEXT NOT NULL,
     source_type VARCHAR(50) NOT NULL,
     offer_id VARCHAR(255),
@@ -193,37 +186,15 @@ CREATE TABLE IF NOT EXISTS agent.evidence_chunks (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- 创建向量索引
-CREATE INDEX IF NOT EXISTS idx_evidence_chunks_embedding 
-ON agent.evidence_chunks 
-USING ivfflat (embedding vector_cosine_ops)
-WITH (lists = 100);
-
--- ========================================
--- 幂等记录
--- ========================================
-CREATE TABLE IF NOT EXISTS agent.idempotency_records (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    idempotency_key VARCHAR(255) NOT NULL,
-    user_id UUID,
-    tool_name VARCHAR(100) NOT NULL,
-    request_hash VARCHAR(64),
-    response JSONB,
-    status VARCHAR(50) DEFAULT 'processing',
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    expires_at TIMESTAMP WITH TIME ZONE,
-    UNIQUE(user_id, tool_name, idempotency_key)
-);
-
 -- ========================================
 -- 审计日志
 -- ========================================
 CREATE TABLE IF NOT EXISTS agent.audit_logs (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id VARCHAR(255) PRIMARY KEY DEFAULT 'log_' || substr(uuid_generate_v4()::text, 1, 12),
     request_id VARCHAR(255) NOT NULL,
     actor_type VARCHAR(50) NOT NULL,
     actor_id VARCHAR(255),
-    user_id UUID,
+    user_id VARCHAR(255),
     tool_name VARCHAR(100) NOT NULL,
     request_summary JSONB,
     response_hash VARCHAR(64),
@@ -234,18 +205,33 @@ CREATE TABLE IF NOT EXISTS agent.audit_logs (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- 创建索引
-CREATE INDEX IF NOT EXISTS idx_audit_logs_user_id ON agent.audit_logs(user_id);
-CREATE INDEX IF NOT EXISTS idx_audit_logs_tool_name ON agent.audit_logs(tool_name);
-CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON agent.audit_logs(created_at);
-CREATE INDEX IF NOT EXISTS idx_missions_user_id ON agent.missions(user_id);
-CREATE INDEX IF NOT EXISTS idx_offers_category_id ON agent.offers(category_id);
-CREATE INDEX IF NOT EXISTS idx_skus_offer_id ON agent.skus(offer_id);
+-- ========================================
+-- 索引
+-- ========================================
+CREATE INDEX IF NOT EXISTS idx_categories_parent ON agent.categories(parent_id);
+CREATE INDEX IF NOT EXISTS idx_offers_category ON agent.offers(category_id);
+CREATE INDEX IF NOT EXISTS idx_offers_brand ON agent.offers(brand_name);
+CREATE INDEX IF NOT EXISTS idx_offers_rating ON agent.offers(rating DESC);
+CREATE INDEX IF NOT EXISTS idx_skus_offer ON agent.skus(offer_id);
+CREATE INDEX IF NOT EXISTS idx_carts_user ON agent.carts(user_id);
+CREATE INDEX IF NOT EXISTS idx_carts_status ON agent.carts(status);
+CREATE INDEX IF NOT EXISTS idx_draft_orders_user ON agent.draft_orders(user_id);
+CREATE INDEX IF NOT EXISTS idx_draft_orders_status ON agent.draft_orders(status);
+CREATE INDEX IF NOT EXISTS idx_evidence_snapshots_mission ON agent.evidence_snapshots(mission_id);
+CREATE INDEX IF NOT EXISTS idx_evidence_snapshots_draft ON agent.evidence_snapshots(draft_order_id);
+CREATE INDEX IF NOT EXISTS idx_compliance_rules_priority ON agent.compliance_rules(priority ASC);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_tool ON agent.audit_logs(tool_name);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_time ON agent.audit_logs(created_at);
+
+-- 向量索引
+CREATE INDEX IF NOT EXISTS idx_evidence_chunks_embedding 
+ON agent.evidence_chunks 
+USING ivfflat (embedding vector_cosine_ops)
+WITH (lists = 100);
 
 -- 全文搜索索引
-CREATE INDEX IF NOT EXISTS idx_evidence_chunks_text_search 
-ON agent.evidence_chunks 
-USING gin(to_tsvector('english', text));
+CREATE INDEX IF NOT EXISTS idx_offers_title_search 
+ON agent.offers 
+USING gin(to_tsvector('english', COALESCE(title_en, '')));
 
 COMMENT ON SCHEMA agent IS 'Multi-AI-Agent4OnlineShopping 主 schema';
-

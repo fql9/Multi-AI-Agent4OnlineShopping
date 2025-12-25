@@ -3,8 +3,9 @@ Execution Node - 创建草稿订单
 """
 
 import structlog
+
 from ..graph.state import AgentState
-from ..tools.checkout import create_cart, add_to_cart, create_draft_order
+from ..tools.checkout import add_to_cart, create_cart, create_draft_order
 from ..tools.evidence import create_evidence_snapshot
 
 logger = structlog.get_logger()
@@ -13,7 +14,7 @@ logger = structlog.get_logger()
 async def execution_node(state: AgentState) -> AgentState:
     """
     Execution 节点
-    
+
     创建购物车和草稿订单
     """
     logger.info("execution_node.start", selected_plan=state.get("selected_plan"))

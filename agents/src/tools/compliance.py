@@ -4,7 +4,7 @@ Compliance tools - 合规检查
 
 from typing import Any
 
-from .base import call_tool, mock_response, MOCK_MODE
+from .base import MOCK_MODE, call_tool, mock_response
 
 
 async def check_compliance(
@@ -15,12 +15,12 @@ async def check_compliance(
 ) -> dict[str, Any]:
     """
     compliance.check_item - 检查商品合规性
-    
+
     Args:
         sku_id: SKU ID
         destination_country: 目的国
         shipping_option_id: 物流选项（可选）
-    
+
     Returns:
         标准响应 Envelope，data 包含合规结果
     """
@@ -50,7 +50,7 @@ async def get_policy_ruleset_version(
 ) -> dict[str, Any]:
     """
     compliance.policy_ruleset_version - 获取当前规则版本
-    
+
     Returns:
         标准响应 Envelope，data 包含规则版本号
     """

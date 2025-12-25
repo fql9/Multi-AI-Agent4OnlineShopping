@@ -2,14 +2,14 @@
 LangGraph graph builder.
 """
 
-from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.memory import MemorySaver
+from langgraph.graph import END, StateGraph
 
-from .state import AgentState
-from ..intent import intent_node
 from ..candidate import candidate_node
+from ..execution import execution_node, plan_node
+from ..intent import intent_node
 from ..verifier import verifier_node
-from ..execution import plan_node, execution_node
+from .state import AgentState
 
 
 def should_continue_to_candidate(state: AgentState) -> str:
@@ -52,7 +52,7 @@ def should_continue_to_execute(state: AgentState) -> str:
 
 def error_handler_node(state: AgentState) -> AgentState:
     """错误处理节点"""
-    error = state.get("error", "Unknown error")
+    state.get("error", "Unknown error")
     error_code = state.get("error_code", "INTERNAL_ERROR")
 
     # 根据错误类型决定是否可恢复
@@ -97,7 +97,7 @@ def wait_user_node(state: AgentState) -> AgentState:
 def build_agent_graph():
     """
     构建 Agent 状态机
-    
+
     流程:
     1. Intent: 解析用户意图 → Mission
     2. Candidate: 召回候选商品

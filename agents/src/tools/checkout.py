@@ -5,7 +5,7 @@ Checkout tools - 购物车与草稿订单
 import uuid
 from typing import Any
 
-from .base import call_tool, mock_response, MOCK_MODE
+from .base import MOCK_MODE, call_tool, mock_response
 
 
 async def create_cart(
@@ -14,7 +14,7 @@ async def create_cart(
 ) -> dict[str, Any]:
     """
     cart.create - 创建购物车
-    
+
     Returns:
         标准响应 Envelope，data 包含 cart_id
     """
@@ -47,7 +47,7 @@ async def add_to_cart(
 ) -> dict[str, Any]:
     """
     cart.add_item - 添加商品到购物车
-    
+
     Returns:
         标准响应 Envelope，data 包含更新后的购物车状态
     """
@@ -86,7 +86,7 @@ async def compute_total(
 ) -> dict[str, Any]:
     """
     checkout.compute_total - 计算订单总额
-    
+
     Returns:
         标准响应 Envelope，data 包含价格明细
     """
@@ -128,9 +128,9 @@ async def create_draft_order(
 ) -> dict[str, Any]:
     """
     checkout.create_draft_order - 创建草稿订单
-    
+
     注意: 此操作不会扣款，需要用户确认后才能进入支付流程
-    
+
     Returns:
         标准响应 Envelope，data 包含草稿订单详情
     """

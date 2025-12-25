@@ -4,7 +4,7 @@ Pricing tools - 实时价格查询
 
 from typing import Any
 
-from .base import call_tool, mock_response, MOCK_MODE
+from .base import MOCK_MODE, call_tool, mock_response
 
 
 async def get_realtime_quote(
@@ -15,12 +15,12 @@ async def get_realtime_quote(
 ) -> dict[str, Any]:
     """
     pricing.get_realtime_quote - 获取实时报价
-    
+
     Args:
         sku_id: SKU ID
         quantity: 数量
         destination_country: 目的国
-    
+
     Returns:
         标准响应 Envelope，data 包含价格信息
     """

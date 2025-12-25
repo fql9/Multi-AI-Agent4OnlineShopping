@@ -3,9 +3,9 @@ Pydantic models for the agent system.
 These models are generated from contracts/json-schema/.
 """
 
-from .mission import MissionSpec, HardConstraint, SoftPreference
 from .draft_order import DraftOrder, DraftOrderItem, PricingBreakdown
-from .evidence import EvidenceSnapshot, ToolCallRecord, Citation
+from .evidence import Citation, EvidenceSnapshot, ToolCallRecord
+from .mission import HardConstraint, MissionSpec, SoftPreference
 
 __all__ = [
     "MissionSpec",

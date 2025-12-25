@@ -3,8 +3,9 @@ Candidate Generation Agent Node implementation.
 """
 
 import structlog
+
 from ..graph.state import AgentState
-from ..tools.catalog import search_offers, get_offer_card
+from ..tools.catalog import get_offer_card, search_offers
 
 logger = structlog.get_logger()
 
@@ -12,7 +13,7 @@ logger = structlog.get_logger()
 async def candidate_node(state: AgentState) -> AgentState:
     """
     Candidate Agent 节点
-    
+
     基于 Mission 召回候选商品
     """
     logger.info("candidate_node.start", mission=state.get("mission"))
@@ -44,7 +45,7 @@ async def candidate_node(state: AgentState) -> AgentState:
             }
 
         offer_ids = search_result.get("data", {}).get("offer_ids", [])
-        
+
         # 获取每个 offer 的详细信息
         candidates = []
         for offer_id in offer_ids[:50]:  # 限制初始候选数量
