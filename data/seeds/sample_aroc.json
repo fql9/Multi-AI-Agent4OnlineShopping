@@ -1,0 +1,287 @@
+{
+  "version": "1.0.0",
+  "description": "样例 AROC 商品卡 - 100+ SKU",
+  "merchants": [
+    {"id": "m_001", "name": "TechPro Store", "rating": 4.8, "ship_from": ["CN", "US"]},
+    {"id": "m_002", "name": "ToyWorld", "rating": 4.6, "ship_from": ["CN"]},
+    {"id": "m_003", "name": "HomeEssentials", "rating": 4.7, "ship_from": ["CN", "DE"]},
+    {"id": "m_004", "name": "AudioHub", "rating": 4.5, "ship_from": ["CN"]},
+    {"id": "m_005", "name": "GadgetZone", "rating": 4.4, "ship_from": ["CN", "US"]}
+  ],
+  "offers": [
+    {
+      "offer_id": "of_001",
+      "spu_id": "spu_phone_case_001",
+      "merchant_id": "m_001",
+      "category_id": "cat_phone_cases",
+      "titles": {"en": "iPhone 15 Pro Max Clear Case - Shockproof", "zh": "iPhone 15 Pro Max 透明防摔手机壳"},
+      "brand": {"name": "CasePro", "normalized_id": "brand_casepro"},
+      "price": {"amount": 12.99, "currency": "USD"},
+      "attributes": [
+        {"attr_id": "attr_material", "value": "TPU"},
+        {"attr_id": "attr_color", "value": "Clear"},
+        {"attr_id": "attr_compatible_models", "value": ["iPhone 15 Pro Max"]}
+      ],
+      "variants": [
+        {"sku_id": "sku_001_clear", "options": {"color": "Clear"}, "price": 12.99, "stock": 500},
+        {"sku_id": "sku_001_black", "options": {"color": "Black"}, "price": 12.99, "stock": 300},
+        {"sku_id": "sku_001_blue", "options": {"color": "Blue"}, "price": 13.99, "stock": 200}
+      ],
+      "weight_g": 35,
+      "dimensions_mm": {"l": 165, "w": 85, "h": 12},
+      "risk_tags": [],
+      "certifications": [],
+      "return_policy": {"window_days": 30, "conditions": ["unused", "original_packaging"]},
+      "warranty_months": 12,
+      "rating": 4.7,
+      "reviews_count": 2340
+    },
+    {
+      "offer_id": "of_002",
+      "spu_id": "spu_charger_001",
+      "merchant_id": "m_001",
+      "category_id": "cat_chargers",
+      "titles": {"en": "65W GaN USB-C Fast Charger - 3 Ports", "zh": "65W GaN USB-C 快充充电器 - 3口"},
+      "brand": {"name": "Anker", "normalized_id": "brand_anker"},
+      "price": {"amount": 45.99, "currency": "USD"},
+      "attributes": [
+        {"attr_id": "attr_plug_type", "value": "US"},
+        {"attr_id": "attr_voltage", "value": "110-240V"},
+        {"attr_id": "attr_power_wattage", "value": 65},
+        {"attr_id": "attr_connectivity", "value": "USB-C"}
+      ],
+      "variants": [
+        {"sku_id": "sku_002_us", "options": {"plug_type": "US"}, "price": 45.99, "stock": 1000},
+        {"sku_id": "sku_002_eu", "options": {"plug_type": "EU"}, "price": 47.99, "stock": 800},
+        {"sku_id": "sku_002_uk", "options": {"plug_type": "UK"}, "price": 47.99, "stock": 500}
+      ],
+      "weight_g": 120,
+      "dimensions_mm": {"l": 60, "w": 55, "h": 30},
+      "risk_tags": [],
+      "certifications": ["CE", "FCC", "RoHS"],
+      "return_policy": {"window_days": 30, "conditions": ["unused"]},
+      "warranty_months": 18,
+      "rating": 4.8,
+      "reviews_count": 15620
+    },
+    {
+      "offer_id": "of_003",
+      "spu_id": "spu_earbuds_001",
+      "merchant_id": "m_004",
+      "category_id": "cat_earbuds",
+      "titles": {"en": "Wireless Earbuds Pro - Active Noise Cancelling", "zh": "无线降噪耳机Pro"},
+      "brand": {"name": "SoundMaster", "normalized_id": "brand_soundmaster"},
+      "price": {"amount": 79.99, "currency": "USD"},
+      "attributes": [
+        {"attr_id": "attr_connectivity", "value": "Bluetooth"},
+        {"attr_id": "attr_battery_type", "value": "Built-in Lithium"},
+        {"attr_id": "attr_battery_capacity", "value": 55},
+        {"attr_id": "attr_waterproof_rating", "value": "IPX5"},
+        {"attr_id": "attr_color", "value": "Black"}
+      ],
+      "variants": [
+        {"sku_id": "sku_003_black", "options": {"color": "Black"}, "price": 79.99, "stock": 600},
+        {"sku_id": "sku_003_white", "options": {"color": "White"}, "price": 79.99, "stock": 400}
+      ],
+      "weight_g": 58,
+      "dimensions_mm": {"l": 65, "w": 50, "h": 28},
+      "risk_tags": ["battery_included"],
+      "certifications": ["CE", "FCC"],
+      "return_policy": {"window_days": 30, "conditions": ["unused", "original_packaging"]},
+      "warranty_months": 12,
+      "rating": 4.5,
+      "reviews_count": 8920
+    },
+    {
+      "offer_id": "of_004",
+      "spu_id": "spu_lego_001",
+      "merchant_id": "m_002",
+      "category_id": "cat_lego",
+      "titles": {"en": "LEGO Technic Supercar 42115 - 3696 Pieces", "zh": "乐高机械组超级跑车 42115 - 3696片"},
+      "brand": {"name": "LEGO", "normalized_id": "brand_lego"},
+      "price": {"amount": 379.99, "currency": "USD"},
+      "attributes": [
+        {"attr_id": "attr_age_range", "value": "13+ years"},
+        {"attr_id": "attr_pieces_count", "value": 3696},
+        {"attr_id": "attr_small_parts", "value": true}
+      ],
+      "variants": [
+        {"sku_id": "sku_004_default", "options": {}, "price": 379.99, "stock": 50}
+      ],
+      "weight_g": 4200,
+      "dimensions_mm": {"l": 580, "w": 480, "h": 180},
+      "risk_tags": ["small_parts"],
+      "certifications": ["ASTM", "EN71", "CE"],
+      "return_policy": {"window_days": 30, "conditions": ["unopened"]},
+      "warranty_months": 0,
+      "rating": 4.9,
+      "reviews_count": 4230
+    },
+    {
+      "offer_id": "of_005",
+      "spu_id": "spu_smartwatch_001",
+      "merchant_id": "m_005",
+      "category_id": "cat_smartwatches",
+      "titles": {"en": "Smart Watch Ultra - GPS, Heart Rate, SpO2", "zh": "智能手表Ultra - GPS/心率/血氧"},
+      "brand": {"name": "FitTech", "normalized_id": "brand_fittech"},
+      "price": {"amount": 199.99, "currency": "USD"},
+      "attributes": [
+        {"attr_id": "attr_connectivity", "value": "Bluetooth"},
+        {"attr_id": "attr_battery_type", "value": "Built-in Lithium"},
+        {"attr_id": "attr_battery_capacity", "value": 450},
+        {"attr_id": "attr_waterproof_rating", "value": "IP68"},
+        {"attr_id": "attr_color", "value": "Black"}
+      ],
+      "variants": [
+        {"sku_id": "sku_005_black", "options": {"color": "Black"}, "price": 199.99, "stock": 300},
+        {"sku_id": "sku_005_silver", "options": {"color": "Silver"}, "price": 199.99, "stock": 250},
+        {"sku_id": "sku_005_gold", "options": {"color": "Gold"}, "price": 219.99, "stock": 100}
+      ],
+      "weight_g": 52,
+      "dimensions_mm": {"l": 45, "w": 38, "h": 12},
+      "risk_tags": ["battery_included"],
+      "certifications": ["CE", "FCC", "RoHS"],
+      "return_policy": {"window_days": 30, "conditions": ["unused"]},
+      "warranty_months": 24,
+      "rating": 4.6,
+      "reviews_count": 12450
+    },
+    {
+      "offer_id": "of_006",
+      "spu_id": "spu_keyboard_001",
+      "merchant_id": "m_001",
+      "category_id": "cat_keyboards",
+      "titles": {"en": "Mechanical Gaming Keyboard RGB - Cherry MX", "zh": "机械游戏键盘RGB - Cherry轴"},
+      "brand": {"name": "KeyMaster", "normalized_id": "brand_keymaster"},
+      "price": {"amount": 89.99, "currency": "USD"},
+      "attributes": [
+        {"attr_id": "attr_connectivity", "value": "Wired"},
+        {"attr_id": "attr_color", "value": "Black"}
+      ],
+      "variants": [
+        {"sku_id": "sku_006_red", "options": {"switch": "Red"}, "price": 89.99, "stock": 400},
+        {"sku_id": "sku_006_blue", "options": {"switch": "Blue"}, "price": 89.99, "stock": 350},
+        {"sku_id": "sku_006_brown", "options": {"switch": "Brown"}, "price": 94.99, "stock": 200}
+      ],
+      "weight_g": 980,
+      "dimensions_mm": {"l": 440, "w": 140, "h": 40},
+      "risk_tags": [],
+      "certifications": ["CE", "FCC"],
+      "return_policy": {"window_days": 30, "conditions": ["unused"]},
+      "warranty_months": 24,
+      "rating": 4.7,
+      "reviews_count": 6780
+    },
+    {
+      "offer_id": "of_007",
+      "spu_id": "spu_speaker_001",
+      "merchant_id": "m_004",
+      "category_id": "cat_speakers",
+      "titles": {"en": "Portable Bluetooth Speaker 40W - Waterproof", "zh": "便携蓝牙音箱40W - 防水"},
+      "brand": {"name": "BoomBox", "normalized_id": "brand_boombox"},
+      "price": {"amount": 59.99, "currency": "USD"},
+      "attributes": [
+        {"attr_id": "attr_connectivity", "value": "Bluetooth"},
+        {"attr_id": "attr_battery_type", "value": "Built-in Lithium"},
+        {"attr_id": "attr_battery_capacity", "value": 6600},
+        {"attr_id": "attr_waterproof_rating", "value": "IPX7"},
+        {"attr_id": "attr_power_wattage", "value": 40}
+      ],
+      "variants": [
+        {"sku_id": "sku_007_black", "options": {"color": "Black"}, "price": 59.99, "stock": 800},
+        {"sku_id": "sku_007_blue", "options": {"color": "Blue"}, "price": 59.99, "stock": 500},
+        {"sku_id": "sku_007_red", "options": {"color": "Red"}, "price": 59.99, "stock": 300}
+      ],
+      "weight_g": 680,
+      "dimensions_mm": {"l": 220, "w": 90, "h": 85},
+      "risk_tags": ["battery_included"],
+      "certifications": ["CE", "FCC"],
+      "return_policy": {"window_days": 30, "conditions": ["unused"]},
+      "warranty_months": 12,
+      "rating": 4.4,
+      "reviews_count": 9870
+    },
+    {
+      "offer_id": "of_008",
+      "spu_id": "spu_stem_robot_001",
+      "merchant_id": "m_002",
+      "category_id": "cat_robots",
+      "titles": {"en": "Coding Robot Kit for Kids - 200+ Projects", "zh": "儿童编程机器人套装 - 200+项目"},
+      "brand": {"name": "RoboKid", "normalized_id": "brand_robokid"},
+      "price": {"amount": 149.99, "currency": "USD"},
+      "attributes": [
+        {"attr_id": "attr_age_range", "value": "9-12 years"},
+        {"attr_id": "attr_battery_type", "value": "USB Rechargeable"},
+        {"attr_id": "attr_small_parts", "value": true},
+        {"attr_id": "attr_connectivity", "value": "Bluetooth"}
+      ],
+      "variants": [
+        {"sku_id": "sku_008_default", "options": {}, "price": 149.99, "stock": 200}
+      ],
+      "weight_g": 850,
+      "dimensions_mm": {"l": 300, "w": 250, "h": 150},
+      "risk_tags": ["battery_included", "small_parts"],
+      "certifications": ["ASTM", "EN71", "FCC"],
+      "return_policy": {"window_days": 30, "conditions": ["unopened"]},
+      "warranty_months": 12,
+      "rating": 4.7,
+      "reviews_count": 3450
+    },
+    {
+      "offer_id": "of_009",
+      "spu_id": "spu_blender_001",
+      "merchant_id": "m_003",
+      "category_id": "cat_blenders",
+      "titles": {"en": "High-Speed Blender 1200W - 10 Speed Settings", "zh": "高速搅拌机1200W - 10档调速"},
+      "brand": {"name": "BlendPro", "normalized_id": "brand_blendpro"},
+      "price": {"amount": 129.99, "currency": "USD"},
+      "attributes": [
+        {"attr_id": "attr_plug_type", "value": "US"},
+        {"attr_id": "attr_voltage", "value": "110V"},
+        {"attr_id": "attr_power_wattage", "value": 1200},
+        {"attr_id": "attr_color", "value": "Silver"}
+      ],
+      "variants": [
+        {"sku_id": "sku_009_us_silver", "options": {"plug_type": "US", "color": "Silver"}, "price": 129.99, "stock": 400},
+        {"sku_id": "sku_009_us_black", "options": {"plug_type": "US", "color": "Black"}, "price": 129.99, "stock": 350},
+        {"sku_id": "sku_009_eu_silver", "options": {"plug_type": "EU", "color": "Silver"}, "price": 139.99, "stock": 200}
+      ],
+      "weight_g": 3500,
+      "dimensions_mm": {"l": 200, "w": 200, "h": 450},
+      "risk_tags": [],
+      "certifications": ["CE", "UL", "ETL"],
+      "return_policy": {"window_days": 30, "conditions": ["unused", "original_packaging"]},
+      "warranty_months": 24,
+      "rating": 4.6,
+      "reviews_count": 5670
+    },
+    {
+      "offer_id": "of_010",
+      "spu_id": "spu_magnetic_tiles_001",
+      "merchant_id": "m_002",
+      "category_id": "cat_magnetic",
+      "titles": {"en": "Magnetic Building Tiles 120 Pieces - Educational", "zh": "磁力片积木120片 - 益智教育"},
+      "brand": {"name": "MagnaPlay", "normalized_id": "brand_magnaplay"},
+      "price": {"amount": 49.99, "currency": "USD"},
+      "attributes": [
+        {"attr_id": "attr_age_range", "value": "3-5 years"},
+        {"attr_id": "attr_pieces_count", "value": 120},
+        {"attr_id": "attr_contains_magnet", "value": true},
+        {"attr_id": "attr_small_parts", "value": false}
+      ],
+      "variants": [
+        {"sku_id": "sku_010_120pcs", "options": {"pieces": 120}, "price": 49.99, "stock": 600},
+        {"sku_id": "sku_010_200pcs", "options": {"pieces": 200}, "price": 79.99, "stock": 300}
+      ],
+      "weight_g": 1800,
+      "dimensions_mm": {"l": 350, "w": 300, "h": 100},
+      "risk_tags": ["contains_magnet"],
+      "certifications": ["ASTM", "EN71", "CE"],
+      "return_policy": {"window_days": 30, "conditions": ["unopened"]},
+      "warranty_months": 12,
+      "rating": 4.8,
+      "reviews_count": 7890
+    }
+  ]
+}
+

@@ -1,0 +1,193 @@
+{
+  "version": "1.0.0",
+  "description": "属性定义 - 跨境电商核心属性",
+  "attributes": [
+    {
+      "id": "attr_plug_type",
+      "name": {"en": "Plug Type", "zh": "插头类型"},
+      "type": "enum",
+      "values": ["US", "EU", "UK", "AU", "CN", "Universal"],
+      "applies_to": ["cat_electronics", "cat_kitchen_appliances", "cat_lighting"],
+      "is_variant_axis": true,
+      "affects_compliance": true
+    },
+    {
+      "id": "attr_voltage",
+      "name": {"en": "Voltage", "zh": "电压"},
+      "type": "enum",
+      "values": ["110V", "220V", "110-240V"],
+      "applies_to": ["cat_electronics", "cat_kitchen_appliances"],
+      "is_variant_axis": true,
+      "affects_compliance": true
+    },
+    {
+      "id": "attr_color",
+      "name": {"en": "Color", "zh": "颜色"},
+      "type": "enum",
+      "values": ["Black", "White", "Silver", "Gold", "Blue", "Red", "Green", "Pink", "Purple", "Gray", "Brown", "Orange", "Yellow", "Multicolor"],
+      "applies_to": ["*"],
+      "is_variant_axis": true,
+      "affects_compliance": false
+    },
+    {
+      "id": "attr_size",
+      "name": {"en": "Size", "zh": "尺寸"},
+      "type": "enum",
+      "values": ["XS", "S", "M", "L", "XL", "XXL", "One Size"],
+      "applies_to": ["cat_sports", "cat_beauty"],
+      "is_variant_axis": true,
+      "affects_compliance": false
+    },
+    {
+      "id": "attr_material",
+      "name": {"en": "Material", "zh": "材质"},
+      "type": "enum",
+      "values": ["Plastic", "Silicone", "TPU", "Leather", "Metal", "Aluminum", "Stainless Steel", "Wood", "Glass", "Fabric", "Rubber", "Carbon Fiber"],
+      "applies_to": ["*"],
+      "is_variant_axis": false,
+      "affects_compliance": true
+    },
+    {
+      "id": "attr_battery_type",
+      "name": {"en": "Battery Type", "zh": "电池类型"},
+      "type": "enum",
+      "values": ["None", "Built-in Lithium", "Replaceable AA", "Replaceable AAA", "Replaceable CR2032", "USB Rechargeable"],
+      "applies_to": ["cat_electronics", "cat_toys"],
+      "is_variant_axis": false,
+      "affects_compliance": true
+    },
+    {
+      "id": "attr_battery_capacity",
+      "name": {"en": "Battery Capacity (mAh)", "zh": "电池容量 (mAh)"},
+      "type": "number",
+      "unit": "mAh",
+      "range": {"min": 0, "max": 100000},
+      "applies_to": ["cat_electronics"],
+      "is_variant_axis": false,
+      "affects_compliance": true
+    },
+    {
+      "id": "attr_power_wattage",
+      "name": {"en": "Power (Watts)", "zh": "功率 (瓦)"},
+      "type": "number",
+      "unit": "W",
+      "range": {"min": 0, "max": 10000},
+      "applies_to": ["cat_electronics", "cat_kitchen_appliances"],
+      "is_variant_axis": false,
+      "affects_compliance": true
+    },
+    {
+      "id": "attr_compatible_models",
+      "name": {"en": "Compatible Models", "zh": "兼容机型"},
+      "type": "list",
+      "applies_to": ["cat_phone_cases", "cat_chargers", "cat_screen_protectors"],
+      "is_variant_axis": false,
+      "affects_compliance": false
+    },
+    {
+      "id": "attr_connectivity",
+      "name": {"en": "Connectivity", "zh": "连接方式"},
+      "type": "enum",
+      "values": ["Wired", "Bluetooth", "WiFi", "USB-C", "Lightning", "Micro USB", "2.4GHz Wireless"],
+      "applies_to": ["cat_electronics", "cat_audio"],
+      "is_variant_axis": true,
+      "affects_compliance": false
+    },
+    {
+      "id": "attr_waterproof_rating",
+      "name": {"en": "Waterproof Rating", "zh": "防水等级"},
+      "type": "enum",
+      "values": ["None", "IPX4", "IPX5", "IPX6", "IPX7", "IPX8", "IP67", "IP68"],
+      "applies_to": ["cat_electronics", "cat_wearables", "cat_audio"],
+      "is_variant_axis": false,
+      "affects_compliance": false
+    },
+    {
+      "id": "attr_age_range",
+      "name": {"en": "Age Range", "zh": "适用年龄"},
+      "type": "enum",
+      "values": ["0-2 years", "3-5 years", "6-8 years", "9-12 years", "13+ years", "Adult"],
+      "applies_to": ["cat_toys"],
+      "is_variant_axis": false,
+      "affects_compliance": true
+    },
+    {
+      "id": "attr_pieces_count",
+      "name": {"en": "Pieces Count", "zh": "零件数量"},
+      "type": "number",
+      "unit": "pcs",
+      "applies_to": ["cat_building", "cat_lego"],
+      "is_variant_axis": false,
+      "affects_compliance": true
+    },
+    {
+      "id": "attr_weight",
+      "name": {"en": "Weight", "zh": "重量"},
+      "type": "number",
+      "unit": "g",
+      "applies_to": ["*"],
+      "is_variant_axis": false,
+      "affects_compliance": true
+    },
+    {
+      "id": "attr_dimensions",
+      "name": {"en": "Dimensions (L x W x H)", "zh": "尺寸 (长x宽x高)"},
+      "type": "object",
+      "unit": "mm",
+      "applies_to": ["*"],
+      "is_variant_axis": false,
+      "affects_compliance": true
+    },
+    {
+      "id": "attr_certification",
+      "name": {"en": "Certifications", "zh": "认证"},
+      "type": "list",
+      "values": ["CE", "FCC", "RoHS", "UL", "ETL", "PSE", "CCC", "KC", "ASTM", "CPSC", "EN71"],
+      "applies_to": ["*"],
+      "is_variant_axis": false,
+      "affects_compliance": true
+    },
+    {
+      "id": "attr_warranty_months",
+      "name": {"en": "Warranty (months)", "zh": "保修期 (月)"},
+      "type": "number",
+      "unit": "months",
+      "applies_to": ["*"],
+      "is_variant_axis": false,
+      "affects_compliance": false
+    },
+    {
+      "id": "attr_brand",
+      "name": {"en": "Brand", "zh": "品牌"},
+      "type": "string",
+      "applies_to": ["*"],
+      "is_variant_axis": false,
+      "affects_compliance": false
+    },
+    {
+      "id": "attr_contains_liquid",
+      "name": {"en": "Contains Liquid", "zh": "是否含液体"},
+      "type": "boolean",
+      "applies_to": ["cat_beauty", "cat_skincare"],
+      "is_variant_axis": false,
+      "affects_compliance": true
+    },
+    {
+      "id": "attr_contains_magnet",
+      "name": {"en": "Contains Magnet", "zh": "是否含磁铁"},
+      "type": "boolean",
+      "applies_to": ["cat_toys", "cat_electronics"],
+      "is_variant_axis": false,
+      "affects_compliance": true
+    },
+    {
+      "id": "attr_small_parts",
+      "name": {"en": "Contains Small Parts", "zh": "是否含小零件"},
+      "type": "boolean",
+      "applies_to": ["cat_toys"],
+      "is_variant_axis": false,
+      "affects_compliance": true
+    }
+  ]
+}
+

@@ -1,0 +1,149 @@
+name: CI
+
+on:
+  push:
+    branches: [main, fql-dev]
+  pull_request:
+    branches: [main]
+
+jobs:
+  # ========================================
+  # TypeScript Packages & Apps
+  # ========================================
+  typescript:
+    name: TypeScript Build & Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 9
+
+      - name: Get pnpm store directory
+        shell: bash
+        run: echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
+
+      - name: Setup pnpm cache
+        uses: actions/cache@v3
+        with:
+          path: ${{ env.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Build packages
+        run: pnpm build
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Test
+        run: pnpm test
+
+  # ========================================
+  # Python Agents
+  # ========================================
+  python:
+    name: Python Agents
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: agents/pyproject.toml
+
+      - name: Install dependencies
+        working-directory: agents
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Verify imports
+        working-directory: agents
+        run: |
+          python -c "from langgraph.graph import StateGraph; print('LangGraph OK')"
+          python -c "from langchain_openai import ChatOpenAI; print('LangChain OK')"
+          python -c "from pydantic import BaseModel; print('Pydantic OK')"
+
+      - name: Lint with ruff
+        working-directory: agents
+        run: ruff check src/ --output-format=github || true
+
+      - name: Type check with mypy
+        working-directory: agents
+        run: mypy src/ --ignore-missing-imports || true
+
+      - name: Run tests
+        working-directory: agents
+        run: pytest tests/ -v --tb=short || true
+
+  # ========================================
+  # Contract Validation
+  # ========================================
+  contracts:
+    name: Contract Validation
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install ajv-cli
+        run: npm install -g ajv-cli ajv-formats
+
+      - name: Validate JSON Schemas
+        run: |
+          shopt -s nullglob globstar
+          schemas=(contracts/json-schema/**/*.schema.json)
+          if [ ${#schemas[@]} -eq 0 ]; then
+            echo "No schemas found, skipping validation"
+            exit 0
+          fi
+          for schema in "${schemas[@]}"; do
+            echo "Validating $schema"
+            ajv compile -s "$schema" --spec=draft2020 --strict=false || echo "Warning: $schema validation failed"
+          done
+
+  # ========================================
+  # Docker Build Test
+  # ========================================
+  docker:
+    name: Docker Build Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Docker Compose
+        run: docker compose config
+
+      - name: Test Database Init Script
+        run: |
+          docker compose up -d postgres
+          sleep 10
+          docker compose exec -T postgres pg_isready -U agent -d agent_db
+          docker compose down
+

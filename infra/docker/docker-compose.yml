@@ -1,0 +1,39 @@
+services:
+  # PostgreSQL with pgvector extension
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: agent-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: agent
+      POSTGRES_PASSWORD: agent_dev_password
+      POSTGRES_DB: agent_db
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agent -d agent_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # Redis (中期阶段启用)
+  # redis:
+  #   image: redis:7-alpine
+  #   container_name: agent-redis
+  #   ports:
+  #     - "6379:6379"
+  #   volumes:
+  #     - redisdata:/data
+  #   restart: unless-stopped
+
+volumes:
+  pgdata:
+  # redisdata:
+
+networks:
+  default:
+    name: agent-network
+

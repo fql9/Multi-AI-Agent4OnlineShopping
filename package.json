@@ -1,0 +1,31 @@
+{
+  "name": "multi-ai-agent-online-shopping",
+  "version": "0.1.0",
+  "description": "Shopping like prompting! Multi-AI-Agent for cross-border e-commerce",
+  "private": true,
+  "license": "GPL-3.0",
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "typecheck": "turbo run typecheck",
+    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md}\"",
+    "clean": "turbo run clean && rimraf node_modules",
+    "db:up": "docker compose up -d",
+    "db:down": "docker compose down",
+    "generate:sdk": "bash scripts/generate-sdk.sh"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "prettier": "^3.1.0",
+    "rimraf": "^5.0.5",
+    "turbo": "^2.0.0",
+    "typescript": "^5.3.0"
+  },
+  "packageManager": "pnpm@9.0.0",
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
+

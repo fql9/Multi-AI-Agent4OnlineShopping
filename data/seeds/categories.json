@@ -1,0 +1,150 @@
+{
+  "version": "1.0.0",
+  "description": "类目树 - 跨境电商核心类目",
+  "categories": [
+    {
+      "id": "cat_electronics",
+      "name": {"en": "Electronics", "zh": "电子产品"},
+      "parent_id": null,
+      "path": ["Electronics"],
+      "children": [
+        {
+          "id": "cat_phones",
+          "name": {"en": "Phones & Accessories", "zh": "手机及配件"},
+          "parent_id": "cat_electronics",
+          "path": ["Electronics", "Phones & Accessories"],
+          "children": [
+            {"id": "cat_phone_cases", "name": {"en": "Phone Cases", "zh": "手机壳"}, "path": ["Electronics", "Phones & Accessories", "Phone Cases"]},
+            {"id": "cat_chargers", "name": {"en": "Chargers & Cables", "zh": "充电器及数据线"}, "path": ["Electronics", "Phones & Accessories", "Chargers & Cables"]},
+            {"id": "cat_screen_protectors", "name": {"en": "Screen Protectors", "zh": "屏幕保护膜"}, "path": ["Electronics", "Phones & Accessories", "Screen Protectors"]},
+            {"id": "cat_phone_holders", "name": {"en": "Phone Holders", "zh": "手机支架"}, "path": ["Electronics", "Phones & Accessories", "Phone Holders"]}
+          ]
+        },
+        {
+          "id": "cat_audio",
+          "name": {"en": "Audio & Headphones", "zh": "音频及耳机"},
+          "parent_id": "cat_electronics",
+          "path": ["Electronics", "Audio & Headphones"],
+          "children": [
+            {"id": "cat_earbuds", "name": {"en": "Wireless Earbuds", "zh": "无线耳机"}, "path": ["Electronics", "Audio & Headphones", "Wireless Earbuds"]},
+            {"id": "cat_headphones", "name": {"en": "Over-ear Headphones", "zh": "头戴式耳机"}, "path": ["Electronics", "Audio & Headphones", "Over-ear Headphones"]},
+            {"id": "cat_speakers", "name": {"en": "Bluetooth Speakers", "zh": "蓝牙音箱"}, "path": ["Electronics", "Audio & Headphones", "Bluetooth Speakers"]}
+          ]
+        },
+        {
+          "id": "cat_computers",
+          "name": {"en": "Computers & Tablets", "zh": "电脑及平板"},
+          "parent_id": "cat_electronics",
+          "path": ["Electronics", "Computers & Tablets"],
+          "children": [
+            {"id": "cat_laptops", "name": {"en": "Laptops", "zh": "笔记本电脑"}, "path": ["Electronics", "Computers & Tablets", "Laptops"]},
+            {"id": "cat_tablets", "name": {"en": "Tablets", "zh": "平板电脑"}, "path": ["Electronics", "Computers & Tablets", "Tablets"]},
+            {"id": "cat_laptop_bags", "name": {"en": "Laptop Bags", "zh": "电脑包"}, "path": ["Electronics", "Computers & Tablets", "Laptop Bags"]},
+            {"id": "cat_keyboards", "name": {"en": "Keyboards & Mice", "zh": "键盘鼠标"}, "path": ["Electronics", "Computers & Tablets", "Keyboards & Mice"]}
+          ]
+        },
+        {
+          "id": "cat_wearables",
+          "name": {"en": "Wearables", "zh": "可穿戴设备"},
+          "parent_id": "cat_electronics",
+          "path": ["Electronics", "Wearables"],
+          "children": [
+            {"id": "cat_smartwatches", "name": {"en": "Smart Watches", "zh": "智能手表"}, "path": ["Electronics", "Wearables", "Smart Watches"]},
+            {"id": "cat_fitness_bands", "name": {"en": "Fitness Bands", "zh": "运动手环"}, "path": ["Electronics", "Wearables", "Fitness Bands"]}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "cat_toys",
+      "name": {"en": "Toys & Games", "zh": "玩具游戏"},
+      "parent_id": null,
+      "path": ["Toys & Games"],
+      "children": [
+        {
+          "id": "cat_building",
+          "name": {"en": "Building Toys", "zh": "积木玩具"},
+          "path": ["Toys & Games", "Building Toys"],
+          "children": [
+            {"id": "cat_lego", "name": {"en": "LEGO & Compatible", "zh": "乐高及兼容"}, "path": ["Toys & Games", "Building Toys", "LEGO & Compatible"]},
+            {"id": "cat_magnetic", "name": {"en": "Magnetic Tiles", "zh": "磁力片"}, "path": ["Toys & Games", "Building Toys", "Magnetic Tiles"]}
+          ]
+        },
+        {
+          "id": "cat_stem",
+          "name": {"en": "STEM Toys", "zh": "STEM教育玩具"},
+          "path": ["Toys & Games", "STEM Toys"],
+          "children": [
+            {"id": "cat_robots", "name": {"en": "Robots & Coding", "zh": "机器人编程"}, "path": ["Toys & Games", "STEM Toys", "Robots & Coding"]},
+            {"id": "cat_science_kits", "name": {"en": "Science Kits", "zh": "科学实验套装"}, "path": ["Toys & Games", "STEM Toys", "Science Kits"]}
+          ]
+        },
+        {
+          "id": "cat_outdoor",
+          "name": {"en": "Outdoor Toys", "zh": "户外玩具"},
+          "path": ["Toys & Games", "Outdoor Toys"]
+        },
+        {
+          "id": "cat_board_games",
+          "name": {"en": "Board Games", "zh": "桌游"},
+          "path": ["Toys & Games", "Board Games"]
+        }
+      ]
+    },
+    {
+      "id": "cat_home",
+      "name": {"en": "Home & Kitchen", "zh": "家居厨房"},
+      "parent_id": null,
+      "path": ["Home & Kitchen"],
+      "children": [
+        {
+          "id": "cat_kitchen_appliances",
+          "name": {"en": "Kitchen Appliances", "zh": "厨房电器"},
+          "path": ["Home & Kitchen", "Kitchen Appliances"],
+          "children": [
+            {"id": "cat_blenders", "name": {"en": "Blenders", "zh": "搅拌机"}, "path": ["Home & Kitchen", "Kitchen Appliances", "Blenders"]},
+            {"id": "cat_coffee_makers", "name": {"en": "Coffee Makers", "zh": "咖啡机"}, "path": ["Home & Kitchen", "Kitchen Appliances", "Coffee Makers"]},
+            {"id": "cat_toasters", "name": {"en": "Toasters", "zh": "烤面包机"}, "path": ["Home & Kitchen", "Kitchen Appliances", "Toasters"]}
+          ]
+        },
+        {
+          "id": "cat_lighting",
+          "name": {"en": "Lighting", "zh": "照明"},
+          "path": ["Home & Kitchen", "Lighting"],
+          "children": [
+            {"id": "cat_led_bulbs", "name": {"en": "LED Bulbs", "zh": "LED灯泡"}, "path": ["Home & Kitchen", "Lighting", "LED Bulbs"]},
+            {"id": "cat_desk_lamps", "name": {"en": "Desk Lamps", "zh": "台灯"}, "path": ["Home & Kitchen", "Lighting", "Desk Lamps"]}
+          ]
+        },
+        {
+          "id": "cat_storage",
+          "name": {"en": "Storage & Organization", "zh": "收纳整理"},
+          "path": ["Home & Kitchen", "Storage & Organization"]
+        }
+      ]
+    },
+    {
+      "id": "cat_sports",
+      "name": {"en": "Sports & Outdoors", "zh": "运动户外"},
+      "parent_id": null,
+      "path": ["Sports & Outdoors"],
+      "children": [
+        {"id": "cat_fitness", "name": {"en": "Fitness Equipment", "zh": "健身器材"}, "path": ["Sports & Outdoors", "Fitness Equipment"]},
+        {"id": "cat_camping", "name": {"en": "Camping & Hiking", "zh": "露营徒步"}, "path": ["Sports & Outdoors", "Camping & Hiking"]},
+        {"id": "cat_cycling", "name": {"en": "Cycling", "zh": "骑行"}, "path": ["Sports & Outdoors", "Cycling"]}
+      ]
+    },
+    {
+      "id": "cat_beauty",
+      "name": {"en": "Beauty & Personal Care", "zh": "美妆个护"},
+      "parent_id": null,
+      "path": ["Beauty & Personal Care"],
+      "children": [
+        {"id": "cat_skincare", "name": {"en": "Skincare", "zh": "护肤"}, "path": ["Beauty & Personal Care", "Skincare"]},
+        {"id": "cat_haircare", "name": {"en": "Hair Care", "zh": "护发"}, "path": ["Beauty & Personal Care", "Hair Care"]},
+        {"id": "cat_grooming", "name": {"en": "Grooming Tools", "zh": "美容工具"}, "path": ["Beauty & Personal Care", "Grooming Tools"]}
+      ]
+    }
+  ]
+}
+

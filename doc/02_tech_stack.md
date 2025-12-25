@@ -201,15 +201,3 @@ volumes:
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
----
-
-## 十、与原设计的差异
-
-| 原设计 | 修订后 | 理由 |
-|--------|--------|------|
-| 纯 TypeScript | Python (Agent) + TypeScript (API) | LLM Agent 生态 Python 更成熟 |
-| 一开始就上 Neo4j | MVP 用 PostgreSQL 模拟 | 减少运维复杂度 |
-| 一开始就上 Kafka | MVP 用 DB 轮询 | 按需引入 |
-| 7+ MCP Servers | MVP 1-2 个 | 见 `doc/12_mcp_design.md` |
-| 未指定 LLM | 明确推荐 GPT-4o-mini / GPT-4o | 见上表 |
-| 未指定 Agent 框架 | 推荐 LangGraph | 状态机驱动、可控 |

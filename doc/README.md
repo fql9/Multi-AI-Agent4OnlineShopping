@@ -66,20 +66,6 @@
 
 ---
 
-## 🔄 与原设计的主要修订
-
-| 方面 | 原设计 | 修订后 |
-|------|--------|--------|
-| **语言** | 纯 TypeScript | Python (Agent) + TypeScript (API/前端) |
-| **Agent 框架** | 未指定 | **LangGraph**（推荐） |
-| **LLM** | 未指定 | **GPT-4o-mini + GPT-4o**（分层使用） |
-| **数据库** | PostgreSQL + Neo4j + Redis + Kafka | **MVP: PostgreSQL + pgvector 即可** |
-| **MCP 拆分** | 7+ 个 | **MVP: 2 个**（core-mcp + checkout-mcp） |
-| **冷启动** | 未说明 | 新增详细策略 |
-| **成本** | 未说明 | 新增估算文档 |
-
----
-
 ## 🏗️ 技术栈总览
 
 ```

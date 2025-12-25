@@ -1,0 +1,415 @@
+{
+  "version": "1.0.0",
+  "description": "合规规则 - 跨境电商核心合规限制",
+  "rules": [
+    {
+      "id": "cr_001",
+      "name": {"en": "Lithium Battery Air Shipping Restriction", "zh": "锂电池航空运输限制"},
+      "rule_type": "shipping_restriction",
+      "priority": 1,
+      "condition": {
+        "attribute": "attr_battery_type",
+        "operator": "in",
+        "value": ["Built-in Lithium", "USB Rechargeable"]
+      },
+      "applies_to": {
+        "categories": ["cat_electronics"],
+        "countries": ["*"]
+      },
+      "action": {
+        "type": "restrict_shipping",
+        "allowed_methods": ["sea", "ground"],
+        "blocked_methods": ["air_express"],
+        "message": {"en": "Products with lithium batteries cannot be shipped via air express", "zh": "含锂电池产品不能使用航空快递运输"}
+      },
+      "severity": "warning"
+    },
+    {
+      "id": "cr_002",
+      "name": {"en": "Large Lithium Battery Restriction", "zh": "大容量锂电池限制"},
+      "rule_type": "shipping_restriction",
+      "priority": 1,
+      "condition": {
+        "attribute": "attr_battery_capacity",
+        "operator": ">",
+        "value": 100
+      },
+      "applies_to": {
+        "categories": ["cat_electronics"],
+        "countries": ["*"]
+      },
+      "action": {
+        "type": "require_document",
+        "document": "UN38.3",
+        "message": {"en": "Products with batteries >100Wh require UN38.3 certification", "zh": "电池容量超过100Wh的产品需要UN38.3认证"}
+      },
+      "severity": "error"
+    },
+    {
+      "id": "cr_003",
+      "name": {"en": "EU CE Marking Required", "zh": "欧盟CE认证要求"},
+      "rule_type": "certification_required",
+      "priority": 2,
+      "condition": {
+        "category": "cat_electronics"
+      },
+      "applies_to": {
+        "categories": ["cat_electronics", "cat_toys"],
+        "countries": ["DE", "FR", "IT", "ES", "NL", "BE", "AT", "PL", "SE", "DK", "FI", "IE", "PT", "GR", "CZ", "HU", "RO", "BG", "SK", "HR", "SI", "LT", "LV", "EE", "CY", "MT", "LU"]
+      },
+      "action": {
+        "type": "require_certification",
+        "certification": "CE",
+        "message": {"en": "CE marking required for EU countries", "zh": "销往欧盟国家需要CE认证"}
+      },
+      "severity": "error"
+    },
+    {
+      "id": "cr_004",
+      "name": {"en": "US FCC Certification Required", "zh": "美国FCC认证要求"},
+      "rule_type": "certification_required",
+      "priority": 2,
+      "condition": {
+        "attribute": "attr_connectivity",
+        "operator": "in",
+        "value": ["Bluetooth", "WiFi", "2.4GHz Wireless"]
+      },
+      "applies_to": {
+        "categories": ["cat_electronics"],
+        "countries": ["US"]
+      },
+      "action": {
+        "type": "require_certification",
+        "certification": "FCC",
+        "message": {"en": "FCC certification required for wireless products in US", "zh": "无线产品销往美国需要FCC认证"}
+      },
+      "severity": "error"
+    },
+    {
+      "id": "cr_005",
+      "name": {"en": "Toy Age Warning - Small Parts", "zh": "玩具年龄警告 - 小零件"},
+      "rule_type": "age_restriction",
+      "priority": 1,
+      "condition": {
+        "attribute": "attr_small_parts",
+        "operator": "==",
+        "value": true
+      },
+      "applies_to": {
+        "categories": ["cat_toys"],
+        "countries": ["*"]
+      },
+      "action": {
+        "type": "add_warning",
+        "warning_type": "choking_hazard",
+        "min_age": 3,
+        "message": {"en": "CHOKING HAZARD - Small parts. Not for children under 3 years.", "zh": "窒息危险 - 含小零件，不适合3岁以下儿童"}
+      },
+      "severity": "warning"
+    },
+    {
+      "id": "cr_006",
+      "name": {"en": "Toy Magnet Warning", "zh": "玩具磁铁警告"},
+      "rule_type": "age_restriction",
+      "priority": 1,
+      "condition": {
+        "attribute": "attr_contains_magnet",
+        "operator": "==",
+        "value": true
+      },
+      "applies_to": {
+        "categories": ["cat_toys"],
+        "countries": ["*"]
+      },
+      "action": {
+        "type": "add_warning",
+        "warning_type": "magnet_hazard",
+        "message": {"en": "WARNING: Contains magnets. Keep away from children under 14.", "zh": "警告：含磁铁，请远离14岁以下儿童"}
+      },
+      "severity": "warning"
+    },
+    {
+      "id": "cr_007",
+      "name": {"en": "Liquid Volume Restriction - Air", "zh": "液体容量限制 - 航空"},
+      "rule_type": "shipping_restriction",
+      "priority": 1,
+      "condition": {
+        "attribute": "attr_contains_liquid",
+        "operator": "==",
+        "value": true
+      },
+      "applies_to": {
+        "categories": ["cat_beauty", "cat_skincare"],
+        "countries": ["*"]
+      },
+      "action": {
+        "type": "restrict_shipping",
+        "max_volume_ml": 100,
+        "blocked_methods": ["air_express"],
+        "message": {"en": "Liquid products >100ml cannot be shipped via air", "zh": "超过100ml的液体产品不能航空运输"}
+      },
+      "severity": "warning"
+    },
+    {
+      "id": "cr_008",
+      "name": {"en": "Japan PSE Certification Required", "zh": "日本PSE认证要求"},
+      "rule_type": "certification_required",
+      "priority": 2,
+      "condition": {
+        "attribute": "attr_plug_type",
+        "operator": "exists"
+      },
+      "applies_to": {
+        "categories": ["cat_electronics", "cat_kitchen_appliances"],
+        "countries": ["JP"]
+      },
+      "action": {
+        "type": "require_certification",
+        "certification": "PSE",
+        "message": {"en": "PSE certification required for electrical products in Japan", "zh": "电器产品销往日本需要PSE认证"}
+      },
+      "severity": "error"
+    },
+    {
+      "id": "cr_009",
+      "name": {"en": "Plug Type Compatibility - US", "zh": "插头兼容性 - 美国"},
+      "rule_type": "compatibility_check",
+      "priority": 3,
+      "condition": {
+        "attribute": "attr_plug_type",
+        "operator": "not_in",
+        "value": ["US", "Universal"]
+      },
+      "applies_to": {
+        "categories": ["cat_electronics", "cat_kitchen_appliances"],
+        "countries": ["US"]
+      },
+      "action": {
+        "type": "add_warning",
+        "warning_type": "adapter_needed",
+        "message": {"en": "This product requires a plug adapter for use in the US", "zh": "此产品在美国使用需要转换插头"}
+      },
+      "severity": "info"
+    },
+    {
+      "id": "cr_010",
+      "name": {"en": "Plug Type Compatibility - EU", "zh": "插头兼容性 - 欧盟"},
+      "rule_type": "compatibility_check",
+      "priority": 3,
+      "condition": {
+        "attribute": "attr_plug_type",
+        "operator": "not_in",
+        "value": ["EU", "Universal"]
+      },
+      "applies_to": {
+        "categories": ["cat_electronics", "cat_kitchen_appliances"],
+        "countries": ["DE", "FR", "IT", "ES", "NL", "BE", "AT", "PL"]
+      },
+      "action": {
+        "type": "add_warning",
+        "warning_type": "adapter_needed",
+        "message": {"en": "This product requires a plug adapter for use in EU", "zh": "此产品在欧盟使用需要转换插头"}
+      },
+      "severity": "info"
+    },
+    {
+      "id": "cr_011",
+      "name": {"en": "Voltage Compatibility Warning", "zh": "电压兼容性警告"},
+      "rule_type": "compatibility_check",
+      "priority": 2,
+      "condition": {
+        "attribute": "attr_voltage",
+        "operator": "==",
+        "value": "110V"
+      },
+      "applies_to": {
+        "categories": ["cat_electronics", "cat_kitchen_appliances"],
+        "countries": ["DE", "FR", "IT", "ES", "UK", "AU", "CN"]
+      },
+      "action": {
+        "type": "add_warning",
+        "warning_type": "voltage_incompatible",
+        "message": {"en": "This product (110V) is not compatible with local voltage (220V)", "zh": "此产品(110V)与当地电压(220V)不兼容"}
+      },
+      "severity": "error"
+    },
+    {
+      "id": "cr_012",
+      "name": {"en": "ASTM F963 Required for Toys - US", "zh": "美国玩具ASTM F963标准"},
+      "rule_type": "certification_required",
+      "priority": 2,
+      "condition": {
+        "category": "cat_toys"
+      },
+      "applies_to": {
+        "categories": ["cat_toys"],
+        "countries": ["US"]
+      },
+      "action": {
+        "type": "require_certification",
+        "certification": "ASTM",
+        "message": {"en": "ASTM F963 certification required for toys sold in US", "zh": "销往美国的玩具需要ASTM F963认证"}
+      },
+      "severity": "error"
+    },
+    {
+      "id": "cr_013",
+      "name": {"en": "EN71 Required for Toys - EU", "zh": "欧盟玩具EN71标准"},
+      "rule_type": "certification_required",
+      "priority": 2,
+      "condition": {
+        "category": "cat_toys"
+      },
+      "applies_to": {
+        "categories": ["cat_toys"],
+        "countries": ["DE", "FR", "IT", "ES", "NL", "BE", "AT", "PL", "SE", "DK"]
+      },
+      "action": {
+        "type": "require_certification",
+        "certification": "EN71",
+        "message": {"en": "EN71 certification required for toys sold in EU", "zh": "销往欧盟的玩具需要EN71认证"}
+      },
+      "severity": "error"
+    },
+    {
+      "id": "cr_014",
+      "name": {"en": "Overweight Package Surcharge", "zh": "超重包裹附加费"},
+      "rule_type": "shipping_surcharge",
+      "priority": 4,
+      "condition": {
+        "attribute": "attr_weight",
+        "operator": ">",
+        "value": 30000
+      },
+      "applies_to": {
+        "categories": ["*"],
+        "countries": ["*"]
+      },
+      "action": {
+        "type": "add_surcharge",
+        "surcharge_type": "overweight",
+        "message": {"en": "Additional shipping fee for packages over 30kg", "zh": "超过30kg的包裹需要额外运费"}
+      },
+      "severity": "info"
+    },
+    {
+      "id": "cr_015",
+      "name": {"en": "Oversized Package Restriction", "zh": "超大包裹限制"},
+      "rule_type": "shipping_restriction",
+      "priority": 3,
+      "condition": {
+        "custom": "longest_side > 1200 OR (length + 2*width + 2*height) > 3000"
+      },
+      "applies_to": {
+        "categories": ["*"],
+        "countries": ["*"]
+      },
+      "action": {
+        "type": "restrict_shipping",
+        "blocked_methods": ["standard"],
+        "allowed_methods": ["freight"],
+        "message": {"en": "Oversized package requires freight shipping", "zh": "超大包裹需要使用货运"}
+      },
+      "severity": "warning"
+    },
+    {
+      "id": "cr_016",
+      "name": {"en": "Australia Electrical Safety", "zh": "澳大利亚电气安全"},
+      "rule_type": "certification_required",
+      "priority": 2,
+      "condition": {
+        "attribute": "attr_plug_type",
+        "operator": "exists"
+      },
+      "applies_to": {
+        "categories": ["cat_electronics", "cat_kitchen_appliances"],
+        "countries": ["AU", "NZ"]
+      },
+      "action": {
+        "type": "require_certification",
+        "certification": "SAA",
+        "message": {"en": "SAA/RCM certification may be required for electrical products in AU/NZ", "zh": "电器产品销往澳新可能需要SAA/RCM认证"}
+      },
+      "severity": "warning"
+    },
+    {
+      "id": "cr_017",
+      "name": {"en": "UK UKCA Marking Required (Post-Brexit)", "zh": "英国UKCA认证要求"},
+      "rule_type": "certification_required",
+      "priority": 2,
+      "condition": {
+        "category": "cat_electronics"
+      },
+      "applies_to": {
+        "categories": ["cat_electronics", "cat_toys"],
+        "countries": ["GB"]
+      },
+      "action": {
+        "type": "require_certification",
+        "certification": "UKCA",
+        "message": {"en": "UKCA marking required for products sold in UK", "zh": "销往英国的产品需要UKCA认证"}
+      },
+      "severity": "error"
+    },
+    {
+      "id": "cr_018",
+      "name": {"en": "High-Power Device Restriction", "zh": "大功率设备限制"},
+      "rule_type": "shipping_restriction",
+      "priority": 2,
+      "condition": {
+        "attribute": "attr_power_wattage",
+        "operator": ">",
+        "value": 1500
+      },
+      "applies_to": {
+        "categories": ["cat_kitchen_appliances", "cat_electronics"],
+        "countries": ["*"]
+      },
+      "action": {
+        "type": "add_warning",
+        "warning_type": "high_power",
+        "message": {"en": "High-power devices may require special electrical installation", "zh": "大功率设备可能需要特殊电气安装"}
+      },
+      "severity": "info"
+    },
+    {
+      "id": "cr_019",
+      "name": {"en": "RoHS Compliance - EU", "zh": "欧盟RoHS合规"},
+      "rule_type": "certification_required",
+      "priority": 2,
+      "condition": {
+        "category": "cat_electronics"
+      },
+      "applies_to": {
+        "categories": ["cat_electronics"],
+        "countries": ["DE", "FR", "IT", "ES", "NL", "BE", "AT", "PL", "SE", "DK", "FI", "IE", "PT", "GR"]
+      },
+      "action": {
+        "type": "require_certification",
+        "certification": "RoHS",
+        "message": {"en": "RoHS compliance required for electronics in EU", "zh": "电子产品销往欧盟需要RoHS合规"}
+      },
+      "severity": "warning"
+    },
+    {
+      "id": "cr_020",
+      "name": {"en": "Korea KC Certification Required", "zh": "韩国KC认证要求"},
+      "rule_type": "certification_required",
+      "priority": 2,
+      "condition": {
+        "category": "cat_electronics"
+      },
+      "applies_to": {
+        "categories": ["cat_electronics"],
+        "countries": ["KR"]
+      },
+      "action": {
+        "type": "require_certification",
+        "certification": "KC",
+        "message": {"en": "KC certification required for electronics in South Korea", "zh": "电子产品销往韩国需要KC认证"}
+      },
+      "severity": "error"
+    }
+  ]
+}
+

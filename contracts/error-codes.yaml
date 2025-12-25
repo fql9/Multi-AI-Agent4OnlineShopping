@@ -1,0 +1,158 @@
+# 统一错误码定义
+# 所有服务必须使用这些错误码
+
+version: "1.0"
+
+error_codes:
+  # ========================================
+  # 通用错误
+  # ========================================
+  INVALID_ARGUMENT:
+    http_status: 400
+    message: "Invalid request argument"
+    description: "请求参数无效"
+    retryable: false
+
+  UNAUTHORIZED:
+    http_status: 401
+    message: "Authentication required"
+    description: "需要身份验证"
+    retryable: false
+
+  FORBIDDEN:
+    http_status: 403
+    message: "Permission denied"
+    description: "权限不足"
+    retryable: false
+
+  NOT_FOUND:
+    http_status: 404
+    message: "Resource not found"
+    description: "资源不存在"
+    retryable: false
+
+  CONFLICT:
+    http_status: 409
+    message: "Resource conflict"
+    description: "资源冲突（版本冲突、库存锁冲突）"
+    retryable: true
+
+  RATE_LIMITED:
+    http_status: 429
+    message: "Too many requests"
+    description: "请求过于频繁"
+    retryable: true
+    retry_after: "Retry-After header"
+
+  TIMEOUT:
+    http_status: 504
+    message: "Request timed out"
+    description: "请求超时"
+    retryable: true
+
+  UPSTREAM_ERROR:
+    http_status: 502
+    message: "Upstream service error"
+    description: "上游服务错误"
+    retryable: true
+
+  INTERNAL_ERROR:
+    http_status: 500
+    message: "Internal server error"
+    description: "内部错误"
+    retryable: false
+
+  # ========================================
+  # 业务错误 - 需要用户确认
+  # ========================================
+  NEEDS_USER_CONFIRMATION:
+    http_status: 200
+    message: "User confirmation required"
+    description: "需要用户确认（支付/敏感操作）"
+    retryable: false
+    user_action_required: true
+
+  CONSENT_REQUIRED:
+    http_status: 200
+    message: "User consent required"
+    description: "需要用户同意条款"
+    retryable: false
+    user_action_required: true
+
+  # ========================================
+  # 业务错误 - 合规
+  # ========================================
+  COMPLIANCE_BLOCKED:
+    http_status: 200
+    message: "Item blocked by compliance rules"
+    description: "商品被合规规则拦截（禁运/材料限制）"
+    retryable: false
+
+  # ========================================
+  # 业务错误 - 价格/库存
+  # ========================================
+  PRICE_CHANGED:
+    http_status: 200
+    message: "Price has changed since quote"
+    description: "报价后价格已变动"
+    retryable: true
+    user_action_required: true
+
+  OUT_OF_STOCK:
+    http_status: 200
+    message: "Item is out of stock"
+    description: "商品库存不足"
+    retryable: true
+
+  QUOTE_EXPIRED:
+    http_status: 200
+    message: "Quote has expired"
+    description: "报价已过期"
+    retryable: true
+
+  # ========================================
+  # 业务错误 - 地址
+  # ========================================
+  ADDRESS_INVALID:
+    http_status: 200
+    message: "Address is invalid"
+    description: "地址格式无效"
+    retryable: false
+    user_action_required: true
+
+  ADDRESS_NOT_DELIVERABLE:
+    http_status: 200
+    message: "Cannot deliver to this address"
+    description: "无法配送到此地址"
+    retryable: false
+
+  # ========================================
+  # 业务错误 - 订单
+  # ========================================
+  CART_EMPTY:
+    http_status: 200
+    message: "Cart is empty"
+    description: "购物车为空"
+    retryable: false
+
+  CART_EXPIRED:
+    http_status: 200
+    message: "Cart has expired"
+    description: "购物车已过期"
+    retryable: true
+
+  DRAFT_ORDER_EXPIRED:
+    http_status: 200
+    message: "Draft order has expired"
+    description: "草稿订单已过期"
+    retryable: true
+
+  # ========================================
+  # 业务错误 - 幂等
+  # ========================================
+  IDEMPOTENCY_CONFLICT:
+    http_status: 409
+    message: "Request already processed"
+    description: "请求已处理（幂等冲突）"
+    retryable: false
+

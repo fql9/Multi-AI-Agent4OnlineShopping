@@ -1,31 +1,58 @@
 # OS / Editor
 .DS_Store
 Thumbs.db
+*.swp
+*.swo
+.idea/
+.vscode/
 
 # Logs
 *.log
-
-# Node
-node_modules/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
+# Node
+node_modules/
+.pnpm-store/
+
 # Python
 __pycache__/
 *.py[cod]
+*$py.class
 .pytest_cache/
 .venv/
 venv/
+*.egg-info/
+.ruff_cache/
+.mypy_cache/
+htmlcov/
+.coverage
 
 # Build outputs
 dist/
 build/
 out/
+.turbo/
+.next/
 
 # Env files
 .env
 .env.*
+!.env.example
 
+# Database
+*.db
+*.sqlite
+pgdata/
 
+# Secrets
+*.pem
+*.key
+
+# Test coverage
+coverage/
+
+# Docker
+docker-compose.override.yml

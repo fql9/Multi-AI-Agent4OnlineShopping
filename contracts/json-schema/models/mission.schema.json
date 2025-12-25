@@ -1,0 +1,153 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://shopping-agent.dev/schemas/mission.json",
+  "title": "Mission (采购委托)",
+  "description": "用户采购委托的结构化表示",
+  "type": "object",
+  "required": ["query", "destination_country"],
+
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Mission ID"
+    },
+    "user_id": {
+      "type": "string"
+    },
+    "session_id": {
+      "type": "string"
+    },
+    "query": {
+      "type": "string",
+      "description": "用户原始查询或需求描述"
+    },
+    "destination_country": {
+      "type": "string",
+      "minLength": 2,
+      "maxLength": 2,
+      "description": "目的国 ISO 2字母代码"
+    },
+    "destination_postal_code": {
+      "type": "string"
+    },
+    "budget_amount": {
+      "type": "number",
+      "minimum": 0,
+      "description": "预算金额"
+    },
+    "budget_currency": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 3,
+      "default": "USD"
+    },
+    "arrival_deadline": {
+      "type": "string",
+      "format": "date",
+      "description": "期望到货日期"
+    },
+    "arrival_days_max": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "最多接受的到货天数"
+    },
+    "hard_constraints": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/HardConstraint" }
+    },
+    "soft_preferences": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/SoftPreference" }
+    },
+    "objective_weights": {
+      "$ref": "#/$defs/ObjectiveWeights"
+    },
+    "address_id": {
+      "type": "string"
+    },
+    "recipient_is_child": {
+      "type": "boolean",
+      "default": false
+    },
+    "recipient_age": {
+      "type": "integer"
+    }
+  },
+
+  "$defs": {
+    "HardConstraint": {
+      "type": "object",
+      "required": ["constraint_type", "value"],
+      "properties": {
+        "constraint_type": {
+          "type": "string",
+          "enum": [
+            "plug_type",
+            "voltage",
+            "material_exclude",
+            "brand_exclude",
+            "child_safety",
+            "no_battery",
+            "no_liquid",
+            "certification_required",
+            "custom"
+          ]
+        },
+        "value": { "type": "string" },
+        "description": { "type": "string" }
+      }
+    },
+
+    "SoftPreference": {
+      "type": "object",
+      "required": ["preference_type", "value"],
+      "properties": {
+        "preference_type": {
+          "type": "string",
+          "enum": [
+            "brand_prefer",
+            "color_prefer",
+            "price_sensitive",
+            "quality_prefer",
+            "eco_friendly",
+            "fast_shipping",
+            "custom"
+          ]
+        },
+        "value": { "type": "string" },
+        "weight": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "default": 1.0
+        },
+        "description": { "type": "string" }
+      }
+    },
+
+    "ObjectiveWeights": {
+      "type": "object",
+      "properties": {
+        "price": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "default": 0.4
+        },
+        "speed": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "default": 0.3
+        },
+        "risk": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "default": 0.3
+        }
+      }
+    }
+  }
+}
+

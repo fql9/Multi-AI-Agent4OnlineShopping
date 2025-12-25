@@ -1,0 +1,131 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://shopping-agent.dev/schemas/envelope.json",
+  "title": "Tool Envelope Schemas",
+  "description": "统一请求/响应 Envelope 格式定义",
+
+  "$defs": {
+    "Actor": {
+      "type": "object",
+      "required": ["type", "id"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["user", "agent", "system"]
+        },
+        "id": {
+          "type": "string"
+        }
+      }
+    },
+
+    "Client": {
+      "type": "object",
+      "required": ["app", "version"],
+      "properties": {
+        "app": {
+          "type": "string",
+          "enum": ["web", "ios", "android", "agent"]
+        },
+        "version": {
+          "type": "string"
+        }
+      }
+    },
+
+    "Trace": {
+      "type": "object",
+      "properties": {
+        "span_id": { "type": "string" },
+        "parent_span_id": { "type": "string" }
+      }
+    },
+
+    "RequestEnvelope": {
+      "type": "object",
+      "required": ["request_id", "actor", "client"],
+      "properties": {
+        "request_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "actor": { "$ref": "#/$defs/Actor" },
+        "user_id": { "type": ["string", "null"] },
+        "session_id": { "type": ["string", "null"] },
+        "locale": {
+          "type": "string",
+          "default": "en-US"
+        },
+        "currency": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 3,
+          "default": "USD"
+        },
+        "timezone": {
+          "type": "string",
+          "default": "UTC"
+        },
+        "client": { "$ref": "#/$defs/Client" },
+        "dry_run": {
+          "type": "boolean",
+          "default": false
+        },
+        "idempotency_key": { "type": "string" },
+        "trace": { "$ref": "#/$defs/Trace" }
+      }
+    },
+
+    "EvidenceSource": {
+      "type": "object",
+      "required": ["type", "name"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["tool", "cache", "chunk", "rule"]
+        },
+        "name": { "type": "string" },
+        "hash": { "type": "string" },
+        "ts": { "type": "string", "format": "date-time" }
+      }
+    },
+
+    "Evidence": {
+      "type": "object",
+      "properties": {
+        "snapshot_id": { "type": "string" },
+        "sources": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/EvidenceSource" }
+        }
+      }
+    },
+
+    "ErrorDetail": {
+      "type": "object",
+      "required": ["code", "message"],
+      "properties": {
+        "code": { "type": "string" },
+        "message": { "type": "string" },
+        "details": { "type": "object" }
+      }
+    },
+
+    "ResponseEnvelope": {
+      "type": "object",
+      "required": ["ok"],
+      "properties": {
+        "ok": { "type": "boolean" },
+        "data": {},
+        "warnings": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "error": { "$ref": "#/$defs/ErrorDetail" },
+        "ttl_seconds": { "type": "integer" },
+        "evidence": { "$ref": "#/$defs/Evidence" }
+      }
+    }
+  }
+}
+

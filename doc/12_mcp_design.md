@@ -425,12 +425,3 @@ tool_node = ToolNode(tools)
 llm = ChatOpenAI(model="gpt-4o-mini").bind_tools(tools)
 ```
 
----
-
-## 八、与原设计的差异
-
-| 原设计 | 修订后 | 理由 |
-|--------|--------|------|
-| 7+ MCP Servers | MVP 2 个 | 减少运维复杂度 |
-| 一开始就细分 | 分阶段拆分 | 按需扩展 |
-| 纯 TypeScript 调用 | Python Agent 通过 HTTP 调用 | 语言解耦 |

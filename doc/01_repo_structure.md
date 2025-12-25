@@ -196,12 +196,3 @@ MVP 只需启动以下组件：
 5. CI 运行 contract-check：确保实现与 schema 一致
 ```
 
----
-
-## 与原设计的差异
-
-| 原设计 | 修订后 | 理由 |
-|--------|--------|------|
-| 纯 TypeScript | agents/ 用 Python | LangGraph/Pydantic 生态更成熟 |
-| 7+ MCP Servers | MVP 2 个（core-mcp + checkout-mcp） | 减少运维复杂度 |
-| agent-orchestrator（TS） | agents/（Python） | 编排层用 LangGraph |

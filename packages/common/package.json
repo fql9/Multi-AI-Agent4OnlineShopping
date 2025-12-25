@@ -1,0 +1,42 @@
+{
+  "name": "@shopping-agent/common",
+  "version": "0.1.0",
+  "description": "Common utilities, logging, and shared types",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./envelope": {
+      "types": "./dist/envelope.d.ts",
+      "import": "./dist/envelope.js"
+    },
+    "./errors": {
+      "types": "./dist/errors.d.ts",
+      "import": "./dist/errors.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "clean": "rimraf dist",
+    "typecheck": "tsc --noEmit",
+    "lint": "echo 'lint: skipped (no eslint configured)'",
+    "test": "echo 'test: skipped (no tests yet)'"
+  },
+  "dependencies": {
+    "@opentelemetry/api": "^1.7.0",
+    "pg": "^8.11.0",
+    "pino": "^8.17.0",
+    "zod": "^3.22.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@types/pg": "^8.10.0",
+    "rimraf": "^5.0.5",
+    "typescript": "^5.3.0"
+  }
+}
