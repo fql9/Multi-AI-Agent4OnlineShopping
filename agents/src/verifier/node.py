@@ -10,7 +10,7 @@ import structlog
 
 from ..config import get_settings
 from ..graph.state import AgentState
-from ..llm.client import get_llm_with_structured_output
+from ..llm.client import call_llm_and_parse
 from ..llm.prompts import VERIFIER_PROMPT
 from ..llm.schemas import VerificationResult
 from ..tools.compliance import check_compliance
@@ -239,12 +239,6 @@ async def verifier_node(state: AgentState) -> AgentState:
 async def _llm_rank_candidates(mission: dict, candidates: list) -> dict | None:
     """使用 LLM 对候选进行综合排序"""
     try:
-        llm = get_llm_with_structured_output(
-            output_schema=VerificationResult,
-            model_type="planner",
-            temperature=0.0,
-        )
-
         # 简化候选信息
         simplified_candidates = []
         for c in candidates:
@@ -261,8 +255,16 @@ async def _llm_rank_candidates(mission: dict, candidates: list) -> dict | None:
             {"role": "user", "content": f"Mission: {mission}\n\nCandidates: {simplified_candidates}"},
         ]
 
-        result = await llm.ainvoke(messages)
-        return {"ranked_candidates": candidates, "llm_recommendation": result}
+        result = await call_llm_and_parse(
+            messages=messages,
+            output_schema=VerificationResult,
+            model_type="planner",
+            temperature=0.0,
+        )
+
+        if result:
+            return {"ranked_candidates": candidates, "llm_recommendation": result}
+        return None
 
     except Exception as e:
         logger.warning("_llm_rank_candidates.failed", error=str(e))
