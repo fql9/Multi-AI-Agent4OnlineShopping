@@ -35,7 +35,7 @@ export type TaxEstimate = {
   }
 }
 
-// 确认项（用户必须勾选）
+// 确认项
 export type ConfirmationItem = {
   id: string
   type: 'tax' | 'compliance' | 'return' | 'shipping' | 'customs'
@@ -95,6 +95,24 @@ export type DraftOrder = {
   createdAt: string
 }
 
+// 工具调用记录
+export type ToolCall = {
+  id: string
+  name: string
+  input: string
+  output: string
+  duration: number
+  status: 'pending' | 'running' | 'success' | 'error'
+}
+
+// LLM 思考步骤
+export type ThinkingStep = {
+  id: string
+  text: string
+  type: 'thinking' | 'decision' | 'action' | 'result'
+  timestamp: number
+}
+
 // Agent 步骤
 export type AgentStep = {
   id: string
@@ -104,38 +122,34 @@ export type AgentStep = {
   status: 'pending' | 'running' | 'completed' | 'error'
   output?: string
   tokenUsed?: number
+  thinkingSteps: ThinkingStep[]
+  toolCalls: ToolCall[]
+  duration?: number
+  result?: Record<string, unknown>
 }
 
 // Store 状态
 interface ShoppingState {
-  // 状态机
   orderState: OrderState
-  
-  // 用户输入
   query: string
   mission: Mission | null
-  
-  // Agent 处理
   agentSteps: AgentStep[]
   currentStepIndex: number
   isStreaming: boolean
   streamingText: string
-  
-  // 产品和方案
+  currentThinkingStep: string
   candidates: Product[]
   plans: Plan[]
   selectedPlan: Plan | null
-  
-  // 草稿订单
   draftOrder: DraftOrder | null
-  
-  // AI 推荐
   aiRecommendation: {
     plan: string
     reason: string
     model: string
     confidence: number
   } | null
+  totalTokens: number
+  totalToolCalls: number
   
   // Actions
   setQuery: (query: string) => void
@@ -143,6 +157,9 @@ interface ShoppingState {
   setOrderState: (state: OrderState) => void
   startAgentProcess: () => Promise<void>
   updateAgentStep: (index: number, updates: Partial<AgentStep>) => void
+  addThinkingStep: (stepIndex: number, thinking: ThinkingStep) => void
+  addToolCall: (stepIndex: number, toolCall: ToolCall) => void
+  updateToolCall: (stepIndex: number, toolId: string, updates: Partial<ToolCall>) => void
   setStreamingText: (text: string) => void
   selectPlan: (plan: Plan) => void
   toggleConfirmation: (itemId: string) => void
@@ -151,15 +168,15 @@ interface ShoppingState {
 }
 
 // 初始 Agent 步骤
-const initialAgentSteps: AgentStep[] = [
-  { id: 'intent', name: 'Intent Agent', description: 'Parsing your shopping request...', icon: '🎯', status: 'pending' },
-  { id: 'candidate', name: 'Candidate Agent', description: 'Searching for matching products...', icon: '🔍', status: 'pending' },
-  { id: 'verifier', name: 'Verifier Agent', description: 'Checking price, compliance & shipping...', icon: '✅', status: 'pending' },
-  { id: 'plan', name: 'Plan Agent', description: 'Generating purchase plans...', icon: '📋', status: 'pending' },
-  { id: 'execution', name: 'Execution Agent', description: 'Creating draft order...', icon: '🛒', status: 'pending' },
+const createInitialAgentSteps = (): AgentStep[] => [
+  { id: 'intent', name: 'Intent Agent', description: 'Parsing your shopping request...', icon: '🎯', status: 'pending', thinkingSteps: [], toolCalls: [] },
+  { id: 'candidate', name: 'Candidate Agent', description: 'Searching for matching products...', icon: '🔍', status: 'pending', thinkingSteps: [], toolCalls: [] },
+  { id: 'verifier', name: 'Verifier Agent', description: 'Checking price, compliance & shipping...', icon: '✅', status: 'pending', thinkingSteps: [], toolCalls: [] },
+  { id: 'plan', name: 'Plan Agent', description: 'Generating purchase plans...', icon: '📋', status: 'pending', thinkingSteps: [], toolCalls: [] },
+  { id: 'execution', name: 'Execution Agent', description: 'Creating draft order...', icon: '🛒', status: 'pending', thinkingSteps: [], toolCalls: [] },
 ]
 
-// 模拟产品数据（含合规风险）
+// 模拟数据
 const mockProducts: Product[] = [
   {
     id: 'of_001',
@@ -194,66 +211,146 @@ const mockProducts: Product[] = [
   },
 ]
 
-// 默认确认项
 const defaultConfirmationItems: ConfirmationItem[] = [
-  {
-    id: 'tax_ack',
-    type: 'tax',
-    title: 'Tax Estimate Acknowledgment',
-    description: 'I understand that tax and duty estimates may vary and final amounts will be determined at customs.',
-    required: true,
-    checked: false,
-  },
-  {
-    id: 'compliance_ack',
-    type: 'compliance',
-    title: 'Compliance Acknowledgment',
-    description: 'I confirm that I am aware of any compliance restrictions for this product in my destination country.',
-    required: true,
-    checked: false,
-  },
-  {
-    id: 'return_ack',
-    type: 'return',
-    title: 'Return Policy Acknowledgment',
-    description: 'I understand the return policy: returns within 30 days, buyer pays return shipping for cross-border orders.',
-    required: true,
-    checked: false,
-  },
-  {
-    id: 'shipping_ack',
-    type: 'shipping',
-    title: 'Shipping Restrictions',
-    description: 'I confirm my address is not a PO Box and is accessible for delivery.',
-    required: false,
-    checked: false,
-  },
+  { id: 'tax_ack', type: 'tax', title: 'Tax Estimate Acknowledgment', description: 'I understand that tax and duty estimates may vary.', required: true, checked: false },
+  { id: 'compliance_ack', type: 'compliance', title: 'Compliance Acknowledgment', description: 'I confirm awareness of compliance restrictions.', required: true, checked: false },
+  { id: 'return_ack', type: 'return', title: 'Return Policy Acknowledgment', description: 'I understand returns within 30 days, buyer pays return shipping.', required: true, checked: false },
+  { id: 'shipping_ack', type: 'shipping', title: 'Shipping Restrictions', description: 'I confirm my address is accessible for delivery.', required: false, checked: false },
 ]
 
+// 模拟各 Agent 的详细处理过程
+const agentProcesses = {
+  intent: {
+    thinking: [
+      { type: 'thinking' as const, text: 'Analyzing user query structure and intent...' },
+      { type: 'thinking' as const, text: 'Extracting key entities: product type, budget, destination...' },
+      { type: 'decision' as const, text: 'Identified: wireless charger, iPhone compatible, $50 budget, Germany' },
+      { type: 'action' as const, text: 'Building structured MissionSpec with constraints...' },
+      { type: 'result' as const, text: 'Mission created with 2 hard constraints, 1 soft preference' },
+    ],
+    tools: [
+      { name: 'mission.create', input: '{ user_id: "u_123", query: "..." }', output: '{ mission_id: "m_abc123" }' },
+    ],
+  },
+  candidate: {
+    thinking: [
+      { type: 'thinking' as const, text: 'Constructing search query from mission constraints...' },
+      { type: 'action' as const, text: 'Executing hybrid search: BM25 + vector similarity...' },
+      { type: 'thinking' as const, text: 'Filtering by destination country availability...' },
+      { type: 'decision' as const, text: 'Found 47 initial candidates, filtering to top 20...' },
+      { type: 'result' as const, text: 'Selected 10 candidates for verification' },
+    ],
+    tools: [
+      { name: 'catalog.search_offers', input: '{ query: "wireless charger iPhone", filters: {...} }', output: '{ count: 47, offers: [...] }' },
+      { name: 'catalog.get_offer_card', input: '{ offer_ids: ["of_001", "of_002", ...] }', output: '{ cards: [...] }' },
+      { name: 'catalog.get_availability', input: '{ offer_ids: [...], country: "DE" }', output: '{ available: 10 }' },
+    ],
+  },
+  verifier: {
+    thinking: [
+      { type: 'thinking' as const, text: 'Starting real-time verification for 10 candidates...' },
+      { type: 'action' as const, text: 'Fetching live pricing from pricing service...' },
+      { type: 'action' as const, text: 'Checking shipping options to Germany...' },
+      { type: 'action' as const, text: 'Running compliance checks for EU regulations...' },
+      { type: 'decision' as const, text: 'of_001: ✓ price OK, ✓ shipping OK, ⚠️ magnet warning' },
+      { type: 'decision' as const, text: 'of_002: ✓ price OK (over budget), ✓ compliant' },
+      { type: 'decision' as const, text: 'of_003: ✓ price OK, ✓ Apple certified, ⚠️ magnet' },
+      { type: 'thinking' as const, text: 'Estimating duties and taxes for DE destination...' },
+      { type: 'result' as const, text: '3 candidates verified, 0 rejected' },
+    ],
+    tools: [
+      { name: 'pricing.get_realtime_quote', input: '{ sku_ids: [...], qty: 1, country: "DE" }', output: '{ quotes: [...] }' },
+      { name: 'shipping.quote_options', input: '{ items: [...], destination: "DE" }', output: '{ options: 4 }' },
+      { name: 'compliance.check_item', input: '{ sku_id: "of_001", country: "DE" }', output: '{ allowed: true, warnings: [...] }' },
+      { name: 'tax.estimate_duties_and_taxes', input: '{ items: [...], country: "DE" }', output: '{ total: 3.36, confidence: "medium" }' },
+    ],
+  },
+  plan: {
+    thinking: [
+      { type: 'thinking' as const, text: 'Analyzing verified candidates for plan generation...' },
+      { type: 'thinking' as const, text: 'Calculating total landed cost for each option...' },
+      { type: 'action' as const, text: 'Generating Plan 1: Budget Saver (lowest cost)...' },
+      { type: 'action' as const, text: 'Generating Plan 2: Express Delivery (fastest)...' },
+      { type: 'action' as const, text: 'Generating Plan 3: Best Value (balanced)...' },
+      { type: 'decision' as const, text: 'Recommending "Budget Saver" based on objective weights' },
+      { type: 'result' as const, text: 'Generated 3 executable plans with confidence scores' },
+    ],
+    tools: [
+      { name: 'promotion.list_applicable', input: '{ offer_ids: [...], user_id: "..." }', output: '{ promotions: 2 }' },
+    ],
+  },
+  execution: {
+    thinking: [
+      { type: 'thinking' as const, text: 'Preparing to create draft order from selected plan...' },
+      { type: 'action' as const, text: 'Creating shopping cart with selected items...' },
+      { type: 'action' as const, text: 'Applying shipping option: Standard International...' },
+      { type: 'action' as const, text: 'Computing final total with all fees...' },
+      { type: 'action' as const, text: 'Creating evidence snapshot for audit trail...' },
+      { type: 'decision' as const, text: 'Draft order ready, awaiting user confirmation' },
+      { type: 'result' as const, text: 'Draft Order do_xxx created, expires in 24h' },
+    ],
+    tools: [
+      { name: 'cart.create', input: '{ user_id: "u_123" }', output: '{ cart_id: "cart_abc" }' },
+      { name: 'cart.add_item', input: '{ cart_id: "...", sku_id: "of_001", qty: 1 }', output: '{ success: true }' },
+      { name: 'checkout.select_shipping', input: '{ cart_id: "...", option_id: "ship_std" }', output: '{ updated: true }' },
+      { name: 'checkout.compute_total', input: '{ cart_id: "..." }', output: '{ total: 45.34, breakdown: {...} }' },
+      { name: 'evidence.create_snapshot', input: '{ context: {...} }', output: '{ snapshot_id: "ev_xxx" }' },
+      { name: 'checkout.create_draft_order', input: '{ cart_id: "...", consents: {...} }', output: '{ draft_order_id: "do_xxx" }' },
+    ],
+  },
+}
+
+// Helper: 延迟函数
+const delay = (ms: number) => new Promise(r => setTimeout(r, ms))
+
 export const useShoppingStore = create<ShoppingState>((set, get) => ({
-  // 初始状态
   orderState: 'IDLE',
   query: '',
   mission: null,
-  agentSteps: initialAgentSteps.map(s => ({ ...s })),
+  agentSteps: createInitialAgentSteps(),
   currentStepIndex: -1,
   isStreaming: false,
   streamingText: '',
+  currentThinkingStep: '',
   candidates: [],
   plans: [],
   selectedPlan: null,
   draftOrder: null,
   aiRecommendation: null,
+  totalTokens: 0,
+  totalToolCalls: 0,
 
-  // Actions
   setQuery: (query) => set({ query }),
-  
   setMission: (mission) => set({ mission, orderState: 'MISSION_READY' }),
-  
   setOrderState: (orderState) => set({ orderState }),
-  
+
+  addThinkingStep: (stepIndex, thinking) => set((state) => ({
+    agentSteps: state.agentSteps.map((s, i) => 
+      i === stepIndex 
+        ? { ...s, thinkingSteps: [...s.thinkingSteps, thinking] }
+        : s
+    ),
+  })),
+
+  addToolCall: (stepIndex, toolCall) => set((state) => ({
+    agentSteps: state.agentSteps.map((s, i) => 
+      i === stepIndex 
+        ? { ...s, toolCalls: [...s.toolCalls, toolCall] }
+        : s
+    ),
+    totalToolCalls: state.totalToolCalls + 1,
+  })),
+
+  updateToolCall: (stepIndex, toolId, updates) => set((state) => ({
+    agentSteps: state.agentSteps.map((s, i) => 
+      i === stepIndex 
+        ? { ...s, toolCalls: s.toolCalls.map(t => t.id === toolId ? { ...t, ...updates } : t) }
+        : s
+    ),
+  })),
+
   startAgentProcess: async () => {
-    const { query } = get()
+    const { query, addThinkingStep, addToolCall, updateToolCall } = get()
     
     // 解析意图
     const mission: Mission = {
@@ -279,34 +376,61 @@ export const useShoppingStore = create<ShoppingState>((set, get) => ({
     
     set({ mission, orderState: 'MISSION_READY' })
     
-    // 模拟 Agent 处理流程（带 SSE 效果）
-    const steps = get().agentSteps
+    const agentIds = ['intent', 'candidate', 'verifier', 'plan', 'execution'] as const
+    let totalTokens = 0
     
-    for (let i = 0; i < steps.length; i++) {
+    for (let i = 0; i < agentIds.length; i++) {
+      const agentId = agentIds[i]
+      const process = agentProcesses[agentId]
+      const startTime = Date.now()
+      
       set({ currentStepIndex: i })
       
-      // 更新当前步骤为运行中
+      // 设置为运行中
       set((state) => ({
         agentSteps: state.agentSteps.map((s, idx) => 
           idx === i ? { ...s, status: 'running' as const } : s
         ),
       }))
       
-      // 模拟流式输出
-      set({ isStreaming: true, streamingText: '' })
-      const outputs = [
-        `Processing ${steps[i].name}...`,
-        `Analyzing data...`,
-        `Generating results...`,
-        `Complete!`,
-      ]
-      
-      for (const output of outputs) {
-        await new Promise(r => setTimeout(r, 200))
-        set({ streamingText: output })
+      // 模拟思考过程
+      set({ isStreaming: true })
+      for (const thinking of process.thinking) {
+        const thinkingStep: ThinkingStep = {
+          id: `t_${Date.now()}`,
+          text: thinking.text,
+          type: thinking.type,
+          timestamp: Date.now(),
+        }
+        addThinkingStep(i, thinkingStep)
+        set({ currentThinkingStep: thinking.text })
+        await delay(400 + Math.random() * 300)
       }
       
-      set({ isStreaming: false })
+      // 模拟工具调用
+      for (const tool of process.tools) {
+        const toolCall: ToolCall = {
+          id: `tc_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
+          name: tool.name,
+          input: tool.input,
+          output: '',
+          duration: 0,
+          status: 'running',
+        }
+        addToolCall(i, toolCall)
+        await delay(200)
+        
+        const duration = 50 + Math.floor(Math.random() * 150)
+        await delay(duration)
+        
+        updateToolCall(i, toolCall.id, {
+          output: tool.output,
+          duration,
+          status: 'success',
+        })
+      }
+      
+      set({ isStreaming: false, currentThinkingStep: '' })
       
       // 更新状态机
       if (i === 0) set({ orderState: 'MISSION_READY' })
@@ -314,41 +438,26 @@ export const useShoppingStore = create<ShoppingState>((set, get) => ({
       if (i === 2) set({ orderState: 'VERIFIED_TOPN_READY' })
       if (i === 3) set({ orderState: 'TOTAL_COMPUTED' })
       
+      const stepTokens = 100 + Math.floor(Math.random() * 200)
+      totalTokens += stepTokens
+      
       // 完成当前步骤
       set((state) => ({
         agentSteps: state.agentSteps.map((s, idx) => 
-          idx === i ? { ...s, status: 'completed' as const, tokenUsed: Math.floor(Math.random() * 200) + 100 } : s
+          idx === i ? { 
+            ...s, 
+            status: 'completed' as const, 
+            tokenUsed: stepTokens,
+            duration: Date.now() - startTime,
+          } : s
         ),
+        totalTokens,
       }))
       
-      await new Promise(r => setTimeout(r, 300))
+      await delay(200)
     }
     
     // 生成方案
-    const taxEstimateLow: TaxEstimate = {
-      amount: 3.36,
-      currency: 'USD',
-      confidence: 'medium',
-      method: 'rule_based',
-      breakdown: { vat: 2.50, duty: 0.50, handling: 0.36 },
-    }
-    
-    const taxEstimateMid: TaxEstimate = {
-      amount: 4.16,
-      currency: 'USD',
-      confidence: 'high',
-      method: 'hs_code',
-      breakdown: { vat: 3.00, duty: 0.80, handling: 0.36 },
-    }
-    
-    const taxEstimateHigh: TaxEstimate = {
-      amount: 7.20,
-      currency: 'USD',
-      confidence: 'low',
-      method: 'ml_estimate',
-      breakdown: { vat: 5.00, duty: 1.50, handling: 0.70 },
-    }
-    
     const plans: Plan[] = [
       {
         name: 'Budget Saver',
@@ -356,12 +465,12 @@ export const useShoppingStore = create<ShoppingState>((set, get) => ({
         product: mockProducts[0],
         shipping: 5.99,
         shippingOption: 'Standard International (7-14 days)',
-        tax: taxEstimateLow,
+        tax: { amount: 3.36, currency: 'USD', confidence: 'medium', method: 'rule_based', breakdown: { vat: 2.50, duty: 0.50, handling: 0.36 } },
         total: 45.34,
         deliveryDays: '7-14',
         emoji: '💰',
         recommended: true,
-        reason: 'Best match for your $50 budget with reliable shipping to Germany',
+        reason: 'Best match for your $50 budget with reliable shipping',
         risks: ['Tax estimate may vary at customs'],
         confidence: 0.92,
       },
@@ -371,12 +480,12 @@ export const useShoppingStore = create<ShoppingState>((set, get) => ({
         product: mockProducts[2],
         shipping: 12.99,
         shippingOption: 'DHL Express (3-5 days)',
-        tax: taxEstimateMid,
+        tax: { amount: 4.16, currency: 'USD', confidence: 'high', method: 'hs_code', breakdown: { vat: 3.00, duty: 0.80, handling: 0.36 } },
         total: 56.15,
         deliveryDays: '3-5',
         emoji: '⚡',
         recommended: false,
-        reason: 'Fastest delivery with Apple quality guarantee',
+        reason: 'Fastest delivery with Apple quality',
         risks: ['Slightly over budget'],
         confidence: 0.85,
       },
@@ -386,13 +495,13 @@ export const useShoppingStore = create<ShoppingState>((set, get) => ({
         product: mockProducts[1],
         shipping: 0,
         shippingOption: 'Free Premium Shipping (5-7 days)',
-        tax: taxEstimateHigh,
+        tax: { amount: 7.20, currency: 'USD', confidence: 'low', method: 'ml_estimate', breakdown: { vat: 5.00, duty: 1.50, handling: 0.70 } },
         total: 97.19,
         deliveryDays: '5-7',
         emoji: '⭐',
         recommended: false,
-        reason: '3-in-1 charger with free shipping - premium choice',
-        risks: ['Above budget', 'Tax estimate has low confidence'],
+        reason: '3-in-1 charger with free shipping',
+        risks: ['Above budget', 'Low tax confidence'],
         confidence: 0.78,
       },
     ]
@@ -401,19 +510,19 @@ export const useShoppingStore = create<ShoppingState>((set, get) => ({
       plans,
       aiRecommendation: {
         plan: 'Budget Saver',
-        reason: 'Based on your $50 budget and shipping to Germany, this Anker charger offers the best value with fast 15W charging and excellent reviews.',
+        reason: 'Based on your $50 budget and shipping to Germany, this Anker charger offers the best value.',
         model: 'GPT-4o-mini',
         confidence: 0.92,
       },
     })
   },
-  
+
   updateAgentStep: (index, updates) => set((state) => ({
     agentSteps: state.agentSteps.map((s, i) => i === index ? { ...s, ...updates } : s),
   })),
-  
+
   setStreamingText: (streamingText) => set({ streamingText }),
-  
+
   selectPlan: (plan) => {
     const draftOrder: DraftOrder = {
       id: `do_${Math.random().toString(36).substr(2, 12)}`,
@@ -430,7 +539,7 @@ export const useShoppingStore = create<ShoppingState>((set, get) => ({
       orderState: 'DRAFT_ORDER_CREATED',
     })
   },
-  
+
   toggleConfirmation: (itemId) => set((state) => ({
     draftOrder: state.draftOrder ? {
       ...state.draftOrder,
@@ -439,28 +548,28 @@ export const useShoppingStore = create<ShoppingState>((set, get) => ({
       ),
     } : null,
   })),
-  
+
   canProceedToPayment: () => {
     const { draftOrder } = get()
     if (!draftOrder) return false
-    return draftOrder.confirmationItems
-      .filter(item => item.required)
-      .every(item => item.checked)
+    return draftOrder.confirmationItems.filter(item => item.required).every(item => item.checked)
   },
-  
+
   reset: () => set({
     orderState: 'IDLE',
     query: '',
     mission: null,
-    agentSteps: initialAgentSteps.map(s => ({ ...s, status: 'pending' as const })),
+    agentSteps: createInitialAgentSteps(),
     currentStepIndex: -1,
     isStreaming: false,
     streamingText: '',
+    currentThinkingStep: '',
     candidates: [],
     plans: [],
     selectedPlan: null,
     draftOrder: null,
     aiRecommendation: null,
+    totalTokens: 0,
+    totalToolCalls: 0,
   }),
 }))
-
