@@ -1,12 +1,13 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { 
   ShoppingCart, Bot, Package, CheckCircle, Loader2, Send, 
   Sparkles, AlertTriangle, Info, Shield, Truck, Receipt,
-  ChevronRight, Clock, Zap
+  ChevronRight, Clock, Zap, Terminal, Brain, Wrench,
+  ChevronDown, ChevronUp, Code, Activity
 } from 'lucide-react'
-import { useShoppingStore, type OrderState, type TaxEstimate, type ComplianceRisk } from '@/store/shopping'
+import { useShoppingStore, type OrderState, type TaxEstimate, type ComplianceRisk, type ThinkingStep, type ToolCall } from '@/store/shopping'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Progress } from '@/components/ui/progress'
 import { Badge } from '@/components/ui/badge'
@@ -25,6 +26,14 @@ const STATE_LABELS: Record<OrderState, { label: string; step: number }> = {
   'DRAFT_ORDER_CREATED': { label: 'Draft Order', step: 8 },
   'WAIT_USER_PAYMENT_CONFIRMATION': { label: 'Awaiting Confirmation', step: 9 },
   'PAID': { label: 'Paid', step: 10 },
+}
+
+// 思考类型图标和颜色
+const thinkingTypeConfig = {
+  thinking: { icon: Brain, color: 'text-sky-400', bg: 'bg-sky-500/10', label: 'Thinking' },
+  decision: { icon: Sparkles, color: 'text-amber-400', bg: 'bg-amber-500/10', label: 'Decision' },
+  action: { icon: Zap, color: 'text-emerald-400', bg: 'bg-emerald-500/10', label: 'Action' },
+  result: { icon: CheckCircle, color: 'text-green-400', bg: 'bg-green-500/10', label: 'Result' },
 }
 
 // 税费置信度颜色
@@ -47,6 +56,164 @@ function getComplianceIcon(type: ComplianceRisk['type']) {
     case 'trademark': return '™️'
     default: return '⚠️'
   }
+}
+
+// 思考步骤组件
+function ThinkingStepItem({ step, isLatest }: { step: ThinkingStep; isLatest: boolean }) {
+  const config = thinkingTypeConfig[step.type]
+  const Icon = config.icon
+  
+  return (
+    <div className={cn(
+      "flex items-start gap-3 py-2 px-3 rounded-lg transition-all duration-300",
+      isLatest && "animate-slide-in",
+      config.bg
+    )}>
+      <div className={cn("mt-0.5", config.color)}>
+        <Icon className="w-4 h-4" />
+      </div>
+      <div className="flex-1 min-w-0">
+        <span className={cn("text-sm", config.color)}>{step.text}</span>
+      </div>
+      <Badge variant="default" className="text-xs opacity-60">
+        {config.label}
+      </Badge>
+    </div>
+  )
+}
+
+// 工具调用组件
+function ToolCallItem({ tool }: { tool: ToolCall }) {
+  const [expanded, setExpanded] = useState(false)
+  
+  return (
+    <div className="border border-slate-700 rounded-lg overflow-hidden bg-slate-900/50">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="w-full flex items-center gap-3 p-3 hover:bg-slate-800/50 transition-colors"
+      >
+        <div className={cn(
+          "w-6 h-6 rounded flex items-center justify-center",
+          tool.status === 'success' ? "bg-emerald-500/20" : 
+          tool.status === 'running' ? "bg-sky-500/20" : "bg-slate-700"
+        )}>
+          {tool.status === 'running' ? (
+            <Loader2 className="w-3 h-3 text-sky-400 animate-spin" />
+          ) : tool.status === 'success' ? (
+            <CheckCircle className="w-3 h-3 text-emerald-400" />
+          ) : (
+            <Terminal className="w-3 h-3 text-slate-400" />
+          )}
+        </div>
+        <code className="text-sm text-emerald-400 font-mono flex-1 text-left truncate">
+          {tool.name}
+        </code>
+        {tool.duration > 0 && (
+          <span className="text-xs text-slate-500">{tool.duration}ms</span>
+        )}
+        {expanded ? (
+          <ChevronUp className="w-4 h-4 text-slate-400" />
+        ) : (
+          <ChevronDown className="w-4 h-4 text-slate-400" />
+        )}
+      </button>
+      
+      {expanded && (
+        <div className="border-t border-slate-700 p-3 space-y-3 animate-expand">
+          <div>
+            <span className="text-xs text-slate-500 block mb-1">Input:</span>
+            <pre className="text-xs text-slate-300 bg-slate-800 p-2 rounded overflow-x-auto font-mono">
+              {tool.input}
+            </pre>
+          </div>
+          {tool.output && (
+            <div>
+              <span className="text-xs text-slate-500 block mb-1">Output:</span>
+              <pre className="text-xs text-emerald-300 bg-slate-800 p-2 rounded overflow-x-auto font-mono">
+                {tool.output}
+              </pre>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// Agent 步骤详情组件
+function AgentStepDetail({ step, isActive }: { step: typeof useShoppingStore.getState().agentSteps[0]; isActive: boolean }) {
+  const scrollRef = useRef<HTMLDivElement>(null)
+  
+  useEffect(() => {
+    if (scrollRef.current && isActive) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+    }
+  }, [step.thinkingSteps.length, isActive])
+  
+  if (step.status === 'pending') return null
+  
+  return (
+    <div className="mt-4 space-y-4 animate-fade-in">
+      {/* 思考过程 */}
+      {step.thinkingSteps.length > 0 && (
+        <div className="space-y-2">
+          <div className="flex items-center gap-2 text-sm text-slate-400">
+            <Brain className="w-4 h-4" />
+            <span>LLM Reasoning ({step.thinkingSteps.length} steps)</span>
+          </div>
+          <div 
+            ref={scrollRef}
+            className="space-y-2 max-h-48 overflow-y-auto pr-2 scrollbar-thin"
+          >
+            {step.thinkingSteps.map((thinking, idx) => (
+              <ThinkingStepItem 
+                key={thinking.id} 
+                step={thinking} 
+                isLatest={idx === step.thinkingSteps.length - 1 && isActive}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+      
+      {/* 工具调用 */}
+      {step.toolCalls.length > 0 && (
+        <div className="space-y-2">
+          <div className="flex items-center gap-2 text-sm text-slate-400">
+            <Wrench className="w-4 h-4" />
+            <span>Tool Calls ({step.toolCalls.length})</span>
+          </div>
+          <div className="space-y-2">
+            {step.toolCalls.map((tool) => (
+              <ToolCallItem key={tool.id} tool={tool} />
+            ))}
+          </div>
+        </div>
+      )}
+      
+      {/* 步骤统计 */}
+      {step.status === 'completed' && (
+        <div className="flex items-center gap-4 text-xs text-slate-500 pt-2 border-t border-slate-700/50">
+          {step.tokenUsed && (
+            <span className="flex items-center gap-1">
+              <Activity className="w-3 h-3" />
+              ~{step.tokenUsed} tokens
+            </span>
+          )}
+          {step.duration && (
+            <span className="flex items-center gap-1">
+              <Clock className="w-3 h-3" />
+              {(step.duration / 1000).toFixed(1)}s
+            </span>
+          )}
+          <span className="flex items-center gap-1">
+            <Terminal className="w-3 h-3" />
+            {step.toolCalls.length} tool calls
+          </span>
+        </div>
+      )}
+    </div>
+  )
 }
 
 // 状态机进度条
@@ -72,9 +239,39 @@ function StateMachineProgress({ currentState }: { currentState: OrderState }) {
   )
 }
 
+// 实时统计面板
+function LiveStats({ tokens, toolCalls, isProcessing }: { tokens: number; toolCalls: number; isProcessing: boolean }) {
+  return (
+    <div className="flex items-center gap-4 p-3 bg-slate-800/50 rounded-xl border border-slate-700 mb-6">
+      <div className="flex items-center gap-2">
+        <div className={cn(
+          "w-2 h-2 rounded-full",
+          isProcessing ? "bg-emerald-500 animate-pulse" : "bg-slate-500"
+        )} />
+        <span className="text-sm text-slate-400">
+          {isProcessing ? 'Processing...' : 'Idle'}
+        </span>
+      </div>
+      <div className="h-4 w-px bg-slate-700" />
+      <div className="flex items-center gap-2 text-sm">
+        <Activity className="w-4 h-4 text-sky-400" />
+        <span className="text-slate-300">{tokens}</span>
+        <span className="text-slate-500">tokens</span>
+      </div>
+      <div className="h-4 w-px bg-slate-700" />
+      <div className="flex items-center gap-2 text-sm">
+        <Terminal className="w-4 h-4 text-emerald-400" />
+        <span className="text-slate-300">{toolCalls}</span>
+        <span className="text-slate-500">tool calls</span>
+      </div>
+    </div>
+  )
+}
+
 export default function Home() {
   const store = useShoppingStore()
   const [currentView, setCurrentView] = useState<'input' | 'processing' | 'plans' | 'confirmation'>('input')
+  const [expandedStep, setExpandedStep] = useState<number | null>(null)
 
   // 根据状态切换视图
   useEffect(() => {
@@ -88,6 +285,13 @@ export default function Home() {
       setCurrentView('processing')
     }
   }, [store.orderState, store.plans.length])
+
+  // 自动展开当前运行的步骤
+  useEffect(() => {
+    if (store.currentStepIndex >= 0) {
+      setExpandedStep(store.currentStepIndex)
+    }
+  }, [store.currentStepIndex])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -105,6 +309,11 @@ export default function Home() {
   const handleReset = () => {
     store.reset()
     setCurrentView('input')
+    setExpandedStep(null)
+  }
+
+  const toggleStepExpansion = (index: number) => {
+    setExpandedStep(expandedStep === index ? null : index)
   }
 
   return (
@@ -130,7 +339,7 @@ export default function Home() {
           </div>
           <div className="flex items-center gap-4">
             <div className="hidden md:flex items-center gap-2 px-3 py-1.5 bg-slate-800 rounded-lg text-sm">
-              <span className="text-slate-400">Model:</span>
+              <Code className="w-4 h-4 text-slate-400" />
               <span className="text-emerald-400 font-mono">GPT-4o-mini</span>
             </div>
             <div className="flex items-center gap-2 text-slate-400 text-sm">
@@ -142,9 +351,18 @@ export default function Home() {
       </header>
 
       <div className="relative max-w-4xl mx-auto px-4 py-8 pb-24">
-        {/* State Machine Progress (always visible except on input) */}
+        {/* State Machine Progress */}
         {currentView !== 'input' && (
           <StateMachineProgress currentState={store.orderState} />
+        )}
+
+        {/* Live Stats */}
+        {currentView === 'processing' && (
+          <LiveStats 
+            tokens={store.totalTokens} 
+            toolCalls={store.totalToolCalls}
+            isProcessing={store.isStreaming}
+          />
         )}
 
         {/* Input View */}
@@ -155,7 +373,7 @@ export default function Home() {
                 What would you like to buy?
               </h2>
               <p className="text-slate-400 text-lg">
-                Describe your shopping needs and let our AI agents find the best options.
+                Describe your shopping needs and watch our AI agents work in real-time.
               </p>
             </div>
 
@@ -210,7 +428,7 @@ export default function Home() {
 
             {/* Parsed Mission */}
             {store.mission && (
-              <div className="mb-8 p-4 bg-slate-800/50 rounded-xl border border-slate-700">
+              <div className="mb-6 p-4 bg-slate-800/50 rounded-xl border border-slate-700">
                 <h3 className="text-slate-300 text-sm font-medium mb-2">Parsed Mission</h3>
                 <div className="flex flex-wrap gap-3 text-sm">
                   <Badge variant="info">🌍 {store.mission.destination_country}</Badge>
@@ -222,43 +440,67 @@ export default function Home() {
               </div>
             )}
 
+            {/* Current thinking step */}
+            {store.currentThinkingStep && (
+              <div className="mb-6 p-4 bg-sky-500/10 border border-sky-500/30 rounded-xl animate-pulse-slow">
+                <div className="flex items-center gap-3">
+                  <Brain className="w-5 h-5 text-sky-400 animate-bounce-slow" />
+                  <span className="text-sky-300">{store.currentThinkingStep}</span>
+                </div>
+              </div>
+            )}
+
             {/* Agent Progress */}
             <div className="space-y-4">
               {store.agentSteps.map((step, index) => (
                 <div
                   key={step.id}
                   className={cn(
-                    "p-4 rounded-xl border transition-all duration-500",
-                    step.status === 'completed' && "bg-emerald-500/10 border-emerald-500/30",
-                    step.status === 'running' && "bg-slate-800 border-slate-600",
+                    "rounded-xl border transition-all duration-500 overflow-hidden",
+                    step.status === 'completed' && "bg-emerald-500/5 border-emerald-500/30",
+                    step.status === 'running' && "bg-slate-800 border-sky-500/50 ring-1 ring-sky-500/20",
                     step.status === 'pending' && "bg-slate-800/30 border-slate-700/50 opacity-50"
                   )}
                 >
-                  <div className="flex items-center gap-4">
+                  <button
+                    onClick={() => step.status !== 'pending' && toggleStepExpansion(index)}
+                    className="w-full p-4 flex items-center gap-4"
+                    disabled={step.status === 'pending'}
+                  >
                     <div className="text-2xl">{step.icon}</div>
-                    <div className="flex-1">
+                    <div className="flex-1 text-left">
                       <div className="flex items-center gap-2">
                         <h3 className="text-white font-medium">{step.name}</h3>
-                        {step.tokenUsed && (
+                        {step.status === 'completed' && step.tokenUsed && (
                           <span className="text-xs text-slate-500">~{step.tokenUsed} tokens</span>
                         )}
                       </div>
-                      <p className="text-slate-400 text-sm">
-                        {step.status === 'running' && store.isStreaming 
-                          ? store.streamingText 
-                          : step.description}
-                      </p>
+                      <p className="text-slate-400 text-sm">{step.description}</p>
                     </div>
-                    <div>
+                    <div className="flex items-center gap-2">
                       {step.status === 'completed' ? (
                         <CheckCircle className="w-6 h-6 text-emerald-500" />
                       ) : step.status === 'running' ? (
-                        <Loader2 className="w-6 h-6 text-emerald-400 animate-spin" />
+                        <Loader2 className="w-6 h-6 text-sky-400 animate-spin" />
                       ) : (
                         <div className="w-6 h-6 rounded-full border-2 border-slate-600" />
                       )}
+                      {step.status !== 'pending' && (
+                        expandedStep === index ? (
+                          <ChevronUp className="w-5 h-5 text-slate-400" />
+                        ) : (
+                          <ChevronDown className="w-5 h-5 text-slate-400" />
+                        )
+                      )}
                     </div>
-                  </div>
+                  </button>
+                  
+                  {/* Expanded details */}
+                  {expandedStep === index && (
+                    <div className="px-4 pb-4">
+                      <AgentStepDetail step={step} isActive={step.status === 'running'} />
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -293,6 +535,21 @@ export default function Home() {
                 </div>
               </div>
             )}
+
+            {/* Summary stats */}
+            <div className="mb-6 p-3 bg-slate-800/50 rounded-xl border border-slate-700 flex items-center justify-center gap-6 text-sm">
+              <div className="flex items-center gap-2">
+                <Activity className="w-4 h-4 text-sky-400" />
+                <span className="text-slate-300">{store.totalTokens}</span>
+                <span className="text-slate-500">tokens used</span>
+              </div>
+              <div className="h-4 w-px bg-slate-700" />
+              <div className="flex items-center gap-2">
+                <Terminal className="w-4 h-4 text-emerald-400" />
+                <span className="text-slate-300">{store.totalToolCalls}</span>
+                <span className="text-slate-500">tool calls</span>
+              </div>
+            </div>
 
             <div className="grid gap-4">
               {store.plans.map((plan) => (
@@ -334,7 +591,7 @@ export default function Home() {
                           <Receipt className="w-4 h-4 text-slate-400" />
                           <span className="text-sm text-slate-400">Tax:</span>
                           <span className={cn("text-sm font-medium", getTaxConfidenceColor(plan.tax.confidence))}>
-                            ${plan.tax.amount} ({plan.tax.confidence} confidence)
+                            ${plan.tax.amount} ({plan.tax.confidence})
                           </span>
                         </div>
                         <div className="flex items-center gap-1.5">
@@ -350,18 +607,6 @@ export default function Home() {
                             <div key={i} className="flex items-center gap-1 px-2 py-1 bg-amber-500/10 border border-amber-500/30 rounded text-xs">
                               <span>{getComplianceIcon(risk.type)}</span>
                               <span className="text-amber-400">{risk.message}</span>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-
-                      {/* Risks */}
-                      {plan.risks.length > 0 && (
-                        <div className="flex flex-wrap gap-2">
-                          {plan.risks.map((risk, i) => (
-                            <div key={i} className="flex items-center gap-1 text-xs text-slate-400">
-                              <AlertTriangle className="w-3 h-3 text-amber-400" />
-                              {risk}
                             </div>
                           ))}
                         </div>
@@ -449,7 +694,7 @@ export default function Home() {
                 </div>
               </div>
 
-              {/* Tax Breakdown with Confidence */}
+              {/* Tax Breakdown */}
               <div className="p-6 border-b border-slate-700">
                 <h4 className="text-white font-medium mb-4 flex items-center gap-2">
                   <Receipt className="w-4 h-4" />
@@ -476,13 +721,10 @@ export default function Home() {
                         store.draftOrder.plan.tax.confidence === 'high' ? 'success' :
                         store.draftOrder.plan.tax.confidence === 'medium' ? 'warning' : 'danger'
                       }>
-                        {store.draftOrder.plan.tax.confidence} confidence
+                        {store.draftOrder.plan.tax.confidence}
                       </Badge>
                     </div>
                   </div>
-                  <p className="text-slate-500 text-xs mt-2">
-                    Method: {store.draftOrder.plan.tax.method.replace('_', ' ')}
-                  </p>
                 </div>
               </div>
 
@@ -504,12 +746,6 @@ export default function Home() {
                             <p className="text-emerald-400 text-sm mt-1">✓ {risk.mitigation}</p>
                           )}
                         </div>
-                        <Badge variant={
-                          risk.severity === 'low' ? 'success' :
-                          risk.severity === 'medium' ? 'warning' : 'danger'
-                        } className="ml-auto">
-                          {risk.severity} risk
-                        </Badge>
                       </div>
                     ))}
                   </div>
@@ -523,11 +759,11 @@ export default function Home() {
                   <span>${store.draftOrder.plan.product.price}</span>
                 </div>
                 <div className="flex justify-between text-slate-400">
-                  <span>Shipping ({store.draftOrder.plan.shippingOption})</span>
+                  <span>Shipping</span>
                   <span>{store.draftOrder.plan.shipping === 0 ? 'FREE' : `$${store.draftOrder.plan.shipping}`}</span>
                 </div>
                 <div className="flex justify-between text-slate-400">
-                  <span>Estimated Tax & Duty</span>
+                  <span>Tax & Duty</span>
                   <span>${store.draftOrder.plan.tax.amount}</span>
                 </div>
                 <div className="h-px bg-slate-700 my-4" />
@@ -537,7 +773,7 @@ export default function Home() {
                 </div>
               </div>
 
-              {/* Confirmation Items (Required Checkboxes) */}
+              {/* Confirmation Items */}
               <div className="p-6 border-b border-slate-700">
                 <h4 className="text-white font-medium mb-4 flex items-center gap-2">
                   <CheckCircle className="w-4 h-4 text-emerald-400" />
@@ -578,7 +814,7 @@ export default function Home() {
               <div className="p-4 bg-slate-900/50">
                 <div className="flex items-center gap-2 text-slate-500 text-sm">
                   <Info className="w-4 h-4" />
-                  <span>Evidence Snapshot: <code className="text-emerald-400">{store.draftOrder.evidenceSnapshotId}</code></span>
+                  <span>Evidence: <code className="text-emerald-400">{store.draftOrder.evidenceSnapshotId}</code></span>
                 </div>
               </div>
             </div>
@@ -588,10 +824,9 @@ export default function Home() {
               <div className="flex items-start gap-3">
                 <AlertTriangle className="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="text-amber-200 font-medium">IMPORTANT: Payment Not Captured</p>
+                  <p className="text-amber-200 font-medium">Payment Not Captured</p>
                   <p className="text-amber-200/70 text-sm mt-1">
-                    This is a draft order that requires your confirmation. 
-                    You must check all required boxes above before proceeding to payment.
+                    Check all required boxes to proceed to payment.
                   </p>
                 </div>
               </div>
