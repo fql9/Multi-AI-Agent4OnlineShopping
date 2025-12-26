@@ -76,6 +76,8 @@ const DEMO_PLANS = [
     total: 45.34,
     deliveryDays: '7-14',
     emoji: '💰',
+    recommended: true,
+    reason: 'Best match for your $50 budget with reliable shipping to Germany',
   },
   {
     name: 'Express Delivery',
@@ -86,6 +88,8 @@ const DEMO_PLANS = [
     total: 56.15,
     deliveryDays: '3-5',
     emoji: '⚡',
+    recommended: false,
+    reason: 'Fastest delivery but slightly over budget',
   },
   {
     name: 'Best Value',
@@ -96,8 +100,18 @@ const DEMO_PLANS = [
     total: 97.19,
     deliveryDays: '5-7',
     emoji: '⭐',
+    recommended: false,
+    reason: '3-in-1 charger with free shipping - premium choice',
   },
 ]
+
+// LLM 推荐信息
+const AI_RECOMMENDATION = {
+  plan: 'Budget Saver',
+  reason: 'Based on your $50 budget and shipping to Germany, this Anker charger offers the best value with fast 15W charging and excellent reviews.',
+  model: 'GPT-4o-mini',
+  confidence: 0.92,
+}
 
 type Step = 'input' | 'processing' | 'plans' | 'confirmation'
 
@@ -300,13 +314,44 @@ export default function Home() {
               <p className="text-white/60">We found {DEMO_PLANS.length} options for you</p>
             </div>
 
+            {/* AI Recommendation Card */}
+            <div className="mb-6 p-4 bg-gradient-to-r from-green-500/10 to-emerald-500/10 border border-green-500/30 rounded-2xl">
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-green-400 to-emerald-600 flex items-center justify-center flex-shrink-0">
+                  <Bot className="w-5 h-5 text-white" />
+                </div>
+                <div className="flex-1">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-green-400 font-semibold">AI Recommendation</span>
+                    <span className="px-2 py-0.5 bg-white/10 rounded text-xs text-white/60">
+                      {AI_RECOMMENDATION.model}
+                    </span>
+                    <span className="px-2 py-0.5 bg-green-500/20 rounded text-xs text-green-300">
+                      {Math.round(AI_RECOMMENDATION.confidence * 100)}% confidence
+                    </span>
+                  </div>
+                  <p className="text-white/80 text-sm">{AI_RECOMMENDATION.reason}</p>
+                </div>
+              </div>
+            </div>
+
             <div className="grid gap-4">
               {DEMO_PLANS.map((plan) => (
                 <div
                   key={plan.name}
                   onClick={() => handleSelectPlan(plan)}
-                  className="p-6 bg-white/5 hover:bg-white/10 border border-white/10 hover:border-green-500/50 rounded-2xl cursor-pointer transition-all group"
+                  className={`p-6 bg-white/5 hover:bg-white/10 border rounded-2xl cursor-pointer transition-all group relative ${
+                    plan.recommended 
+                      ? 'border-green-500/50 ring-1 ring-green-500/30' 
+                      : 'border-white/10 hover:border-green-500/50'
+                  }`}
                 >
+                  {plan.recommended && (
+                    <div className="absolute -top-3 left-4 px-3 py-1 bg-gradient-to-r from-green-500 to-emerald-600 rounded-full text-xs text-white font-medium flex items-center gap-1">
+                      <Sparkles className="w-3 h-3" />
+                      AI Recommended
+                    </div>
+                  )}
                   <div className="flex items-start gap-4">
                     <div className="text-4xl">{plan.emoji}</div>
                     <div className="flex-1">
@@ -320,7 +365,8 @@ export default function Home() {
                           {plan.type.replace('_', ' ')}
                         </span>
                       </div>
-                      <p className="text-white/80 mb-3">{plan.product.title}</p>
+                      <p className="text-white/80 mb-2">{plan.product.title}</p>
+                      <p className="text-white/50 text-sm mb-3">{plan.reason}</p>
                       
                       <div className="grid grid-cols-4 gap-4 text-sm">
                         <div>
@@ -457,10 +503,15 @@ export default function Home() {
       <footer className="fixed bottom-0 left-0 right-0 py-4 border-t border-white/10 backdrop-blur-xl">
         <div className="max-w-6xl mx-auto px-4 flex items-center justify-between text-white/40 text-sm">
           <span>Multi-AI-Agent4OnlineShopping © 2024</span>
-          <span className="flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-            All agents operational
-          </span>
+          <div className="flex items-center gap-4">
+            <span className="flex items-center gap-2">
+              <span className="px-2 py-0.5 bg-white/10 rounded text-xs">GPT-4o-mini via Poe</span>
+            </span>
+            <span className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+              All agents operational
+            </span>
+          </div>
         </div>
       </footer>
     </main>
