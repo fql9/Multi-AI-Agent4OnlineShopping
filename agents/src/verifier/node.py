@@ -80,8 +80,7 @@ async def verifier_node(state: AgentState) -> AgentState:
             # 1. 价格核验
             try:
                 price_result = await get_realtime_quote(
-                    sku_id=sku_id,
-                    offer_id=offer_id,
+                    sku_id=sku_id or offer_id,
                     quantity=mission.get("quantity", 1),
                     destination_country=destination_country,
                 )
@@ -118,8 +117,7 @@ async def verifier_node(state: AgentState) -> AgentState:
             # 2. 合规检查
             try:
                 compliance_result = await check_compliance(
-                    offer_id=offer_id,
-                    sku_id=sku_id,
+                    sku_id=sku_id or offer_id,
                     destination_country=destination_country,
                 )
 

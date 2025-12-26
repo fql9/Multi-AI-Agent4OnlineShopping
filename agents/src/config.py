@@ -29,9 +29,14 @@ class Settings(BaseSettings):
     )
 
     # LLM Configuration
+    # 支持 OpenAI 和 Poe API（Poe 兼容 OpenAI 格式）
     openai_api_key: str = Field(default="", alias="OPENAI_API_KEY")
+    openai_base_url: str = Field(default="https://api.openai.com/v1", alias="OPENAI_BASE_URL")
     openai_model_planner: str = Field(default="gpt-4o-mini", alias="OPENAI_MODEL_PLANNER")
     openai_model_verifier: str = Field(default="gpt-4o", alias="OPENAI_MODEL_VERIFIER")
+
+    # Poe API（如果使用 Poe，设置 OPENAI_BASE_URL=https://api.poe.com/v1）
+    # 推荐模型：Claude-3.5-Sonnet, Claude-Opus-4.1, GPT-4o
 
     # Token Budget
     token_budget_total: int = Field(default=50000, alias="TOKEN_BUDGET_TOTAL")
