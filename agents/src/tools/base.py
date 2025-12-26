@@ -3,6 +3,7 @@ Base tool utilities.
 """
 
 import hashlib
+import os
 import uuid
 from datetime import datetime
 from typing import Any
@@ -166,7 +167,9 @@ async def call_tool(
 # Mock 工具（开发阶段使用）
 # ============================================================
 
-MOCK_MODE = True  # 开发阶段启用 mock
+# 根据环境变量决定是否使用 mock
+# 如果 Tool Gateway 不可用，自动切换到 mock 模式
+MOCK_MODE = os.getenv("MOCK_TOOLS", "false").lower() == "true"
 
 
 def mock_response(

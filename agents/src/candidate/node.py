@@ -1,6 +1,10 @@
 """
-Candidate Generation Agent Node implementation.
+Candidate Agent Node implementation.
+
+基于 Mission 召回候选商品。
 """
+
+from datetime import UTC
 
 import structlog
 
@@ -16,52 +20,95 @@ async def candidate_node(state: AgentState) -> AgentState:
 
     基于 Mission 召回候选商品
     """
-    logger.info("candidate_node.start", mission=state.get("mission"))
+    logger.info("candidate_node.start")
 
     try:
         mission = state.get("mission")
         if not mission:
             return {
                 **state,
-                "error": "Mission not found",
+                "error": "No mission found",
                 "error_code": "INVALID_ARGUMENT",
                 "current_step": "candidate",
             }
 
-        # 调用 catalog.search_offers
+        # 构建搜索查询
+        search_query = mission.get("search_query", "")
+
+        # 从硬性约束中提取类目和关键词
+        for constraint in mission.get("hard_constraints", []):
+            if constraint.get("type") == "category":
+                search_query += f" {constraint.get('value', '')}"
+            elif constraint.get("type") == "compatibility":
+                search_query += f" {constraint.get('value', '')}"
+            elif constraint.get("type") == "feature":
+                search_query += f" {constraint.get('value', '')}"
+
+        logger.info("candidate_node.search", query=search_query)
+
+        # 调用搜索工具
         search_result = await search_offers(
-            query=mission.get("query", ""),
-            destination_country=mission.get("destination_country", "US"),
+            query=search_query.strip(),
+            category_id=None,
             price_max=mission.get("budget_amount"),
-            limit=100,
+            limit=20,  # 召回 20 个候选
         )
 
         if not search_result.get("ok"):
+            error_msg = search_result.get("error", {}).get("message", "Search failed")
+            logger.error("candidate_node.search_failed", error=error_msg)
             return {
                 **state,
-                "error": search_result.get("error", {}).get("message", "Search failed"),
-                "error_code": search_result.get("error", {}).get("code", "UPSTREAM_ERROR"),
+                "error": error_msg,
+                "error_code": "UPSTREAM_ERROR",
                 "current_step": "candidate",
             }
 
         offer_ids = search_result.get("data", {}).get("offer_ids", [])
+        logger.info("candidate_node.search_results", count=len(offer_ids))
 
-        # 获取每个 offer 的详细信息
+        if not offer_ids:
+            # 没有找到商品，可能需要放宽搜索条件
+            return {
+                **state,
+                "candidates": [],
+                "current_step": "candidate_complete",
+                "error": "No products found matching your requirements",
+                "error_code": "NOT_FOUND",
+            }
+
+        # 获取每个 offer 的详细信息（限制前 10 个以控制成本）
         candidates = []
-        for offer_id in offer_ids[:50]:  # 限制初始候选数量
-            card_result = await get_offer_card(offer_id)
-            if card_result.get("ok"):
-                candidates.append(card_result.get("data"))
+        for offer_id in offer_ids[:10]:
+            try:
+                aroc = await get_offer_card(offer_id=offer_id)
+                if aroc.get("ok"):
+                    candidate_data = aroc.get("data", {})
+                    # 添加搜索分数
+                    idx = offer_ids.index(offer_id)
+                    scores = search_result.get("data", {}).get("scores", [])
+                    candidate_data["search_score"] = scores[idx] if idx < len(scores) else 0.5
+                    candidates.append(candidate_data)
+            except Exception as e:
+                logger.warning("candidate_node.get_aroc_failed", offer_id=offer_id, error=str(e))
+                continue
 
-        logger.info(
-            "candidate_node.complete",
-            candidates_count=len(candidates),
-        )
+        logger.info("candidate_node.complete", candidates_count=len(candidates))
+
+        # 记录工具调用
+        tool_calls = state.get("tool_calls", [])
+        tool_calls.append({
+            "tool_name": "catalog.search_offers",
+            "request": {"query": search_query},
+            "response_summary": {"count": len(offer_ids)},
+            "called_at": _now_iso(),
+        })
 
         return {
             **state,
             "candidates": candidates,
             "current_step": "candidate_complete",
+            "tool_calls": tool_calls,
             "error": None,
         }
 
@@ -74,3 +121,8 @@ async def candidate_node(state: AgentState) -> AgentState:
             "current_step": "candidate",
         }
 
+
+def _now_iso() -> str:
+    """返回当前时间的 ISO 格式"""
+    from datetime import datetime
+    return datetime.now(UTC).isoformat()
