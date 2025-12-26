@@ -64,6 +64,12 @@
 |------|------|
 | [`13_security_risk.md`](./13_security_risk.md) | 支付确认、PII、风控、合规门禁、反注入 |
 
+### 项目管理
+
+| 文档 | 说明 |
+|------|------|
+| [`17_progress.md`](./17_progress.md) | **开发进度追踪（已完成/进行中/待办）** |
+
 ---
 
 ## 🏗️ 技术栈总览
@@ -98,11 +104,32 @@
 
 ## 📋 MVP 检查清单
 
-- [ ] 类目树 + 属性定义导入
-- [ ] 合规规则导入（10-20 条）
-- [ ] 样例 AROC 导入（100+ SKU）
-- [ ] core-mcp 实现（catalog/pricing/shipping/tax/compliance）
-- [ ] checkout-mcp 实现（cart/checkout/evidence）
-- [ ] LangGraph Agent 编排（intent → candidate → verify → plan → execution）
-- [ ] Draft Order 可回放证据
-- [ ] 用户确认后跳转支付（requires_user_action）
+### ✅ 已完成
+
+- [x] **数据库架构** - PostgreSQL 16 + pgvector 表结构设计
+- [x] **类目树导入** - 12 个类目（3 级层次结构）
+- [x] **合规规则导入** - 6 条规则（电池/液体/CE/FCC 认证）
+- [x] **样例 AROC 导入** - 14 个商品 + 22 个 SKU
+- [x] **Tool Gateway** - 统一入口 + Envelope + 幂等 + 审计
+- [x] **Catalog 工具** - search_offers / get_offer_card / get_availability
+- [x] **Pricing 工具** - get_realtime_quote / check_price_change
+- [x] **Shipping 工具** - validate_address / quote_options / get_delivery_estimate
+- [x] **Compliance 工具** - check_item / get_rules_for_category
+- [x] **Checkout 工具** - create_cart / add_to_cart / compute_total / create_draft_order
+- [x] **Evidence 工具** - create_snapshot / attach_to_draft_order / get_snapshot
+- [x] **Python Agent 骨架** - Intent / Candidate / Verifier / Execution nodes
+- [x] **LangGraph 状态机** - 基础编排流程定义
+- [x] **Draft Order** - 支持幂等、用户确认、30分钟过期
+- [x] **CI/CD** - GitHub Actions（TypeScript build + Python tests）
+
+### 🔶 进行中
+
+- [ ] LLM 集成 - Agent nodes 接入 OpenAI/Claude
+- [ ] RAG 向量检索 - evidence_chunks 表已建，待实现检索逻辑
+- [ ] 端到端测试 - 完整购物流程测试
+
+### ⏳ 待开始
+
+- [ ] 前端 Web App - Next.js 用户界面
+- [ ] 支付集成 - Stripe/PayPal 对接
+- [ ] 知识图谱查询 - 兼容性/替代品推理

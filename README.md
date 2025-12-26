@@ -209,14 +209,18 @@ cd agents && python -m src.main
 
 ### MVP 检查清单
 
-- [ ] 类目树 + 属性定义导入
-- [ ] 合规规则导入（10-20 条）
-- [ ] 样例 AROC 导入（100+ SKU）
-- [ ] core-mcp 实现
-- [ ] checkout-mcp 实现
-- [ ] LangGraph Agent 编排
-- [ ] Draft Order 可回放证据
-- [ ] 支付确认（requires_user_action）
+- [x] 类目树 + 属性定义导入 *(12 类目)*
+- [x] 合规规则导入 *(6 条规则)*
+- [x] 样例 AROC 导入 *(14 商品 / 22 SKU)*
+- [x] Tool Gateway 实现 *(19 个端点)*
+- [x] core-mcp 实现 *(catalog/pricing/shipping/compliance)*
+- [x] checkout-mcp 实现 *(cart/checkout/evidence)*
+- [x] LangGraph Agent 骨架 *(intent → candidate → verify → plan → execution)*
+- [x] Draft Order 可回放证据
+- [x] 支付确认 *(requires_user_action: true)*
+- [ ] LLM 集成
+- [ ] 端到端测试
+- [ ] 前端 Web App
 
 ---
 
