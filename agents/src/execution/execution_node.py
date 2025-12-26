@@ -165,13 +165,12 @@ async def execution_node(state: AgentState) -> AgentState:
         # 5. 创建证据快照
         evidence_result = await create_evidence_snapshot(
             mission_id=state.get("mission_id"),
-            draft_order_id=draft_order_id,
-            context={
+            objects={
                 "offer_ids": [item.get("offer_id") for item in items],
                 "destination_country": destination_country,
-                "decision_type": "purchase_execution",
+                "draft_order_id": draft_order_id,
             },
-            tool_calls=[
+            tool_call_records=[
                 {
                     "tool_name": tc.get("tool_name"),
                     "request": tc.get("request"),
@@ -225,21 +224,29 @@ async def execution_node(state: AgentState) -> AgentState:
         }
 
 
-def _generate_summary(plan: dict, payable_amount: float, expires_at: str) -> str:
+def _generate_summary(plan: dict, payable_amount: dict | float, expires_at: str) -> str:
     """生成执行摘要"""
     items = plan.get("items", [])
     item_count = sum(item.get("quantity", 1) for item in items)
 
+    # 处理 payable_amount 可能是 dict 或 float
+    if isinstance(payable_amount, dict):
+        amount = payable_amount.get("amount", 0)
+        currency = payable_amount.get("currency", "USD")
+    else:
+        amount = payable_amount
+        currency = "USD"
+
     summary = f"""
-📦 Draft Order Created
+Draft Order Created
 
 Plan: {plan.get('plan_name')}
 Items: {item_count} item(s)
-Total: ${payable_amount:.2f} USD
+Total: ${amount:.2f} {currency}
 
-⏰ This draft order expires at {expires_at}
+This draft order expires at {expires_at}
 
-⚠️ IMPORTANT: Payment has NOT been captured.
+IMPORTANT: Payment has NOT been captured.
 Please review and confirm to proceed to checkout.
 """
     return summary.strip()

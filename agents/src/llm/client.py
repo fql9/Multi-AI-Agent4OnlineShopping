@@ -21,6 +21,8 @@ def get_llm(model_type: str = "planner", temperature: float = 0.1) -> ChatOpenAI
     """
     获取 LLM 实例
 
+    支持 OpenAI 和 Poe API（通过 base_url 切换）
+
     Args:
         model_type: "planner"（轻量）或 "verifier"（重量）
         temperature: 温度参数
@@ -36,9 +38,22 @@ def get_llm(model_type: str = "planner", temperature: float = 0.1) -> ChatOpenAI
         else settings.openai_model_verifier
     )
 
+    # 支持自定义 base_url（用于 Poe API 等兼容服务）
+    base_url = settings.openai_base_url
+    if base_url == "https://api.openai.com/v1":
+        base_url = None  # 使用默认值
+
+    logger.info(
+        "llm.init",
+        model=model,
+        base_url=base_url or "default",
+        model_type=model_type,
+    )
+
     return ChatOpenAI(
         model=model,
         api_key=settings.openai_api_key,
+        base_url=base_url,
         temperature=temperature,
         request_timeout=30,
         max_retries=2,
