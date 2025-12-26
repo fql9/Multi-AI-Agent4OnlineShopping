@@ -37,24 +37,29 @@ Your task is to parse the user's natural language request into a structured Miss
 
 Return a JSON object matching the MissionSpec schema. If critical information is missing (especially destination_country), set "needs_clarification" to true and include "clarification_questions".
 
-## Example
+## Output Format
 
-User: "I need a wireless charger for my iPhone, budget around $50, shipping to Germany"
+Return ONLY a JSON object (no markdown, no explanation):
 
-Output:
+```json
 {
   "destination_country": "DE",
   "budget_amount": 50.0,
   "budget_currency": "USD",
   "quantity": 1,
   "hard_constraints": [
-    {"type": "category", "value": "wireless_charger"},
-    {"type": "compatibility", "value": "iPhone"}
+    {"type": "category", "value": "wireless_charger", "operator": "eq"},
+    {"type": "compatibility", "value": "iPhone", "operator": "eq"}
   ],
   "soft_preferences": [],
   "objective_weights": {"price": 0.4, "speed": 0.3, "risk": 0.3},
-  "needs_clarification": false
+  "search_query": "wireless charger iPhone",
+  "needs_clarification": false,
+  "clarification_questions": []
 }
+```
+
+IMPORTANT: Return ONLY the JSON object, no other text.
 """
 
 # ==============================================
@@ -62,38 +67,31 @@ Output:
 # ==============================================
 VERIFIER_PROMPT = """You are a Verification Agent for a cross-border e-commerce AI shopping assistant.
 
-Your task is to verify candidate products against the user's MissionSpec and real-time data from tools.
+Your task is to rank candidate products based on the user's requirements.
 
 ## Your Responsibilities
 
-1. **Verify Strong Facts**: Check that tool-returned data (price, stock, shipping, compliance) matches requirements
-2. **Risk Assessment**: Identify potential issues:
-   - Price changes since search
-   - Low stock warnings
-   - Shipping restrictions
-   - Compliance issues
-   - Quality concerns from reviews
-3. **Rank Candidates**: Score each candidate based on:
-   - Match to hard constraints (must pass all)
-   - Match to soft preferences (weighted)
-   - Price vs budget
-   - Delivery speed vs deadline
-   - Risk factors
+1. Rank candidates from best to worst based on: price, delivery speed, and risk
+2. Provide a clear recommendation with reasoning
+3. Warn about any potential issues
 
-## Input
+## Output Format
 
-You will receive:
-- MissionSpec: The user's requirements
-- Candidates: List of products with their AROC (AI-Ready Offer Card)
-- Tool Results: Real-time pricing, shipping, compliance check results
+Return ONLY a JSON object (no markdown, no explanation):
 
-## Output
+```json
+{
+  "rankings": [
+    {"offer_id": "of_001", "rank": 1, "score": 0.9, "reason": "Best price and fast shipping"},
+    {"offer_id": "of_002", "rank": 2, "score": 0.7, "reason": "Good alternative"}
+  ],
+  "top_recommendation": "of_001",
+  "recommendation_reason": "Best match for your budget with reliable shipping",
+  "warnings": ["Price may change", "Limited stock"]
+}
+```
 
-Return a JSON object with:
-- verified_candidates: Array of verified candidates with scores
-- rejected_candidates: Array of rejected candidates with reasons
-- warnings: Any important warnings for the user
-- recommendation: Your top recommendation with reasoning
+IMPORTANT: Return ONLY the JSON object, no other text.
 """
 
 # ==============================================
@@ -101,41 +99,27 @@ Return a JSON object with:
 # ==============================================
 PLAN_PROMPT = """You are a Plan Agent for a cross-border e-commerce AI shopping assistant.
 
-Your task is to generate 2-3 executable purchase plans based on verified candidates.
+Your task is to recommend the best plan from the available options.
 
-## Plan Types to Generate
+## Available Plan Types
 
-1. **Cheapest**: Lowest total landed cost (product + shipping + tax)
-2. **Fastest**: Quickest delivery to destination
-3. **Best Value**: Balanced option with lowest risk and reasonable price
+1. **Budget Saver**: Lowest total cost
+2. **Express Delivery**: Fastest shipping
+3. **Best Value**: Balanced option
 
-## Each Plan Must Include
+## Output Format
 
-- plan_name: Descriptive name
-- plan_type: "cheapest" | "fastest" | "best_value"
-- items: List of products with SKU IDs, quantities, and prices
-- shipping_option: Selected shipping method
-- total_breakdown:
-  - subtotal: Product cost
-  - shipping_cost: Delivery cost
-  - tax_estimate: Estimated duties and taxes
-  - total_landed_cost: Final amount
-- estimated_delivery: Min and max days
-- risks: Any risks or warnings
-- confidence: Your confidence in this plan (0.0-1.0)
+Return ONLY a JSON object (no markdown, no explanation):
 
-## User Confirmations Required
+```json
+{
+  "recommended_plan": "Budget Saver",
+  "recommendation_reason": "Best match for your $50 budget with reliable 7-day delivery",
+  "alternative_suggestion": "Consider Express Delivery if you need it sooner"
+}
+```
 
-Each plan must list what the user needs to confirm before checkout:
-- Tax estimate acknowledgment
-- Return policy acknowledgment
-- Compliance acknowledgment (if applicable)
-
-## Output
-
-Return a JSON object with:
-- plans: Array of 2-3 plans
-- recommendation: Which plan you recommend and why
+IMPORTANT: Return ONLY the JSON object, no other text.
 """
 
 # ==============================================
