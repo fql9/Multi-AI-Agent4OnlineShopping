@@ -7,7 +7,7 @@ import {
   ChevronRight, Clock, Zap, Terminal, Brain, Wrench,
   ChevronDown, ChevronUp, Code, Activity
 } from 'lucide-react'
-import { useShoppingStore, type OrderState, type TaxEstimate, type ComplianceRisk, type ThinkingStep, type ToolCall } from '@/store/shopping'
+import { useShoppingStore, type OrderState, type TaxEstimate, type ComplianceRisk, type ThinkingStep, type ToolCall, type AgentStep } from '@/store/shopping'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Progress } from '@/components/ui/progress'
 import { Badge } from '@/components/ui/badge'
@@ -141,7 +141,7 @@ function ToolCallItem({ tool }: { tool: ToolCall }) {
 }
 
 // Agent 步骤详情组件
-function AgentStepDetail({ step, isActive }: { step: typeof useShoppingStore.getState().agentSteps[0]; isActive: boolean }) {
+function AgentStepDetail({ step, isActive }: { step: AgentStep; isActive: boolean }) {
   const scrollRef = useRef<HTMLDivElement>(null)
   
   useEffect(() => {
