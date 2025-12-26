@@ -10,7 +10,7 @@ from langchain_core.messages import AIMessage, HumanMessage
 
 from ..config import get_settings
 from ..graph.state import AgentState
-from ..llm.client import get_llm_with_structured_output
+from ..llm.client import call_llm_and_parse
 from ..llm.prompts import INTENT_PROMPT
 from ..llm.schemas import MissionParseResult
 
@@ -58,13 +58,6 @@ async def intent_node(state: AgentState) -> AgentState:
             # 返回 mock 数据用于测试
             return _mock_intent_response(state, user_message)
 
-        # 初始化 LLM（使用结构化输出）
-        llm = get_llm_with_structured_output(
-            output_schema=MissionParseResult,
-            model_type="planner",
-            temperature=0.1,
-        )
-
         # 构建消息
         prompt_messages = [
             {"role": "system", "content": INTENT_PROMPT},
@@ -78,8 +71,17 @@ async def intent_node(state: AgentState) -> AgentState:
             elif isinstance(msg, AIMessage):
                 prompt_messages.insert(-1, {"role": "assistant", "content": msg.content})
 
-        # 调用 LLM
-        result: MissionParseResult = await llm.ainvoke(prompt_messages)
+        # 调用 LLM 并解析结果
+        result = await call_llm_and_parse(
+            messages=prompt_messages,
+            output_schema=MissionParseResult,
+            model_type="planner",
+            temperature=0.1,
+        )
+
+        if result is None:
+            logger.warning("intent_node.llm_parse_failed", msg="Falling back to mock")
+            return _mock_intent_response(state, user_message)
 
         # 检查是否需要澄清
         if result.needs_clarification:

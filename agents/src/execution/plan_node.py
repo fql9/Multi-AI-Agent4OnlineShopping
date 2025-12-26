@@ -8,12 +8,12 @@ import structlog
 
 from ..config import get_settings
 from ..graph.state import AgentState
-from ..llm.client import get_llm_with_structured_output
+from ..llm.client import call_llm_and_parse
 from ..llm.prompts import PLAN_PROMPT
 from ..llm.schemas import (
     DeliveryEstimate,
-    PlanGenerationResult,
     PlanItem,
+    PlanRecommendation,
     PurchasePlan,
     TotalBreakdown,
 )
@@ -239,15 +239,11 @@ def _create_plan(
     )
 
 
-async def _llm_optimize_plans(mission: dict, candidates: list, plans: list) -> PlanGenerationResult | None:
+async def _llm_optimize_plans(mission: dict, candidates: list, plans: list) -> PlanRecommendation | None:
     """使用 LLM 优化方案推荐"""
-    try:
-        llm = get_llm_with_structured_output(
-            output_schema=PlanGenerationResult,
-            model_type="planner",
-            temperature=0.1,
-        )
+    del candidates  # unused
 
+    try:
         # 简化数据
         plans_summary = [
             {
@@ -262,10 +258,15 @@ async def _llm_optimize_plans(mission: dict, candidates: list, plans: list) -> P
 
         messages = [
             {"role": "system", "content": PLAN_PROMPT},
-            {"role": "user", "content": f"Mission: {mission}\n\nPlans: {plans_summary}"},
+            {"role": "user", "content": f"Mission: {mission}\n\nAvailable plans: {plans_summary}\n\nWhich plan do you recommend?"},
         ]
 
-        result = await llm.ainvoke(messages)
+        result = await call_llm_and_parse(
+            messages=messages,
+            output_schema=PlanRecommendation,
+            model_type="planner",
+            temperature=0.1,
+        )
         return result
 
     except Exception as e:

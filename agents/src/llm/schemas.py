@@ -49,35 +49,22 @@ class MissionParseResult(BaseModel):
 
 
 # ==============================================
-# Verifier Agent Output Schema
+# Verifier Agent Output Schema (Simplified for LLM)
 # ==============================================
-class CandidateScore(BaseModel):
-    """候选评分"""
-    offer_id: str
-    sku_id: str | None = None
-    score: float = Field(ge=0.0, le=1.0, description="综合得分")
-    price_score: float = Field(ge=0.0, le=1.0, description="价格得分")
-    speed_score: float = Field(ge=0.0, le=1.0, description="速度得分")
-    risk_score: float = Field(ge=0.0, le=1.0, description="风险得分")
-    meets_hard_constraints: bool = Field(description="是否满足所有硬性约束")
-    constraint_violations: list[str] = Field(default_factory=list, description="违反的约束")
-    warnings: list[str] = Field(default_factory=list, description="警告信息")
-
-
-class RejectedCandidate(BaseModel):
-    """被拒绝的候选"""
-    offer_id: str
-    reason: str
-    rejection_type: str = Field(description="拒绝类型: constraint_violation, out_of_stock, compliance_blocked, price_exceeded")
+class CandidateRanking(BaseModel):
+    """候选排名（简化版）"""
+    offer_id: str = Field(description="商品 ID")
+    rank: int = Field(default=1, description="排名 1-10")
+    score: float = Field(default=0.5, ge=0.0, le=1.0, description="综合得分 0-1")
+    reason: str = Field(default="", description="评分理由")
 
 
 class VerificationResult(BaseModel):
-    """Verifier Agent 核验结果"""
-    verified_candidates: list[CandidateScore] = Field(default_factory=list)
-    rejected_candidates: list[RejectedCandidate] = Field(default_factory=list)
-    top_recommendation: str | None = Field(default=None, description="推荐的 offer_id")
+    """Verifier Agent 核验结果（简化版）"""
+    rankings: list[CandidateRanking] = Field(default_factory=list, description="候选排名")
+    top_recommendation: str = Field(default="", description="推荐的 offer_id")
     recommendation_reason: str = Field(default="", description="推荐理由")
-    overall_warnings: list[str] = Field(default_factory=list, description="整体警告")
+    warnings: list[str] = Field(default_factory=list, description="警告信息")
 
 
 # ==============================================
@@ -122,11 +109,18 @@ class PurchasePlan(BaseModel):
     confirmation_items: list[str] = Field(default_factory=list, description="需要用户确认的项目")
 
 
+class PlanRecommendation(BaseModel):
+    """Plan Agent 推荐结果（简化版，用于 LLM）"""
+    recommended_plan: str = Field(default="Budget Saver", description="推荐方案名称")
+    recommendation_reason: str = Field(default="Best value for your budget", description="推荐理由")
+    alternative_suggestion: str = Field(default="", description="替代建议")
+
+
 class PlanGenerationResult(BaseModel):
     """Plan Agent 方案生成结果"""
-    plans: list[PurchasePlan] = Field(default_factory=list, min_length=1, max_length=3)
-    recommended_plan: str = Field(description="推荐方案的 plan_name")
-    recommendation_reason: str = Field(description="推荐理由")
+    plans: list[PurchasePlan] = Field(default_factory=list)
+    recommended_plan: str = Field(default="", description="推荐方案的 plan_name")
+    recommendation_reason: str = Field(default="", description="推荐理由")
 
 
 # ==============================================
