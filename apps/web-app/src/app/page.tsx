@@ -1,219 +1,176 @@
 'use client'
 
-import { useState } from 'react'
-import { ShoppingCart, Bot, Package, CheckCircle, Loader2, Send, Sparkles } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { 
+  ShoppingCart, Bot, Package, CheckCircle, Loader2, Send, 
+  Sparkles, AlertTriangle, Info, Shield, Truck, Receipt,
+  ChevronRight, Clock, Zap
+} from 'lucide-react'
+import { useShoppingStore, type OrderState, type TaxEstimate, type ComplianceRisk } from '@/store/shopping'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Progress } from '@/components/ui/progress'
+import { Badge } from '@/components/ui/badge'
+import { cn } from '@/lib/utils'
 
-// 模拟的 Agent 处理步骤
-const DEMO_STEPS = [
-  { 
-    id: 'intent', 
-    name: 'Intent Agent', 
-    description: 'Parsing your shopping request...',
-    icon: '🎯',
-  },
-  { 
-    id: 'candidate', 
-    name: 'Candidate Agent', 
-    description: 'Searching for matching products...',
-    icon: '🔍',
-  },
-  { 
-    id: 'verifier', 
-    name: 'Verifier Agent', 
-    description: 'Checking price, compliance & shipping...',
-    icon: '✅',
-  },
-  { 
-    id: 'plan', 
-    name: 'Plan Agent', 
-    description: 'Generating purchase plans...',
-    icon: '📋',
-  },
-  { 
-    id: 'execution', 
-    name: 'Execution Agent', 
-    description: 'Creating draft order...',
-    icon: '🛒',
-  },
-]
-
-// 模拟的产品数据
-const DEMO_PRODUCTS = [
-  {
-    id: 'of_001',
-    title: 'Anker MagSafe Wireless Charger 15W',
-    price: 35.99,
-    image: '📱',
-    brand: 'Anker',
-    rating: 4.8,
-  },
-  {
-    id: 'of_002',
-    title: 'Belkin BoostCharge Pro 3-in-1',
-    price: 89.99,
-    image: '🔌',
-    brand: 'Belkin',
-    rating: 4.6,
-  },
-  {
-    id: 'of_003',
-    title: 'Apple MagSafe Charger',
-    price: 39.00,
-    image: '🍎',
-    brand: 'Apple',
-    rating: 4.5,
-  },
-]
-
-// 模拟的方案数据
-const DEMO_PLANS = [
-  {
-    name: 'Budget Saver',
-    type: 'cheapest',
-    product: DEMO_PRODUCTS[0],
-    shipping: 5.99,
-    tax: 3.36,
-    total: 45.34,
-    deliveryDays: '7-14',
-    emoji: '💰',
-    recommended: true,
-    reason: 'Best match for your $50 budget with reliable shipping to Germany',
-  },
-  {
-    name: 'Express Delivery',
-    type: 'fastest',
-    product: DEMO_PRODUCTS[2],
-    shipping: 12.99,
-    tax: 4.16,
-    total: 56.15,
-    deliveryDays: '3-5',
-    emoji: '⚡',
-    recommended: false,
-    reason: 'Fastest delivery but slightly over budget',
-  },
-  {
-    name: 'Best Value',
-    type: 'best_value',
-    product: DEMO_PRODUCTS[1],
-    shipping: 0,
-    tax: 7.20,
-    total: 97.19,
-    deliveryDays: '5-7',
-    emoji: '⭐',
-    recommended: false,
-    reason: '3-in-1 charger with free shipping - premium choice',
-  },
-]
-
-// LLM 推荐信息
-const AI_RECOMMENDATION = {
-  plan: 'Budget Saver',
-  reason: 'Based on your $50 budget and shipping to Germany, this Anker charger offers the best value with fast 15W charging and excellent reviews.',
-  model: 'GPT-4o-mini',
-  confidence: 0.92,
+// 状态机步骤映射
+const STATE_LABELS: Record<OrderState, { label: string; step: number }> = {
+  'IDLE': { label: 'Ready', step: 0 },
+  'MISSION_READY': { label: 'Mission Created', step: 1 },
+  'CANDIDATES_READY': { label: 'Products Found', step: 2 },
+  'VERIFIED_TOPN_READY': { label: 'Verified', step: 3 },
+  'PLAN_SELECTED': { label: 'Plan Selected', step: 4 },
+  'CART_READY': { label: 'Cart Ready', step: 5 },
+  'SHIPPING_SELECTED': { label: 'Shipping Selected', step: 6 },
+  'TOTAL_COMPUTED': { label: 'Total Computed', step: 7 },
+  'DRAFT_ORDER_CREATED': { label: 'Draft Order', step: 8 },
+  'WAIT_USER_PAYMENT_CONFIRMATION': { label: 'Awaiting Confirmation', step: 9 },
+  'PAID': { label: 'Paid', step: 10 },
 }
 
-type Step = 'input' | 'processing' | 'plans' | 'confirmation'
+// 税费置信度颜色
+function getTaxConfidenceColor(confidence: TaxEstimate['confidence']) {
+  switch (confidence) {
+    case 'high': return 'text-emerald-400'
+    case 'medium': return 'text-amber-400'
+    case 'low': return 'text-red-400'
+  }
+}
+
+// 合规风险图标
+function getComplianceIcon(type: ComplianceRisk['type']) {
+  switch (type) {
+    case 'battery': return '🔋'
+    case 'liquid': return '💧'
+    case 'magnet': return '🧲'
+    case 'food': return '🍔'
+    case 'medical': return '💊'
+    case 'trademark': return '™️'
+    default: return '⚠️'
+  }
+}
+
+// 状态机进度条
+function StateMachineProgress({ currentState }: { currentState: OrderState }) {
+  const { step } = STATE_LABELS[currentState]
+  const progress = (step / 10) * 100
+  
+  return (
+    <div className="mb-6">
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-sm text-slate-400">Order State Machine</span>
+        <Badge variant={step >= 8 ? 'success' : 'default'}>
+          {STATE_LABELS[currentState].label}
+        </Badge>
+      </div>
+      <Progress value={progress} />
+      <div className="flex justify-between mt-1 text-xs text-slate-500">
+        <span>IDLE</span>
+        <span>DRAFT_ORDER</span>
+        <span>PAID</span>
+      </div>
+    </div>
+  )
+}
 
 export default function Home() {
-  const [step, setStep] = useState<Step>('input')
-  const [query, setQuery] = useState('')
-  const [currentAgentIndex, setCurrentAgentIndex] = useState(0)
-  const [selectedPlan, setSelectedPlan] = useState<typeof DEMO_PLANS[0] | null>(null)
-  const [parsedMission, setParsedMission] = useState<{
-    destination: string
-    budget: number
-    constraints: string[]
-  } | null>(null)
+  const store = useShoppingStore()
+  const [currentView, setCurrentView] = useState<'input' | 'processing' | 'plans' | 'confirmation'>('input')
+
+  // 根据状态切换视图
+  useEffect(() => {
+    if (store.orderState === 'IDLE') {
+      setCurrentView('input')
+    } else if (store.orderState === 'DRAFT_ORDER_CREATED' || store.orderState === 'WAIT_USER_PAYMENT_CONFIRMATION') {
+      setCurrentView('confirmation')
+    } else if (store.plans.length > 0 && store.orderState === 'TOTAL_COMPUTED') {
+      setCurrentView('plans')
+    } else if (store.orderState !== 'IDLE') {
+      setCurrentView('processing')
+    }
+  }, [store.orderState, store.plans.length])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!query.trim()) return
-
-    // 解析意图（简单演示）
-    const mission = {
-      destination: query.toLowerCase().includes('germany') ? 'DE' : 
-                   query.toLowerCase().includes('uk') ? 'GB' : 'US',
-      budget: parseFloat(query.match(/\$?(\d+)/)?.[1] || '100'),
-      constraints: [] as string[],
-    }
-    if (query.toLowerCase().includes('iphone')) mission.constraints.push('iPhone compatible')
-    if (query.toLowerCase().includes('wireless')) mission.constraints.push('Wireless')
-    if (query.toLowerCase().includes('fast')) mission.constraints.push('Fast charging')
-    
-    setParsedMission(mission)
-    setStep('processing')
-    setCurrentAgentIndex(0)
-
-    // 模拟 Agent 处理流程
-    for (let i = 0; i < DEMO_STEPS.length; i++) {
-      await new Promise(resolve => setTimeout(resolve, 1000))
-      setCurrentAgentIndex(i + 1)
-    }
-
-    await new Promise(resolve => setTimeout(resolve, 500))
-    setStep('plans')
+    if (!store.query.trim()) return
+    setCurrentView('processing')
+    await store.startAgentProcess()
+    setCurrentView('plans')
   }
 
-  const handleSelectPlan = (plan: typeof DEMO_PLANS[0]) => {
-    setSelectedPlan(plan)
-    setStep('confirmation')
+  const handleSelectPlan = (plan: typeof store.plans[0]) => {
+    store.selectPlan(plan)
+    setCurrentView('confirmation')
   }
 
   const handleReset = () => {
-    setStep('input')
-    setQuery('')
-    setCurrentAgentIndex(0)
-    setSelectedPlan(null)
-    setParsedMission(null)
+    store.reset()
+    setCurrentView('input')
   }
 
   return (
-    <main className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
+    <main className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950">
+      {/* Geometric pattern background */}
+      <div className="fixed inset-0 opacity-5">
+        <div className="absolute inset-0" style={{
+          backgroundImage: `url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='0.4'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")`,
+        }} />
+      </div>
+
       {/* Header */}
-      <header className="border-b border-white/10 backdrop-blur-xl">
+      <header className="relative border-b border-slate-800 bg-slate-950/80 backdrop-blur-xl">
         <div className="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-green-400 to-emerald-600 flex items-center justify-center">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-400 to-teal-600 flex items-center justify-center shadow-lg shadow-emerald-500/20">
               <Bot className="w-6 h-6 text-white" />
             </div>
             <div>
               <h1 className="text-xl font-bold text-white">AI Shopping Agent</h1>
-              <p className="text-xs text-white/60">Shopping like prompting!</p>
+              <p className="text-xs text-slate-500">Shopping like prompting!</p>
             </div>
           </div>
-          <div className="flex items-center gap-2 text-white/60 text-sm">
-            <Sparkles className="w-4 h-4" />
-            <span>Multi-Agent Demo</span>
+          <div className="flex items-center gap-4">
+            <div className="hidden md:flex items-center gap-2 px-3 py-1.5 bg-slate-800 rounded-lg text-sm">
+              <span className="text-slate-400">Model:</span>
+              <span className="text-emerald-400 font-mono">GPT-4o-mini</span>
+            </div>
+            <div className="flex items-center gap-2 text-slate-400 text-sm">
+              <Sparkles className="w-4 h-4 text-emerald-400" />
+              <span>Multi-Agent</span>
+            </div>
           </div>
         </div>
       </header>
 
-      <div className="max-w-4xl mx-auto px-4 py-8">
-        {/* Input Step */}
-        {step === 'input' && (
+      <div className="relative max-w-4xl mx-auto px-4 py-8 pb-24">
+        {/* State Machine Progress (always visible except on input) */}
+        {currentView !== 'input' && (
+          <StateMachineProgress currentState={store.orderState} />
+        )}
+
+        {/* Input View */}
+        {currentView === 'input' && (
           <div className="animate-fade-in">
             <div className="text-center mb-12">
               <h2 className="text-4xl font-bold text-white mb-4">
                 What would you like to buy?
               </h2>
-              <p className="text-white/60 text-lg">
-                Describe your shopping needs and let our AI agents find the best options for you.
+              <p className="text-slate-400 text-lg">
+                Describe your shopping needs and let our AI agents find the best options.
               </p>
             </div>
 
             <form onSubmit={handleSubmit} className="relative">
               <div className="relative">
                 <textarea
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
+                  value={store.query}
+                  onChange={(e) => store.setQuery(e.target.value)}
                   placeholder="e.g., I need a wireless charger for my iPhone 15, budget around $50, shipping to Germany..."
-                  className="w-full h-32 px-6 py-4 bg-white/5 border border-white/10 rounded-2xl text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-green-500/50 focus:border-green-500/50 resize-none"
+                  className="w-full h-32 px-6 py-4 bg-slate-800/50 border border-slate-700 rounded-2xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500/50 resize-none"
                 />
                 <button
                   type="submit"
-                  disabled={!query.trim()}
-                  className="absolute bottom-4 right-4 px-6 py-2 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-xl font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:from-green-600 hover:to-emerald-700 transition-all flex items-center gap-2"
+                  disabled={!store.query.trim()}
+                  className="absolute bottom-4 right-4 px-6 py-2 bg-gradient-to-r from-emerald-500 to-teal-600 text-white rounded-xl font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:from-emerald-600 hover:to-teal-700 transition-all flex items-center gap-2 shadow-lg shadow-emerald-500/20"
                 >
                   <Send className="w-4 h-4" />
                   Find Products
@@ -223,17 +180,17 @@ export default function Home() {
 
             {/* Example queries */}
             <div className="mt-8">
-              <p className="text-white/40 text-sm mb-3">Try these examples:</p>
+              <p className="text-slate-500 text-sm mb-3">Try these examples:</p>
               <div className="flex flex-wrap gap-2">
                 {[
-                  'Wireless charger for iPhone, $50 budget, ship to US',
+                  'Wireless charger for iPhone, $50 budget, ship to Germany',
                   'Power bank 10000mAh, fast charging, under $40',
-                  'USB-C hub for MacBook, good brand, ship to Germany',
+                  'USB-C hub for MacBook, good brand, ship to UK',
                 ].map((example) => (
                   <button
                     key={example}
-                    onClick={() => setQuery(example)}
-                    className="px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg text-white/70 text-sm transition-colors"
+                    onClick={() => store.setQuery(example)}
+                    className="px-4 py-2 bg-slate-800/50 hover:bg-slate-700/50 border border-slate-700 rounded-lg text-slate-300 text-sm transition-colors"
                   >
                     {example}
                   </button>
@@ -243,29 +200,23 @@ export default function Home() {
           </div>
         )}
 
-        {/* Processing Step */}
-        {step === 'processing' && (
+        {/* Processing View */}
+        {currentView === 'processing' && (
           <div className="animate-fade-in">
             <div className="text-center mb-8">
               <h2 className="text-2xl font-bold text-white mb-2">Processing your request...</h2>
-              <p className="text-white/60">&quot;{query}&quot;</p>
+              <p className="text-slate-400">&quot;{store.query}&quot;</p>
             </div>
 
             {/* Parsed Mission */}
-            {parsedMission && (
-              <div className="mb-8 p-4 bg-white/5 rounded-xl border border-white/10">
-                <h3 className="text-white/80 text-sm font-medium mb-2">Parsed Mission</h3>
-                <div className="flex flex-wrap gap-4 text-sm">
-                  <span className="px-3 py-1 bg-blue-500/20 text-blue-300 rounded-full">
-                    🌍 {parsedMission.destination}
-                  </span>
-                  <span className="px-3 py-1 bg-green-500/20 text-green-300 rounded-full">
-                    💰 ${parsedMission.budget}
-                  </span>
-                  {parsedMission.constraints.map((c) => (
-                    <span key={c} className="px-3 py-1 bg-purple-500/20 text-purple-300 rounded-full">
-                      {c}
-                    </span>
+            {store.mission && (
+              <div className="mb-8 p-4 bg-slate-800/50 rounded-xl border border-slate-700">
+                <h3 className="text-slate-300 text-sm font-medium mb-2">Parsed Mission</h3>
+                <div className="flex flex-wrap gap-3 text-sm">
+                  <Badge variant="info">🌍 {store.mission.destination_country}</Badge>
+                  <Badge variant="success">💰 ${store.mission.budget_amount}</Badge>
+                  {store.mission.hard_constraints.map((c) => (
+                    <Badge key={c.value} variant="default">{c.value}</Badge>
                   ))}
                 </div>
               </div>
@@ -273,30 +224,38 @@ export default function Home() {
 
             {/* Agent Progress */}
             <div className="space-y-4">
-              {DEMO_STEPS.map((agentStep, index) => (
+              {store.agentSteps.map((step, index) => (
                 <div
-                  key={agentStep.id}
-                  className={`p-4 rounded-xl border transition-all duration-500 ${
-                    index < currentAgentIndex
-                      ? 'bg-green-500/10 border-green-500/30'
-                      : index === currentAgentIndex
-                      ? 'bg-white/10 border-white/20'
-                      : 'bg-white/5 border-white/10 opacity-50'
-                  }`}
+                  key={step.id}
+                  className={cn(
+                    "p-4 rounded-xl border transition-all duration-500",
+                    step.status === 'completed' && "bg-emerald-500/10 border-emerald-500/30",
+                    step.status === 'running' && "bg-slate-800 border-slate-600",
+                    step.status === 'pending' && "bg-slate-800/30 border-slate-700/50 opacity-50"
+                  )}
                 >
                   <div className="flex items-center gap-4">
-                    <div className="text-2xl">{agentStep.icon}</div>
+                    <div className="text-2xl">{step.icon}</div>
                     <div className="flex-1">
-                      <h3 className="text-white font-medium">{agentStep.name}</h3>
-                      <p className="text-white/60 text-sm">{agentStep.description}</p>
+                      <div className="flex items-center gap-2">
+                        <h3 className="text-white font-medium">{step.name}</h3>
+                        {step.tokenUsed && (
+                          <span className="text-xs text-slate-500">~{step.tokenUsed} tokens</span>
+                        )}
+                      </div>
+                      <p className="text-slate-400 text-sm">
+                        {step.status === 'running' && store.isStreaming 
+                          ? store.streamingText 
+                          : step.description}
+                      </p>
                     </div>
                     <div>
-                      {index < currentAgentIndex ? (
-                        <CheckCircle className="w-6 h-6 text-green-500" />
-                      ) : index === currentAgentIndex ? (
-                        <Loader2 className="w-6 h-6 text-white animate-spin" />
+                      {step.status === 'completed' ? (
+                        <CheckCircle className="w-6 h-6 text-emerald-500" />
+                      ) : step.status === 'running' ? (
+                        <Loader2 className="w-6 h-6 text-emerald-400 animate-spin" />
                       ) : (
-                        <div className="w-6 h-6 rounded-full border-2 border-white/20" />
+                        <div className="w-6 h-6 rounded-full border-2 border-slate-600" />
                       )}
                     </div>
                   </div>
@@ -306,90 +265,133 @@ export default function Home() {
           </div>
         )}
 
-        {/* Plans Step */}
-        {step === 'plans' && (
+        {/* Plans View */}
+        {currentView === 'plans' && (
           <div className="animate-fade-in">
             <div className="text-center mb-8">
               <h2 className="text-2xl font-bold text-white mb-2">Choose Your Plan</h2>
-              <p className="text-white/60">We found {DEMO_PLANS.length} options for you</p>
+              <p className="text-slate-400">We found {store.plans.length} options for you</p>
             </div>
 
             {/* AI Recommendation Card */}
-            <div className="mb-6 p-4 bg-gradient-to-r from-green-500/10 to-emerald-500/10 border border-green-500/30 rounded-2xl">
-              <div className="flex items-start gap-3">
-                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-green-400 to-emerald-600 flex items-center justify-center flex-shrink-0">
-                  <Bot className="w-5 h-5 text-white" />
-                </div>
-                <div className="flex-1">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="text-green-400 font-semibold">AI Recommendation</span>
-                    <span className="px-2 py-0.5 bg-white/10 rounded text-xs text-white/60">
-                      {AI_RECOMMENDATION.model}
-                    </span>
-                    <span className="px-2 py-0.5 bg-green-500/20 rounded text-xs text-green-300">
-                      {Math.round(AI_RECOMMENDATION.confidence * 100)}% confidence
-                    </span>
+            {store.aiRecommendation && (
+              <div className="mb-6 p-4 bg-gradient-to-r from-emerald-500/10 to-teal-500/10 border border-emerald-500/30 rounded-2xl">
+                <div className="flex items-start gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-400 to-teal-600 flex items-center justify-center flex-shrink-0">
+                    <Bot className="w-5 h-5 text-white" />
                   </div>
-                  <p className="text-white/80 text-sm">{AI_RECOMMENDATION.reason}</p>
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-emerald-400 font-semibold">AI Recommendation</span>
+                      <Badge variant="default">{store.aiRecommendation.model}</Badge>
+                      <Badge variant="success">
+                        {Math.round(store.aiRecommendation.confidence * 100)}% confidence
+                      </Badge>
+                    </div>
+                    <p className="text-slate-300 text-sm">{store.aiRecommendation.reason}</p>
+                  </div>
                 </div>
               </div>
-            </div>
+            )}
 
             <div className="grid gap-4">
-              {DEMO_PLANS.map((plan) => (
+              {store.plans.map((plan) => (
                 <div
                   key={plan.name}
                   onClick={() => handleSelectPlan(plan)}
-                  className={`p-6 bg-white/5 hover:bg-white/10 border rounded-2xl cursor-pointer transition-all group relative ${
+                  className={cn(
+                    "p-6 bg-slate-800/50 hover:bg-slate-800 border rounded-2xl cursor-pointer transition-all group relative",
                     plan.recommended 
-                      ? 'border-green-500/50 ring-1 ring-green-500/30' 
-                      : 'border-white/10 hover:border-green-500/50'
-                  }`}
+                      ? "border-emerald-500/50 ring-1 ring-emerald-500/30" 
+                      : "border-slate-700 hover:border-emerald-500/50"
+                  )}
                 >
                   {plan.recommended && (
-                    <div className="absolute -top-3 left-4 px-3 py-1 bg-gradient-to-r from-green-500 to-emerald-600 rounded-full text-xs text-white font-medium flex items-center gap-1">
+                    <div className="absolute -top-3 left-4 px-3 py-1 bg-gradient-to-r from-emerald-500 to-teal-600 rounded-full text-xs text-white font-medium flex items-center gap-1">
                       <Sparkles className="w-3 h-3" />
                       AI Recommended
                     </div>
                   )}
+                  
                   <div className="flex items-start gap-4">
                     <div className="text-4xl">{plan.emoji}</div>
                     <div className="flex-1">
                       <div className="flex items-center gap-2 mb-1">
                         <h3 className="text-xl font-bold text-white">{plan.name}</h3>
-                        <span className={`px-2 py-0.5 rounded text-xs ${
-                          plan.type === 'cheapest' ? 'bg-green-500/20 text-green-300' :
-                          plan.type === 'fastest' ? 'bg-blue-500/20 text-blue-300' :
-                          'bg-yellow-500/20 text-yellow-300'
-                        }`}>
+                        <Badge variant={
+                          plan.type === 'cheapest' ? 'success' :
+                          plan.type === 'fastest' ? 'info' : 'warning'
+                        }>
                           {plan.type.replace('_', ' ')}
-                        </span>
+                        </Badge>
                       </div>
-                      <p className="text-white/80 mb-2">{plan.product.title}</p>
-                      <p className="text-white/50 text-sm mb-3">{plan.reason}</p>
+                      <p className="text-slate-300 mb-2">{plan.product.title}</p>
+                      <p className="text-slate-500 text-sm mb-3">{plan.reason}</p>
                       
-                      <div className="grid grid-cols-4 gap-4 text-sm">
+                      {/* Tax Confidence */}
+                      <div className="flex items-center gap-4 mb-3">
+                        <div className="flex items-center gap-1.5">
+                          <Receipt className="w-4 h-4 text-slate-400" />
+                          <span className="text-sm text-slate-400">Tax:</span>
+                          <span className={cn("text-sm font-medium", getTaxConfidenceColor(plan.tax.confidence))}>
+                            ${plan.tax.amount} ({plan.tax.confidence} confidence)
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <Truck className="w-4 h-4 text-slate-400" />
+                          <span className="text-sm text-slate-400">{plan.deliveryDays} days</span>
+                        </div>
+                      </div>
+
+                      {/* Compliance Risks */}
+                      {plan.product.complianceRisks.length > 0 && (
+                        <div className="flex flex-wrap gap-2 mb-3">
+                          {plan.product.complianceRisks.map((risk, i) => (
+                            <div key={i} className="flex items-center gap-1 px-2 py-1 bg-amber-500/10 border border-amber-500/30 rounded text-xs">
+                              <span>{getComplianceIcon(risk.type)}</span>
+                              <span className="text-amber-400">{risk.message}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Risks */}
+                      {plan.risks.length > 0 && (
+                        <div className="flex flex-wrap gap-2">
+                          {plan.risks.map((risk, i) => (
+                            <div key={i} className="flex items-center gap-1 text-xs text-slate-400">
+                              <AlertTriangle className="w-3 h-3 text-amber-400" />
+                              {risk}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      
+                      <div className="grid grid-cols-4 gap-4 text-sm mt-4 pt-4 border-t border-slate-700">
                         <div>
-                          <span className="text-white/40 block">Product</span>
+                          <span className="text-slate-500 block">Product</span>
                           <span className="text-white font-medium">${plan.product.price}</span>
                         </div>
                         <div>
-                          <span className="text-white/40 block">Shipping</span>
+                          <span className="text-slate-500 block">Shipping</span>
                           <span className="text-white font-medium">{plan.shipping === 0 ? 'FREE' : `$${plan.shipping}`}</span>
                         </div>
                         <div>
-                          <span className="text-white/40 block">Tax</span>
-                          <span className="text-white font-medium">${plan.tax}</span>
+                          <span className="text-slate-500 block">Tax Est.</span>
+                          <span className={cn("font-medium", getTaxConfidenceColor(plan.tax.confidence))}>
+                            ${plan.tax.amount}
+                          </span>
                         </div>
                         <div>
-                          <span className="text-white/40 block">Delivery</span>
+                          <span className="text-slate-500 block">Delivery</span>
                           <span className="text-white font-medium">{plan.deliveryDays} days</span>
                         </div>
                       </div>
                     </div>
                     <div className="text-right">
-                      <span className="text-white/40 text-sm block">Total</span>
+                      <span className="text-slate-500 text-sm block">Total</span>
                       <span className="text-3xl font-bold text-white">${plan.total}</span>
+                      <ChevronRight className="w-5 h-5 text-slate-400 ml-auto mt-2 group-hover:text-emerald-400 transition-colors" />
                     </div>
                   </div>
                 </div>
@@ -398,98 +400,219 @@ export default function Home() {
 
             <button
               onClick={handleReset}
-              className="mt-6 w-full py-3 border border-white/20 text-white/60 rounded-xl hover:bg-white/5 transition-colors"
+              className="mt-6 w-full py-3 border border-slate-700 text-slate-400 rounded-xl hover:bg-slate-800 transition-colors"
             >
               Start Over
             </button>
           </div>
         )}
 
-        {/* Confirmation Step */}
-        {step === 'confirmation' && selectedPlan && (
+        {/* Confirmation View */}
+        {currentView === 'confirmation' && store.draftOrder && (
           <div className="animate-fade-in">
             <div className="text-center mb-8">
-              <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-green-500/20 mb-4">
-                <Package className="w-8 h-8 text-green-500" />
+              <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-emerald-500/20 mb-4">
+                <Package className="w-8 h-8 text-emerald-500" />
               </div>
               <h2 className="text-2xl font-bold text-white mb-2">Draft Order Created!</h2>
-              <p className="text-white/60">Review your order before proceeding to payment</p>
+              <p className="text-slate-400">Review and confirm before proceeding to payment</p>
             </div>
 
-            <div className="bg-white/5 border border-white/10 rounded-2xl overflow-hidden">
+            <div className="bg-slate-800/50 border border-slate-700 rounded-2xl overflow-hidden">
               {/* Order Header */}
-              <div className="p-6 border-b border-white/10">
+              <div className="p-6 border-b border-slate-700">
                 <div className="flex items-center justify-between">
                   <div>
-                    <span className="text-white/40 text-sm">Order ID</span>
-                    <p className="text-white font-mono">do_{Math.random().toString(36).substr(2, 12)}</p>
+                    <span className="text-slate-500 text-sm">Order ID</span>
+                    <p className="text-white font-mono">{store.draftOrder.id}</p>
                   </div>
-                  <div className="px-3 py-1 bg-yellow-500/20 text-yellow-300 rounded-full text-sm">
-                    Pending Confirmation
+                  <div className="flex items-center gap-2">
+                    <Clock className="w-4 h-4 text-amber-400" />
+                    <span className="text-amber-400 text-sm">
+                      Expires: {new Date(store.draftOrder.expiresAt).toLocaleString()}
+                    </span>
                   </div>
                 </div>
               </div>
 
               {/* Order Items */}
-              <div className="p-6 border-b border-white/10">
+              <div className="p-6 border-b border-slate-700">
                 <div className="flex items-center gap-4">
-                  <div className="text-4xl">{selectedPlan.product.image}</div>
+                  <div className="text-4xl">{store.draftOrder.plan.product.image}</div>
                   <div className="flex-1">
-                    <h3 className="text-white font-medium">{selectedPlan.product.title}</h3>
-                    <p className="text-white/60 text-sm">{selectedPlan.product.brand} · ★ {selectedPlan.product.rating}</p>
+                    <h3 className="text-white font-medium">{store.draftOrder.plan.product.title}</h3>
+                    <p className="text-slate-400 text-sm">
+                      {store.draftOrder.plan.product.brand} · ★ {store.draftOrder.plan.product.rating}
+                    </p>
                   </div>
-                  <div className="text-white font-medium">${selectedPlan.product.price}</div>
+                  <div className="text-white font-medium">${store.draftOrder.plan.product.price}</div>
                 </div>
               </div>
 
+              {/* Tax Breakdown with Confidence */}
+              <div className="p-6 border-b border-slate-700">
+                <h4 className="text-white font-medium mb-4 flex items-center gap-2">
+                  <Receipt className="w-4 h-4" />
+                  Tax & Duty Estimate
+                </h4>
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">VAT/GST</span>
+                    <span className="text-white">${store.draftOrder.plan.tax.breakdown.vat}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">Import Duty</span>
+                    <span className="text-white">${store.draftOrder.plan.tax.breakdown.duty}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">Handling Fee</span>
+                    <span className="text-white">${store.draftOrder.plan.tax.breakdown.handling}</span>
+                  </div>
+                  <div className="flex justify-between pt-2 border-t border-slate-700">
+                    <span className="text-slate-300">Total Tax Estimate</span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-white font-medium">${store.draftOrder.plan.tax.amount}</span>
+                      <Badge variant={
+                        store.draftOrder.plan.tax.confidence === 'high' ? 'success' :
+                        store.draftOrder.plan.tax.confidence === 'medium' ? 'warning' : 'danger'
+                      }>
+                        {store.draftOrder.plan.tax.confidence} confidence
+                      </Badge>
+                    </div>
+                  </div>
+                  <p className="text-slate-500 text-xs mt-2">
+                    Method: {store.draftOrder.plan.tax.method.replace('_', ' ')}
+                  </p>
+                </div>
+              </div>
+
+              {/* Compliance Risks */}
+              {store.draftOrder.plan.product.complianceRisks.length > 0 && (
+                <div className="p-6 border-b border-slate-700 bg-amber-500/5">
+                  <h4 className="text-white font-medium mb-4 flex items-center gap-2">
+                    <Shield className="w-4 h-4 text-amber-400" />
+                    Compliance Information
+                  </h4>
+                  <div className="space-y-3">
+                    {store.draftOrder.plan.product.complianceRisks.map((risk, i) => (
+                      <div key={i} className="flex items-start gap-3 p-3 bg-slate-800/50 rounded-lg">
+                        <span className="text-2xl">{getComplianceIcon(risk.type)}</span>
+                        <div>
+                          <p className="text-amber-400 font-medium capitalize">{risk.type} Warning</p>
+                          <p className="text-slate-300 text-sm">{risk.message}</p>
+                          {risk.mitigation && (
+                            <p className="text-emerald-400 text-sm mt-1">✓ {risk.mitigation}</p>
+                          )}
+                        </div>
+                        <Badge variant={
+                          risk.severity === 'low' ? 'success' :
+                          risk.severity === 'medium' ? 'warning' : 'danger'
+                        } className="ml-auto">
+                          {risk.severity} risk
+                        </Badge>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {/* Order Summary */}
-              <div className="p-6 space-y-3">
-                <div className="flex justify-between text-white/60">
+              <div className="p-6 space-y-3 border-b border-slate-700">
+                <div className="flex justify-between text-slate-400">
                   <span>Subtotal</span>
-                  <span>${selectedPlan.product.price}</span>
+                  <span>${store.draftOrder.plan.product.price}</span>
                 </div>
-                <div className="flex justify-between text-white/60">
-                  <span>Shipping ({selectedPlan.deliveryDays} days)</span>
-                  <span>{selectedPlan.shipping === 0 ? 'FREE' : `$${selectedPlan.shipping}`}</span>
+                <div className="flex justify-between text-slate-400">
+                  <span>Shipping ({store.draftOrder.plan.shippingOption})</span>
+                  <span>{store.draftOrder.plan.shipping === 0 ? 'FREE' : `$${store.draftOrder.plan.shipping}`}</span>
                 </div>
-                <div className="flex justify-between text-white/60">
-                  <span>Estimated Tax</span>
-                  <span>${selectedPlan.tax}</span>
+                <div className="flex justify-between text-slate-400">
+                  <span>Estimated Tax & Duty</span>
+                  <span>${store.draftOrder.plan.tax.amount}</span>
                 </div>
-                <div className="h-px bg-white/10 my-4" />
+                <div className="h-px bg-slate-700 my-4" />
                 <div className="flex justify-between text-xl font-bold text-white">
                   <span>Total</span>
-                  <span>${selectedPlan.total}</span>
+                  <span>${store.draftOrder.plan.total}</span>
+                </div>
+              </div>
+
+              {/* Confirmation Items (Required Checkboxes) */}
+              <div className="p-6 border-b border-slate-700">
+                <h4 className="text-white font-medium mb-4 flex items-center gap-2">
+                  <CheckCircle className="w-4 h-4 text-emerald-400" />
+                  Required Confirmations
+                </h4>
+                <div className="space-y-4">
+                  {store.draftOrder.confirmationItems.map((item) => (
+                    <div 
+                      key={item.id} 
+                      className={cn(
+                        "flex items-start gap-3 p-4 rounded-lg border transition-colors",
+                        item.checked 
+                          ? "bg-emerald-500/10 border-emerald-500/30" 
+                          : "bg-slate-800/50 border-slate-700"
+                      )}
+                    >
+                      <Checkbox
+                        id={item.id}
+                        checked={item.checked}
+                        onCheckedChange={() => store.toggleConfirmation(item.id)}
+                      />
+                      <div className="flex-1">
+                        <label 
+                          htmlFor={item.id} 
+                          className="text-white font-medium cursor-pointer flex items-center gap-2"
+                        >
+                          {item.title}
+                          {item.required && <span className="text-red-400 text-xs">*Required</span>}
+                        </label>
+                        <p className="text-slate-400 text-sm mt-1">{item.description}</p>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
 
               {/* Evidence */}
-              <div className="p-4 bg-white/5 border-t border-white/10">
-                <div className="flex items-center gap-2 text-white/40 text-sm">
-                  <CheckCircle className="w-4 h-4" />
-                  <span>Evidence snapshot saved: ev_{new Date().toISOString().slice(0,10).replace(/-/g, '')}</span>
+              <div className="p-4 bg-slate-900/50">
+                <div className="flex items-center gap-2 text-slate-500 text-sm">
+                  <Info className="w-4 h-4" />
+                  <span>Evidence Snapshot: <code className="text-emerald-400">{store.draftOrder.evidenceSnapshotId}</code></span>
                 </div>
               </div>
             </div>
 
             {/* Important Notice */}
-            <div className="mt-6 p-4 bg-yellow-500/10 border border-yellow-500/30 rounded-xl">
-              <p className="text-yellow-200 text-sm">
-                ⚠️ <strong>IMPORTANT:</strong> Payment has NOT been captured. 
-                This is a draft order that requires your confirmation to proceed.
-              </p>
+            <div className="mt-6 p-4 bg-amber-500/10 border border-amber-500/30 rounded-xl">
+              <div className="flex items-start gap-3">
+                <AlertTriangle className="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-amber-200 font-medium">IMPORTANT: Payment Not Captured</p>
+                  <p className="text-amber-200/70 text-sm mt-1">
+                    This is a draft order that requires your confirmation. 
+                    You must check all required boxes above before proceeding to payment.
+                  </p>
+                </div>
+              </div>
             </div>
 
             {/* Actions */}
             <div className="mt-6 flex gap-4">
               <button
                 onClick={handleReset}
-                className="flex-1 py-3 border border-white/20 text-white/60 rounded-xl hover:bg-white/5 transition-colors"
+                className="flex-1 py-3 border border-slate-700 text-slate-400 rounded-xl hover:bg-slate-800 transition-colors"
               >
                 Start New Search
               </button>
               <button
-                className="flex-1 py-3 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-xl font-medium hover:from-green-600 hover:to-emerald-700 transition-all flex items-center justify-center gap-2"
+                disabled={!store.canProceedToPayment()}
+                className={cn(
+                  "flex-1 py-3 rounded-xl font-medium flex items-center justify-center gap-2 transition-all",
+                  store.canProceedToPayment()
+                    ? "bg-gradient-to-r from-emerald-500 to-teal-600 text-white hover:from-emerald-600 hover:to-teal-700 shadow-lg shadow-emerald-500/20"
+                    : "bg-slate-700 text-slate-400 cursor-not-allowed"
+                )}
               >
                 <ShoppingCart className="w-5 h-5" />
                 Proceed to Payment
@@ -500,15 +623,16 @@ export default function Home() {
       </div>
 
       {/* Footer */}
-      <footer className="fixed bottom-0 left-0 right-0 py-4 border-t border-white/10 backdrop-blur-xl">
-        <div className="max-w-6xl mx-auto px-4 flex items-center justify-between text-white/40 text-sm">
+      <footer className="fixed bottom-0 left-0 right-0 py-4 border-t border-slate-800 bg-slate-950/80 backdrop-blur-xl">
+        <div className="max-w-6xl mx-auto px-4 flex items-center justify-between text-slate-500 text-sm">
           <span>Multi-AI-Agent4OnlineShopping © 2024</span>
           <div className="flex items-center gap-4">
             <span className="flex items-center gap-2">
-              <span className="px-2 py-0.5 bg-white/10 rounded text-xs">GPT-4o-mini via Poe</span>
+              <Zap className="w-4 h-4 text-emerald-400" />
+              <span className="text-slate-400">GPT-4o-mini via Poe</span>
             </span>
             <span className="flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
               All agents operational
             </span>
           </div>
@@ -517,4 +641,3 @@ export default function Home() {
     </main>
   )
 }
-
