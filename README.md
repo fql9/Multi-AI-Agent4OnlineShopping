@@ -218,9 +218,11 @@ cd agents && python -m src.main
 - [x] LangGraph Agent 骨架 *(intent → candidate → verify → plan → execution)*
 - [x] Draft Order 可回放证据
 - [x] 支付确认 *(requires_user_action: true)*
-- [ ] LLM 集成
-- [ ] 端到端测试
-- [ ] 前端 Web App
+- [x] LLM 集成 *(GPT-4o-mini + Claude-3-Haiku via Poe API)*
+- [x] 端到端测试 *(10 tests, 58% coverage)*
+- [x] 前端 Web App *(Next.js + Tailwind + shadcn/ui)*
+- [ ] 支付集成 *(Stripe/PayPal)*
+- [ ] RAG 向量检索
 
 ---
 

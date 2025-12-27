@@ -121,15 +121,17 @@
 - [x] **LangGraph 状态机** - 基础编排流程定义
 - [x] **Draft Order** - 支持幂等、用户确认、30分钟过期
 - [x] **CI/CD** - GitHub Actions（TypeScript build + Python tests）
+- [x] **LLM 集成** - GPT-4o-mini + Claude-3-Haiku (Poe API)
+- [x] **端到端测试** - 10 tests, 58% coverage
+- [x] **前端 Web App** - Next.js + Tailwind + shadcn/ui
 
 ### 🔶 进行中
 
-- [ ] LLM 集成 - Agent nodes 接入 OpenAI/Claude
 - [ ] RAG 向量检索 - evidence_chunks 表已建，待实现检索逻辑
-- [ ] 端到端测试 - 完整购物流程测试
+- [ ] 错误处理增强 - 超时、重试、降级策略
 
 ### ⏳ 待开始
 
-- [ ] 前端 Web App - Next.js 用户界面
 - [ ] 支付集成 - Stripe/PayPal 对接
 - [ ] 知识图谱查询 - 兼容性/替代品推理
+- [ ] 生产部署 - Docker Compose → K8s
