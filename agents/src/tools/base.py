@@ -1,5 +1,13 @@
 """
 Base tool utilities.
+
+实现:
+- 统一工具调用接口
+- 重试与降级策略
+- 证据记录
+- 错误处理
+
+遵循 doc/04_tooling_spec.md 规范
 """
 
 import hashlib
@@ -12,18 +20,33 @@ import httpx
 import structlog
 
 from ..config import get_settings
+from .retry import (
+    FallbackConfig,
+    RetryConfig,
+    ToolCallResult,
+    get_fallback_response,
+    retry_with_backoff,
+)
 
 logger = structlog.get_logger()
 
 # HTTP client 单例
 _http_client: httpx.AsyncClient | None = None
 
+# 默认超时配置
+DEFAULT_TIMEOUT = httpx.Timeout(
+    connect=5.0,      # 连接超时
+    read=30.0,        # 读取超时
+    write=10.0,       # 写入超时
+    pool=5.0,         # 连接池超时
+)
+
 
 async def get_http_client() -> httpx.AsyncClient:
     """获取 HTTP client 单例"""
     global _http_client
     if _http_client is None:
-        _http_client = httpx.AsyncClient(timeout=30.0)
+        _http_client = httpx.AsyncClient(timeout=DEFAULT_TIMEOUT)
     return _http_client
 
 
@@ -74,9 +97,11 @@ async def call_tool(
     params: dict[str, Any],
     user_id: str | None = None,
     idempotency_key: str | None = None,
+    retry_config: RetryConfig | None = None,
+    enable_fallback: bool = True,
 ) -> dict[str, Any]:
     """
-    统一工具调用接口
+    统一工具调用接口（带重试和降级）
 
     Args:
         mcp_server: MCP server 类型 (core, checkout)
@@ -84,6 +109,8 @@ async def call_tool(
         params: 工具参数
         user_id: 用户 ID
         idempotency_key: 幂等键
+        retry_config: 重试配置（可选）
+        enable_fallback: 是否启用降级
 
     Returns:
         标准响应 Envelope
@@ -112,7 +139,8 @@ async def call_tool(
         request_id=envelope["request_id"],
     )
 
-    try:
+    # 定义单次调用函数
+    async def single_call() -> dict[str, Any]:
         response = await client.post(url, json=request_body)
         response.raise_for_status()
         result = response.json()
@@ -123,19 +151,112 @@ async def call_tool(
         result["evidence"]["hash"] = hash_response(result.get("data", {}))
         result["evidence"]["ts"] = datetime.utcnow().isoformat()
 
+        return result
+
+    # 配置降级
+    fallback_response = get_fallback_response(tool_name) if enable_fallback else None
+    fallback_config = FallbackConfig(
+        enabled=enable_fallback and fallback_response is not None,
+        default_response=fallback_response,
+    )
+
+    # 使用重试包装器调用
+    call_result: ToolCallResult = await retry_with_backoff(
+        func=single_call,
+        config=retry_config or RetryConfig(),
+        fallback_config=fallback_config,
+        tool_name=tool_name,
+    )
+
+    # 构建返回结果
+    if call_result.success:
         logger.info(
             "tool.success",
             tool=tool_name,
             request_id=envelope["request_id"],
+            retried=call_result.retried,
+            used_fallback=call_result.used_fallback,
+            latency_ms=call_result.latency_ms,
         )
+        return {
+            "ok": True,
+            "data": call_result.data,
+            "warnings": ["Used fallback response"] if call_result.used_fallback else [],
+            "ttl_seconds": 60 if not call_result.used_fallback else 30,
+            "evidence": {
+                "hash": hash_response(call_result.data or {}),
+                "ts": call_result.timestamp,
+            },
+            "_meta": {
+                "retried": call_result.retried,
+                "used_fallback": call_result.used_fallback,
+                "latency_ms": call_result.latency_ms,
+            },
+        }
+    else:
+        logger.error(
+            "tool.failed",
+            tool=tool_name,
+            request_id=envelope["request_id"],
+            error_code=call_result.error_code,
+            retried=call_result.retried,
+        )
+        return {
+            "ok": False,
+            "error": {
+                "code": call_result.error_code or "INTERNAL_ERROR",
+                "message": call_result.error_message or "Unknown error",
+            },
+            "_meta": {
+                "retried": call_result.retried,
+                "latency_ms": call_result.latency_ms,
+            },
+        }
+
+
+async def call_tool_simple(
+    mcp_server: str,
+    tool_name: str,
+    params: dict[str, Any],
+    user_id: str | None = None,
+    idempotency_key: str | None = None,
+) -> dict[str, Any]:
+    """
+    简单工具调用（无重试，用于非关键路径）
+
+    Args:
+        mcp_server: MCP server 类型
+        tool_name: 工具名称
+        params: 工具参数
+        user_id: 用户 ID
+        idempotency_key: 幂等键
+
+    Returns:
+        标准响应 Envelope
+    """
+    settings = get_settings()
+    client = await get_http_client()
+
+    url = f"{settings.tool_gateway_url}/tools/{tool_name.replace('.', '/')}"
+    envelope = create_request_envelope(
+        user_id=user_id,
+        idempotency_key=idempotency_key,
+    )
+    request_body = {**envelope, "params": params}
+
+    try:
+        response = await client.post(url, json=request_body)
+        response.raise_for_status()
+        result = response.json()
+
+        if "evidence" not in result:
+            result["evidence"] = {}
+        result["evidence"]["hash"] = hash_response(result.get("data", {}))
+        result["evidence"]["ts"] = datetime.utcnow().isoformat()
+
         return result
 
     except httpx.HTTPStatusError as e:
-        logger.error(
-            "tool.http_error",
-            tool=tool_name,
-            status_code=e.response.status_code,
-        )
         return {
             "ok": False,
             "error": {
@@ -144,7 +265,6 @@ async def call_tool(
             },
         }
     except httpx.TimeoutException:
-        logger.error("tool.timeout", tool=tool_name)
         return {
             "ok": False,
             "error": {
@@ -153,7 +273,6 @@ async def call_tool(
             },
         }
     except Exception as e:
-        logger.error("tool.error", tool=tool_name, error=str(e))
         return {
             "ok": False,
             "error": {

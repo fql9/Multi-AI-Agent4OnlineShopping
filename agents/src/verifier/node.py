@@ -2,6 +2,8 @@
 Verifier Agent Node implementation.
 
 对候选商品进行实时核验。
+
+集成 RAG 证据检索，遵循 doc/10_rag_graphrag.md 规范
 """
 
 from datetime import UTC
@@ -14,6 +16,7 @@ from ..llm.client import call_llm_and_parse
 from ..llm.prompts import VERIFIER_PROMPT
 from ..llm.schemas import VerificationResult
 from ..tools.compliance import check_compliance
+from ..tools.knowledge import extract_citations, search_for_offer
 from ..tools.pricing import get_realtime_quote
 from ..tools.shipping import quote_shipping_options
 
@@ -189,6 +192,41 @@ async def verifier_node(state: AgentState) -> AgentState:
             except Exception as e:
                 logger.warning("verifier_node.shipping_check_failed", offer_id=offer_id, error=str(e))
                 verification_result["checks"]["shipping"] = {"passed": True, "error": str(e)}
+
+            # 4. RAG 证据检索（说明书、政策、评价洞察）
+            try:
+                # 构建查询：商品标题 + 用户需求
+                title = candidate.get("titles", [{}])[0].get("text", "")
+                query_text = f"{title} specifications features"
+
+                evidence_result = await search_for_offer(
+                    query=query_text,
+                    offer_id=offer_id,
+                    source_types=["manual", "qa", "review_insight"],
+                    top_k=3,
+                )
+
+                if evidence_result.get("ok"):
+                    citations = extract_citations(evidence_result)
+                    verification_result["checks"]["evidence"] = {
+                        "passed": True,
+                        "citations_count": len(citations),
+                        "citations": citations[:3],  # 最多 3 条引用
+                    }
+                    verification_result["evidence_citations"] = citations
+
+                    tool_calls.append({
+                        "tool_name": "knowledge.search",
+                        "request": {"offer_id": offer_id, "query": query_text[:50]},
+                        "response_summary": {"citations_count": len(citations)},
+                        "called_at": _now_iso(),
+                    })
+                else:
+                    verification_result["checks"]["evidence"] = {"passed": True, "citations_count": 0}
+
+            except Exception as e:
+                logger.warning("verifier_node.evidence_search_failed", offer_id=offer_id, error=str(e))
+                verification_result["checks"]["evidence"] = {"passed": True, "error": str(e)}
 
             # 分类结果
             if verification_result["passed"]:
