@@ -70,6 +70,14 @@
 |------|------|
 | [`17_progress.md`](./17_progress.md) | **开发进度追踪（已完成/进行中/待办）** |
 
+### 📊 架构图表
+
+| 文档 | 说明 |
+|------|------|
+| [`diagrams/architecture_overview.md`](./diagrams/architecture_overview.md) | **系统架构总览（三层架构 + 数据流）** |
+| [`diagrams/aroc_structure.md`](./diagrams/aroc_structure.md) | **AROC 结构图（字段 + 数据流 + 强弱事实）** |
+| [`diagrams/knowledge_graph.md`](./diagrams/knowledge_graph.md) | **知识图谱架构（实体 + 关系 + 调用流程）** |
+
 ---
 
 ## 🏗️ 技术栈总览
@@ -108,8 +116,8 @@
 
 - [x] **数据库架构** - PostgreSQL 16 + pgvector 表结构设计
 - [x] **类目树导入** - 12 个类目（3 级层次结构）
-- [x] **合规规则导入** - 6 条规则（电池/液体/CE/FCC 认证）
-- [x] **样例 AROC 导入** - 14 个商品 + 22 个 SKU
+- [x] **合规规则导入** - 22 条规则（电池/液体/CE/FCC/UKCA/RoHS 等）
+- [x] **样例 AROC 导入** - 30+ 个商品 + 60+ 个 SKU
 - [x] **Tool Gateway** - 统一入口 + Envelope + 幂等 + 审计
 - [x] **Catalog 工具** - search_offers / get_offer_card / get_availability
 - [x] **Pricing 工具** - get_realtime_quote / check_price_change
@@ -117,6 +125,8 @@
 - [x] **Compliance 工具** - check_item / get_rules_for_category
 - [x] **Checkout 工具** - create_cart / add_to_cart / compute_total / create_draft_order
 - [x] **Evidence 工具** - create_snapshot / attach_to_draft_order / get_snapshot
+- [x] **Knowledge 工具** - search (BM25 + fuzzy) / get_chunk / index_chunk
+- [x] **KG 工具** - get_compatible_models / get_substitutes / get_complements / get_sku_certificates
 - [x] **Python Agent 骨架** - Intent / Candidate / Verifier / Execution nodes
 - [x] **LangGraph 状态机** - 基础编排流程定义
 - [x] **Draft Order** - 支持幂等、用户确认、30分钟过期
@@ -124,14 +134,13 @@
 - [x] **LLM 集成** - GPT-4o-mini + Claude-3-Haiku (Poe API)
 - [x] **端到端测试** - 10 tests, 58% coverage
 - [x] **前端 Web App** - Next.js + Tailwind + shadcn/ui
-
-### 🔶 进行中
-
-- [ ] RAG 向量检索 - evidence_chunks 表已建，待实现检索逻辑
-- [ ] 错误处理增强 - 超时、重试、降级策略
+- [x] **AROC 完善** - evidence_refs + version_hash + confidence
+- [x] **知识图谱** - Brand/Merchant/Certificate/Model + 兼容/替代/配件关系
+- [x] **错误处理增强** - 超时重试（指数退避）+ 降级策略
+- [x] **RAG 检索** - evidence_chunks 混合检索
 
 ### ⏳ 待开始
 
 - [ ] 支付集成 - Stripe/PayPal 对接
-- [ ] 知识图谱查询 - 兼容性/替代品推理
+- [ ] 向量嵌入服务 - 集成 embedding 生成
 - [ ] 生产部署 - Docker Compose → K8s
