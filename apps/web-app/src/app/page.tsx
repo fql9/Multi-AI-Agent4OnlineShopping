@@ -281,7 +281,8 @@ export default function Home() {
       setCurrentView('confirmation')
     } else if (store.plans.length > 0 && store.orderState === 'TOTAL_COMPUTED') {
       setCurrentView('plans')
-    } else if (store.orderState !== 'IDLE') {
+    } else {
+      // 其他状态（MISSION_READY, CANDIDATES_READY, VERIFIED_TOPN_READY 等）
       setCurrentView('processing')
     }
   }, [store.orderState, store.plans.length])
