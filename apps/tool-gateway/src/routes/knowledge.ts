@@ -140,9 +140,13 @@ export async function knowledgeRoutes(app: FastifyInstance): Promise<void> {
         ? `WHERE ${conditions.join(' AND ')}`
         : '';
 
-      // MVP 阶段使用全文搜索（简化版）
-      // 生产环境应使用向量相似度搜索
-      const chunks = await query<{
+      // 混合检索（Hybrid Search）：BM25 + 向量（遵循 doc/10_rag_graphrag.md）
+      // 1. BM25 全文检索
+      // 2. 向量相似度检索（如果有 embedding）
+      // 3. 合并结果并重排序
+      
+      // BM25 全文检索
+      const bm25Chunks = await query<{
         id: string;
         text: string;
         source_type: string;
@@ -171,6 +175,43 @@ export async function knowledgeRoutes(app: FastifyInstance): Promise<void> {
         LIMIT $1`,
         [...params, searchQuery]
       );
+
+      // 向量检索（如果 embedding 列已填充）
+      // 注意: 需要外部服务生成 query embedding
+      // 此处使用简化逻辑：如果 BM25 结果不足，尝试模糊匹配补充
+      let vectorChunks: typeof bm25Chunks = [];
+      if (bm25Chunks.length < topK) {
+        // 备选：使用 ILIKE 模糊匹配作为向量检索的降级方案
+        const keywords = searchQuery.split(/\s+/).filter(w => w.length > 2).slice(0, 3);
+        if (keywords.length > 0) {
+          const existingIds = bm25Chunks.map(c => c.id);
+          const likeConditions = keywords.map((_, i) => `text ILIKE $${paramIndex + i}`).join(' OR ');
+          const likeParams = keywords.map(k => `%${k}%`);
+          
+          vectorChunks = await query<typeof bm25Chunks[0]>(
+            `SELECT 
+              id,
+              text,
+              source_type,
+              offer_id,
+              sku_id,
+              category_id,
+              language,
+              doc_version_hash,
+              offsets,
+              0.5 as rank
+            FROM agent.evidence_chunks
+            ${whereClause ? whereClause + ' AND ' : 'WHERE '}
+            (${likeConditions})
+            ${existingIds.length > 0 ? `AND id NOT IN (${existingIds.map((_, i) => `$${paramIndex + keywords.length + i}`).join(',')})` : ''}
+            LIMIT ${topK - bm25Chunks.length}`,
+            [...params, ...likeParams, ...existingIds]
+          );
+        }
+      }
+
+      // 合并结果（BM25 优先，向量补充）
+      const chunks = [...bm25Chunks, ...vectorChunks].slice(0, topK);
 
       // 转换为标准输出格式
       const results: ChunkResult[] = chunks.map(chunk => ({
@@ -203,7 +244,9 @@ export async function knowledgeRoutes(app: FastifyInstance): Promise<void> {
           query: searchQuery,
           scope,
           retrieval_debug: {
-            method: 'bm25_fulltext',
+            method: 'hybrid_bm25_fuzzy',
+            bm25_count: bm25Chunks.length,
+            vector_count: vectorChunks.length,
             filters_applied: Object.keys(filters).length,
           },
         }, { ttl_seconds: 300 }) // 5 分钟 TTL

@@ -33,6 +33,9 @@ interface OfferRow {
   warranty_months: number;
   rating: number;
   reviews_count: number;
+  version_hash: string | null;
+  evidence_refs: string[];
+  updated_at: Date;
 }
 
 interface SkuRow {
@@ -42,6 +45,10 @@ interface SkuRow {
   price: number;
   currency: string;
   stock: number;
+  risk_tags: string[];
+  compliance_tags: string[];
+  version_hash: string | null;
+  evidence_refs: string[];
 }
 
 export async function catalogRoutes(app: FastifyInstance): Promise<void> {
@@ -180,7 +187,7 @@ export async function catalogRoutes(app: FastifyInstance): Promise<void> {
         [offer.category_id]
       );
 
-      // 构建 AROC 响应
+      // 构建 AROC 响应（遵循 doc/08_aroc_schema.md）
       const aroc = {
         aroc_version: '0.1',
         offer_id: offer.id,
@@ -203,7 +210,14 @@ export async function catalogRoutes(app: FastifyInstance): Promise<void> {
           amount: parseFloat(String(offer.base_price)),
           currency: offer.currency,
         },
-        attributes: offer.attributes ?? [],
+        // 属性数组，包含置信度和证据引用
+        attributes: Array.isArray(offer.attributes) 
+          ? (offer.attributes as Array<Record<string, unknown>>).map(attr => ({
+              ...attr,
+              confidence: (attr.confidence as number) ?? 0.95,
+              evidence_refs: (attr.evidence_refs as string[]) ?? [],
+            }))
+          : [],
         variants: {
           axes: extractVariantAxes(skus),
           skus: skus.map(sku => ({
@@ -211,24 +225,42 @@ export async function catalogRoutes(app: FastifyInstance): Promise<void> {
             options: sku.options,
             price: parseFloat(String(sku.price)),
             stock: sku.stock,
-            risk_tags: offer.risk_tags ?? [],
+            risk_tags: sku.risk_tags ?? offer.risk_tags ?? [],
+            compliance_tags: sku.compliance_tags ?? [],
+            evidence_refs: sku.evidence_refs ?? [],
+            version_hash: sku.version_hash,
           })),
         },
         policies: {
           return_policy: offer.return_policy,
           warranty_months: offer.warranty_months,
+          evidence_refs: [], // TODO: 关联政策证据
         },
         risk_profile: {
           fragile: false,
-          sizing_uncertainty: 'low',
+          sizing_uncertainty: 'low' as const,
+          counterfeit_risk: 'low' as const,
+          after_sale_complexity: 'low' as const,
           has_battery: offer.risk_tags?.includes('battery_included') ?? false,
           has_liquid: offer.risk_tags?.includes('contains_liquid') ?? false,
+          has_magnet: offer.risk_tags?.includes('contains_magnet') ?? false,
         },
         weight_g: offer.weight_g,
         dimensions_mm: offer.dimensions_mm,
         certifications: offer.certifications ?? [],
+        media_refs: {
+          image_ids: [],
+          manual_doc_ids: [],
+        },
+        evidence_refs: offer.evidence_refs ?? [],
         rating: parseFloat(String(offer.rating)),
         reviews_count: offer.reviews_count,
+        // 版本控制（遵循 AROC 规范）
+        update: {
+          source: 'platform_parse' as const,
+          updated_at: offer.updated_at?.toISOString() ?? new Date().toISOString(),
+          version_hash: offer.version_hash ?? 'sha256:unversioned',
+        },
       };
 
       return reply.send(

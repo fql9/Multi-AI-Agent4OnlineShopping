@@ -10,6 +10,7 @@ import { complianceRoutes } from './compliance.js';
 import { checkoutRoutes } from './checkout.js';
 import { evidenceRoutes } from './evidence.js';
 import { knowledgeRoutes } from './knowledge.js';
+import { kgRoutes } from './kg.js';
 
 export async function registerRoutes(app: FastifyInstance): Promise<void> {
   // Register all tool route groups under /tools
@@ -20,5 +21,6 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   await app.register(checkoutRoutes, { prefix: '/tools/checkout' });
   await app.register(evidenceRoutes, { prefix: '/tools/evidence' });
   await app.register(knowledgeRoutes, { prefix: '/tools/knowledge' });
+  await app.register(kgRoutes, { prefix: '/tools/kg' });
 }
 
