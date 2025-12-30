@@ -1,0 +1,163 @@
+# 完整的 Docker Compose 配置 - 包含所有服务
+# 使用: docker compose -f docker-compose.full.yml up -d
+
+services:
+  # ========================================
+  # 数据库服务
+  # ========================================
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: agent-postgres
+    ports:
+      - "5433:5432"  # 外部端口 5433，避免与现有 PostgreSQL 冲突
+    environment:
+      POSTGRES_USER: agent
+      POSTGRES_PASSWORD: agent_dev_password
+      POSTGRES_DB: agent_db
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./infra/docker/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agent -d agent_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - agent-network
+
+  # ========================================
+  # Tool Gateway (统一工具网关)
+  # ========================================
+  tool-gateway:
+    build:
+      context: .
+      dockerfile: apps/tool-gateway/Dockerfile
+    container_name: agent-tool-gateway
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: agent
+      DB_PASSWORD: agent_dev_password
+      DB_NAME: agent_db
+      DATABASE_URL: postgresql://agent:agent_dev_password@postgres:5432/agent_db
+      MCP_CORE_URL: http://core-mcp:3010
+      MCP_CHECKOUT_URL: http://checkout-mcp:3011
+      CORS_ORIGINS: http://localhost:3001
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - agent-network
+
+  # ========================================
+  # Core MCP Server (Catalog, Pricing, Shipping, Tax, Compliance)
+  # ========================================
+  core-mcp:
+    build:
+      context: .
+      dockerfile: apps/mcp-servers/core-mcp/Dockerfile
+    container_name: agent-core-mcp
+    # MCP servers 使用 stdio，但为了健康检查暴露端口
+    ports:
+      - "3010:3010"
+    environment:
+      NODE_ENV: production
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: agent
+      DB_PASSWORD: agent_dev_password
+      DB_NAME: agent_db
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - agent-network
+
+  # ========================================
+  # Checkout MCP Server (Cart, Checkout, Evidence)
+  # ========================================
+  checkout-mcp:
+    build:
+      context: .
+      dockerfile: apps/mcp-servers/checkout-mcp/Dockerfile
+    container_name: agent-checkout-mcp
+    # MCP servers 使用 stdio，但为了健康检查暴露端口
+    ports:
+      - "3011:3011"
+    environment:
+      NODE_ENV: production
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: agent
+      DB_PASSWORD: agent_dev_password
+      DB_NAME: agent_db
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - agent-network
+
+  # ========================================
+  # Web App (Next.js 前端)
+  # ========================================
+  web-app:
+    build:
+      context: .
+      dockerfile: apps/web-app/Dockerfile
+    container_name: agent-web-app
+    ports:
+      - "3001:3001"
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      NEXT_PUBLIC_TOOL_GATEWAY_URL: http://tool-gateway:3000
+    depends_on:
+      - tool-gateway
+    restart: unless-stopped
+    networks:
+      - agent-network
+
+  # ========================================
+  # Python Agent (LangGraph 编排层)
+  # ========================================
+  agent:
+    build:
+      context: .
+      dockerfile: agents/Dockerfile
+    container_name: agent-python
+    environment:
+      APP_ENV: production
+      DEBUG: "false"
+      DATABASE_URL: postgresql+asyncpg://agent:agent_dev_password@postgres:5432/agent_db
+      TOOL_GATEWAY_URL: http://tool-gateway:3000
+      # LLM 配置（需要从环境变量或 .env 文件传入）
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
+      OPENAI_MODEL_PLANNER: ${OPENAI_MODEL_PLANNER:-gpt-4o-mini}
+      OPENAI_MODEL_VERIFIER: ${OPENAI_MODEL_VERIFIER:-gpt-4o}
+      TOKEN_BUDGET_TOTAL: ${TOKEN_BUDGET_TOTAL:-50000}
+      MOCK_TOOLS: ${MOCK_TOOLS:-false}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      tool-gateway:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+      - agent-network
+
+volumes:
+  pgdata:
+
+networks:
+  agent-network:
+    name: agent-network
+    driver: bridge

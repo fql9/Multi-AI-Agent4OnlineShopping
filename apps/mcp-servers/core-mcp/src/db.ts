@@ -2,7 +2,7 @@
  * 数据库连接模块
  */
 
-import pg from 'pg';
+import * as pg from 'pg';
 
 const { Pool } = pg;
 

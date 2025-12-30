@@ -2,7 +2,7 @@
  * 数据库连接池管理
  */
 
-import pg from 'pg';
+import * as pg from 'pg';
 
 const { Pool } = pg;
 
