@@ -16,6 +16,7 @@
   "dependencies": {
     "@shopping-agent/common": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.0.0",
+    "express": "^5.0.1",
     "zod": "^3.22.0",
     "pino": "^8.17.0",
     "pg": "^8.11.0"

@@ -11,12 +11,13 @@
  */
 
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 import { createLogger } from '@shopping-agent/common';
+import express from 'express';
 
 import { catalogTools, handleCatalogTool } from './catalog/index.js';
 import { pricingTools, handlePricingTool } from './pricing/index.js';
@@ -165,19 +166,63 @@ async function main() {
       }
     });
 
-    // Start server with stdio transport
-    // Note: StdioServerTransport is correct for MCP servers
-    // The server will wait for connections on stdin/stdout
-    const transport = new StdioServerTransport();
+    // Start server with SSE (HTTP) transport
+    // This allows Tool Gateway to connect via HTTP
+    const app = express();
+    app.use(express.json());
     
-    logger.info('Connecting to stdio transport...');
-    await server.connect(transport);
+    let transport: SSEServerTransport | null = null;
 
-    logger.info('Core MCP Server running and ready for connections');
-    
-    // Keep the process alive
-    // The stdio transport will keep the process running while connected
-    // If stdin closes (no client), the process will exit naturally
+    // SSE endpoint for client connections
+    app.get('/sse', async (req, res) => {
+      try {
+        logger.info('New SSE connection request');
+        transport = new SSEServerTransport('/messages', res);
+        await transport.start();
+        await server.connect(transport);
+        logger.info('MCP server connected via SSE');
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        logger.error({ error: errorMessage }, 'Failed to establish SSE connection');
+        if (!res.headersSent) {
+          res.status(500).json({ error: 'Failed to establish SSE connection' });
+        }
+      }
+    });
+
+    // HTTP POST endpoint for client messages
+    app.post('/messages', async (req, res) => {
+      try {
+        if (!transport) {
+          logger.warn('Received message but no active transport session');
+          return res.status(400).json({ error: 'No active transport session. Please connect to /sse first.' });
+        }
+        await transport.handlePostMessage(req, res, req.body);
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        logger.error({ error: errorMessage }, 'Error handling POST message');
+        if (!res.headersSent) {
+          res.status(500).json({ error: 'Failed to handle message' });
+        }
+      }
+    });
+
+    // Health check endpoint
+    app.get('/health', (req, res) => {
+      res.json({ 
+        status: 'ok', 
+        transport: transport ? 'connected' : 'disconnected',
+        sessionId: transport?.sessionId 
+      });
+    });
+
+    const port = parseInt(process.env.PORT ?? '3010', 10);
+    app.listen(port, '0.0.0.0', () => {
+      logger.info(`Core MCP Server listening on port ${port}`);
+      logger.info(`SSE endpoint: http://0.0.0.0:${port}/sse`);
+      logger.info(`Messages endpoint: http://0.0.0.0:${port}/messages`);
+      logger.info(`Health check: http://0.0.0.0:${port}/health`);
+    });
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     const errorStack = error instanceof Error ? error.stack : undefined;
