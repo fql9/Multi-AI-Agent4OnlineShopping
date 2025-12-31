@@ -17,7 +17,7 @@ import {
   ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 import { createLogger } from '@shopping-agent/common';
-import express from 'express';
+import express, { type Request, type Response } from 'express';
 
 import { catalogTools, handleCatalogTool } from './catalog/index.js';
 import { pricingTools, handlePricingTool } from './pricing/index.js';
@@ -109,6 +109,7 @@ async function main() {
       dbName: process.env.DB_NAME,
     }, 'Environment configuration');
 
+    // Initialize MCP Server
     const server = new Server(
       {
         name: 'core-mcp',
@@ -121,111 +122,188 @@ async function main() {
       }
     );
 
-    // List tools handler
+    // Register List Tools handler
     server.setRequestHandler(ListToolsRequestSchema, async () => {
-      logger.debug('List tools requested');
+      logger.debug({ toolCount: ALL_TOOLS.length }, 'List tools requested');
       return { tools: ALL_TOOLS };
     });
 
-    // Call tool handler
+    // Register Call Tool handler - routes to appropriate tool handler
     server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const { name, arguments: args } = request.params;
 
-      logger.info({ tool: name, args: JSON.stringify(args) }, 'Tool called');
+      logger.info({ 
+        tool: name, 
+        args: JSON.stringify(args).substring(0, 200) // Truncate long args for logging
+      }, 'Tool called');
 
       const handler = toolHandlers[name];
       if (!handler) {
         const error = new Error(`Unknown tool: ${name}`);
-        logger.error({ tool: name, availableTools: Object.keys(toolHandlers) }, 'Unknown tool');
+        logger.error({ 
+          tool: name, 
+          availableTools: Object.keys(toolHandlers) 
+        }, 'Unknown tool requested');
         throw error;
       }
 
       try {
+        // Execute tool handler
         const result = await handler(args);
-        logger.debug({ tool: name, resultSize: JSON.stringify(result).length }, 'Tool completed');
-        return {
+        
+        // Wrap result in MCP standard format
+        const mcpResult = {
           content: [
             {
-              type: 'text',
+              type: 'text' as const,
               text: JSON.stringify(result, null, 2),
             },
           ],
         };
+
+        logger.debug({ 
+          tool: name, 
+          resultSize: JSON.stringify(result).length 
+        }, 'Tool completed successfully');
+        
+        return mcpResult;
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
         const errorStack = error instanceof Error ? error.stack : undefined;
+        
         logger.error(
           {
             tool: name,
             error: errorMessage,
             stack: errorStack,
           },
-          'Tool execution error'
+          'Tool execution failed'
         );
+        
+        // Re-throw to let MCP SDK handle error response
         throw error;
       }
     });
 
-    // Start server with SSE (HTTP) transport
-    // This allows Tool Gateway to connect via HTTP
+    // Initialize Express app for SSE transport
     const app = express();
-    app.use(express.json());
     
+    // CRITICAL: Must use express.json() middleware BEFORE routes
+    // This ensures POST /messages can parse request body
+    app.use(express.json({ limit: '10mb' }));
+    app.use(express.urlencoded({ extended: true }));
+    
+    // Store transport instance (will be set when SSE connection is established)
     let transport: SSEServerTransport | null = null;
 
-    // SSE endpoint for client connections
-    app.get('/sse', async (req, res) => {
+    // SSE endpoint for establishing MCP connection
+    app.get('/sse', async (_req: Request, res: Response) => {
       try {
-        logger.info('New SSE connection request');
+        logger.info('SSE connection request received');
+        
+        // Create new SSE transport instance
         transport = new SSEServerTransport('/messages', res);
+        
+        // Start SSE stream (sends initial headers and endpoint info)
         await transport.start();
+        
+        // Connect MCP server to transport
         await server.connect(transport);
-        logger.info('MCP server connected via SSE');
+        
+        logger.info({ 
+          sessionId: transport.sessionId 
+        }, 'MCP server connected via SSE');
+        
+        // Transport will keep connection alive until client disconnects
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
-        logger.error({ error: errorMessage }, 'Failed to establish SSE connection');
+        const errorStack = error instanceof Error ? error.stack : undefined;
+        
+        logger.error(
+          {
+            error: errorMessage,
+            stack: errorStack,
+          },
+          'Failed to establish SSE connection'
+        );
+        
         if (!res.headersSent) {
-          res.status(500).json({ error: 'Failed to establish SSE connection' });
+          res.status(500).json({ 
+            error: 'Failed to establish SSE connection',
+            message: errorMessage 
+          });
         }
       }
     });
 
-    // HTTP POST endpoint for client messages
-    app.post('/messages', async (req, res) => {
+    // HTTP POST endpoint for MCP messages (tool calls, etc.)
+    app.post('/messages', async (req: Request, res: Response): Promise<void> => {
       try {
         if (!transport) {
-          logger.warn('Received message but no active transport session');
-          return res.status(400).json({ error: 'No active transport session. Please connect to /sse first.' });
+          logger.warn('POST /messages received but no active SSE transport');
+          res.status(400).json({ 
+            error: 'No active transport session',
+            message: 'Please establish SSE connection at /sse first' 
+          });
+          return;
         }
+
+        // Handle the MCP message via transport
+        // This will route to appropriate server handler (e.g., CallToolRequestSchema)
         await transport.handlePostMessage(req, res, req.body);
+        
+        logger.debug('POST /messages handled successfully');
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
-        logger.error({ error: errorMessage }, 'Error handling POST message');
+        const errorStack = error instanceof Error ? error.stack : undefined;
+        
+        logger.error(
+          {
+            error: errorMessage,
+            stack: errorStack,
+            body: JSON.stringify(req.body).substring(0, 200),
+          },
+          'Error handling POST /messages'
+        );
+        
         if (!res.headersSent) {
-          res.status(500).json({ error: 'Failed to handle message' });
+          res.status(500).json({ 
+            error: 'Failed to handle message',
+            message: errorMessage 
+          });
         }
       }
     });
 
     // Health check endpoint
-    app.get('/health', (req, res) => {
+    app.get('/health', (_req: Request, res: Response) => {
       res.json({ 
-        status: 'ok', 
+        status: 'ok',
+        service: 'core-mcp',
         transport: transport ? 'connected' : 'disconnected',
-        sessionId: transport?.sessionId 
+        sessionId: transport?.sessionId,
+        toolsRegistered: ALL_TOOLS.length,
+        timestamp: new Date().toISOString(),
       });
     });
 
+    // Start Express server
     const port = parseInt(process.env.PORT ?? '3010', 10);
     app.listen(port, '0.0.0.0', () => {
-      logger.info(`Core MCP Server listening on port ${port}`);
-      logger.info(`SSE endpoint: http://0.0.0.0:${port}/sse`);
-      logger.info(`Messages endpoint: http://0.0.0.0:${port}/messages`);
-      logger.info(`Health check: http://0.0.0.0:${port}/health`);
+      logger.info({
+        port,
+        endpoints: {
+          sse: `http://0.0.0.0:${port}/sse`,
+          messages: `http://0.0.0.0:${port}/messages`,
+          health: `http://0.0.0.0:${port}/health`,
+        },
+        toolsCount: ALL_TOOLS.length,
+      }, 'Core MCP Server started successfully');
     });
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     const errorStack = error instanceof Error ? error.stack : undefined;
+    
     logger.error(
       {
         error: errorMessage,
@@ -233,6 +311,7 @@ async function main() {
       },
       'Failed to start server'
     );
+    
     process.exit(1);
   }
 }
