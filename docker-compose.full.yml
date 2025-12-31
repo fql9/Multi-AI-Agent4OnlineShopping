@@ -78,6 +78,10 @@ services:
       DB_USER: agent
       DB_PASSWORD: agent_dev_password
       DB_NAME: agent_db
+      # XOOBAY API configuration
+      XOOBAY_API_KEY: ${XOOBAY_API_KEY:-xoobay_api_ai_geo}
+      XOOBAY_BASE_URL: ${XOOBAY_BASE_URL:-https://www.xoobay.com}
+      XOOBAY_LANG: ${XOOBAY_LANG:-zh_cn}
     depends_on:
       postgres:
         condition: service_healthy
