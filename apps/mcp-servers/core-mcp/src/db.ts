@@ -13,9 +13,13 @@ const pool = new Pool({
   user: process.env.DB_USER ?? 'agent',
   password: process.env.DB_PASSWORD ?? 'agent_dev_password',
   database: process.env.DB_NAME ?? 'agent_db',
-  max: 20,
-  idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 2000,
+  max: parseInt(process.env.DB_POOL_MAX ?? '20'),
+  idleTimeoutMillis: parseInt(process.env.DB_IDLE_TIMEOUT ?? '30000'),
+  connectionTimeoutMillis: parseInt(process.env.DB_CONNECTION_TIMEOUT ?? '2000'),
+  // SSL 配置（生产环境建议启用）
+  ssl: process.env.DB_SSL === 'true' ? {
+    rejectUnauthorized: process.env.DB_SSL_REJECT_UNAUTHORIZED !== 'false'
+  } : false,
 });
 
 // 测试连接
