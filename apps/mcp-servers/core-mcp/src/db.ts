@@ -26,7 +26,7 @@ const pool = new Pool({
 });
 
 // Connection event handlers
-pool.on('connect', (client) => {
+pool.on('connect', () => {
   logger.info({
     totalCount: pool.totalCount,
     idleCount: pool.idleCount,
