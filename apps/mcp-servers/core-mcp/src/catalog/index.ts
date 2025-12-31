@@ -111,7 +111,18 @@ interface SkuRow {
  * Search products - Priority: XOOBAY API, fallback to local database
  */
 async function searchOffers(params: Record<string, unknown>): Promise<unknown> {
-  const searchQuery = (params.query as string) ?? '';
+  // Ensure query is always a string, even if LLM didn't parse correctly
+  const searchQuery = String(params.query || '').trim();
+  if (!searchQuery) {
+    return { 
+      offer_ids: [], 
+      offers: [], 
+      total_count: 0, 
+      has_more: false,
+      search_query: '' 
+    };
+  }
+
   const categoryId = params.category_id as string | undefined;
   const priceMin = params.price_min as number | undefined;
   const priceMax = params.price_max as number | undefined;
