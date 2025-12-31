@@ -1,12 +1,15 @@
 /**
- * 数据库连接模块
+ * Database connection module
  */
 
 import * as pg from 'pg';
+import { createLogger } from '@shopping-agent/common';
 
 const { Pool } = pg;
+const logger = createLogger('core-mcp:db');
 
-// 数据库配置
+// Database configuration
+// Note: Pool creation is lazy - connections are only established when needed
 const pool = new Pool({
   host: process.env.DB_HOST ?? 'localhost',
   port: parseInt(process.env.DB_PORT ?? '5432'),
@@ -16,25 +19,42 @@ const pool = new Pool({
   max: parseInt(process.env.DB_POOL_MAX ?? '20'),
   idleTimeoutMillis: parseInt(process.env.DB_IDLE_TIMEOUT ?? '30000'),
   connectionTimeoutMillis: parseInt(process.env.DB_CONNECTION_TIMEOUT ?? '2000'),
-  // SSL 配置（生产环境建议启用）
+  // SSL configuration (recommended for production)
   ssl: process.env.DB_SSL === 'true' ? {
     rejectUnauthorized: process.env.DB_SSL_REJECT_UNAUTHORIZED !== 'false'
   } : false,
 });
 
-// 测试连接
-pool.on('connect', () => {
-  console.log('[DB] Connected to PostgreSQL');
+// Connection event handlers
+pool.on('connect', (client) => {
+  logger.info({
+    totalCount: pool.totalCount,
+    idleCount: pool.idleCount,
+    waitingCount: pool.waitingCount,
+  }, 'Database client connected');
 });
 
-pool.on('error', (err) => {
-  console.error('[DB] Unexpected error on idle client', err);
+pool.on('error', (err: Error) => {
+  logger.error({
+    error: err.message,
+    stack: err.stack,
+    name: err.name,
+  }, 'Unexpected error on idle database client');
+  // Don't throw - let the pool handle reconnection
+});
+
+pool.on('acquire', () => {
+  logger.debug('Database client acquired from pool');
+});
+
+pool.on('remove', () => {
+  logger.debug('Database client removed from pool');
 });
 
 export { pool };
 
 /**
- * 执行查询
+ * Execute a query
  */
 export async function query<T = unknown>(
   text: string,
@@ -42,15 +62,29 @@ export async function query<T = unknown>(
 ): Promise<T[]> {
   const client = await pool.connect();
   try {
+    logger.debug({ query: text.substring(0, 100), paramCount: params?.length ?? 0 }, 'Executing query');
     const result = await client.query(text, params);
+    logger.debug({ rowCount: result.rows.length }, 'Query completed');
     return result.rows as T[];
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorStack = error instanceof Error ? error.stack : undefined;
+    logger.error(
+      {
+        error: errorMessage,
+        stack: errorStack,
+        query: text.substring(0, 100),
+      },
+      'Query execution failed'
+    );
+    throw error;
   } finally {
     client.release();
   }
 }
 
 /**
- * 执行单条查询
+ * Execute a query and return a single row
  */
 export async function queryOne<T = unknown>(
   text: string,
@@ -61,7 +95,7 @@ export async function queryOne<T = unknown>(
 }
 
 /**
- * 执行事务
+ * Execute a transaction
  */
 export async function transaction<T>(
   callback: (client: pg.PoolClient) => Promise<T>
@@ -69,14 +103,35 @@ export async function transaction<T>(
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
+    logger.debug('Transaction started');
     const result = await callback(client);
     await client.query('COMMIT');
+    logger.debug('Transaction committed');
     return result;
   } catch (e) {
-    await client.query('ROLLBACK');
+    await client.query('ROLLBACK').catch((rollbackError) => {
+      logger.error({ error: rollbackError }, 'Failed to rollback transaction');
+    });
+    logger.error({ error: e }, 'Transaction rolled back');
     throw e;
   } finally {
     client.release();
+  }
+}
+
+/**
+ * Test database connection
+ * This can be called during startup to verify connectivity
+ */
+export async function testConnection(): Promise<boolean> {
+  try {
+    await pool.query('SELECT 1');
+    logger.info('Database connection test successful');
+    return true;
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    logger.error({ error: errorMessage }, 'Database connection test failed');
+    return false;
   }
 }
 

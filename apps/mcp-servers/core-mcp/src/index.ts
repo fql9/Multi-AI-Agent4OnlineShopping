@@ -26,6 +26,44 @@ import { complianceTools, handleComplianceTool } from './compliance/index.js';
 
 const logger = createLogger('core-mcp');
 
+// Global error handlers - must be set before any async operations
+process.on('unhandledRejection', (reason: unknown, promise: Promise<unknown>) => {
+  logger.error(
+    {
+      error: reason instanceof Error ? reason : String(reason),
+      stack: reason instanceof Error ? reason.stack : undefined,
+      promise: String(promise),
+    },
+    'Unhandled Promise Rejection'
+  );
+  // Don't exit immediately, let the error be logged
+  // The process will exit naturally if stdio closes
+});
+
+process.on('uncaughtException', (error: Error) => {
+  logger.error(
+    {
+      error: error.message,
+      stack: error.stack,
+      name: error.name,
+    },
+    'Uncaught Exception'
+  );
+  // Exit after logging to prevent undefined behavior
+  process.exit(1);
+});
+
+// Handle SIGTERM and SIGINT gracefully
+process.on('SIGTERM', () => {
+  logger.info('Received SIGTERM, shutting down gracefully');
+  process.exit(0);
+});
+
+process.on('SIGINT', () => {
+  logger.info('Received SIGINT, shutting down gracefully');
+  process.exit(0);
+});
+
 // 所有工具定义
 const ALL_TOOLS = [
   ...catalogTools,
@@ -60,61 +98,111 @@ const toolHandlers: Record<string, (params: unknown) => Promise<unknown>> = {
 };
 
 async function main() {
-  logger.info('Starting Core MCP Server...');
+  try {
+    logger.info('Starting Core MCP Server...');
+    logger.info({
+      nodeVersion: process.version,
+      env: process.env.NODE_ENV,
+      dbHost: process.env.DB_HOST,
+      dbPort: process.env.DB_PORT,
+      dbName: process.env.DB_NAME,
+    }, 'Environment configuration');
 
-  const server = new Server(
-    {
-      name: 'core-mcp',
-      version: '0.1.0',
-    },
-    {
-      capabilities: {
-        tools: {},
+    const server = new Server(
+      {
+        name: 'core-mcp',
+        version: '0.1.0',
       },
-    }
-  );
+      {
+        capabilities: {
+          tools: {},
+        },
+      }
+    );
 
-  // List tools handler
-  server.setRequestHandler(ListToolsRequestSchema, async () => {
-    return { tools: ALL_TOOLS };
-  });
+    // List tools handler
+    server.setRequestHandler(ListToolsRequestSchema, async () => {
+      logger.debug('List tools requested');
+      return { tools: ALL_TOOLS };
+    });
 
-  // Call tool handler
-  server.setRequestHandler(CallToolRequestSchema, async (request) => {
-    const { name, arguments: args } = request.params;
+    // Call tool handler
+    server.setRequestHandler(CallToolRequestSchema, async (request) => {
+      const { name, arguments: args } = request.params;
 
-    logger.info({ tool: name }, 'Tool called');
+      logger.info({ tool: name, args: JSON.stringify(args) }, 'Tool called');
 
-    const handler = toolHandlers[name];
-    if (!handler) {
-      throw new Error(`Unknown tool: ${name}`);
-    }
+      const handler = toolHandlers[name];
+      if (!handler) {
+        const error = new Error(`Unknown tool: ${name}`);
+        logger.error({ tool: name, availableTools: Object.keys(toolHandlers) }, 'Unknown tool');
+        throw error;
+      }
 
-    try {
-      const result = await handler(args);
-      return {
-        content: [
+      try {
+        const result = await handler(args);
+        logger.debug({ tool: name, resultSize: JSON.stringify(result).length }, 'Tool completed');
+        return {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify(result, null, 2),
+            },
+          ],
+        };
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        const errorStack = error instanceof Error ? error.stack : undefined;
+        logger.error(
           {
-            type: 'text',
-            text: JSON.stringify(result, null, 2),
+            tool: name,
+            error: errorMessage,
+            stack: errorStack,
           },
-        ],
-      };
-    } catch (error) {
-      logger.error({ tool: name, error }, 'Tool error');
-      throw error;
-    }
-  });
+          'Tool execution error'
+        );
+        throw error;
+      }
+    });
 
-  // Start server
-  const transport = new StdioServerTransport();
-  await server.connect(transport);
+    // Start server with stdio transport
+    // Note: StdioServerTransport is correct for MCP servers
+    // The server will wait for connections on stdin/stdout
+    const transport = new StdioServerTransport();
+    
+    logger.info('Connecting to stdio transport...');
+    await server.connect(transport);
 
-  logger.info('Core MCP Server running');
+    logger.info('Core MCP Server running and ready for connections');
+    
+    // Keep the process alive
+    // The stdio transport will keep the process running while connected
+    // If stdin closes (no client), the process will exit naturally
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorStack = error instanceof Error ? error.stack : undefined;
+    logger.error(
+      {
+        error: errorMessage,
+        stack: errorStack,
+      },
+      'Failed to start server'
+    );
+    process.exit(1);
+  }
 }
 
+// Start the server
 main().catch((error) => {
-  logger.error({ error }, 'Failed to start server');
+  const errorMessage = error instanceof Error ? error.message : String(error);
+  const errorStack = error instanceof Error ? error.stack : undefined;
+  logger.error(
+    {
+      error: errorMessage,
+      stack: errorStack,
+    },
+    'Fatal error in main()'
+  );
   process.exit(1);
 });
 
