@@ -1,7 +1,7 @@
 /**
  * XOOBAY API Client
  * 
- * 集成 XOOBAY 产品 API，提供产品数据源
+ * Integrates XOOBAY product API to provide product data source
  */
 
 interface XOOBAYProduct {
@@ -65,7 +65,7 @@ export class XOOBAYClient {
   }
 
   /**
-   * 获取产品列表
+   * Get product list
    */
   async getProductList(params: {
     pageNo?: number;
@@ -102,7 +102,7 @@ export class XOOBAYClient {
   }
 
   /**
-   * 获取产品详情
+   * Get product details
    */
   async getProductInfo(id: string | number, lang = this.lang): Promise<XOOBAYProductDetail> {
     const url = new URL(`${this.baseUrl}/api-geo/product-info`);
@@ -130,7 +130,7 @@ export class XOOBAYClient {
   }
 
   /**
-   * 获取商家详情
+   * Get store details
    */
   async getStoreInfo(id: string | number, lang = this.lang): Promise<XOOBAYStore> {
     const url = new URL(`${this.baseUrl}/api-geo/store-info`);
@@ -158,14 +158,14 @@ export class XOOBAYClient {
   }
 
   /**
-   * 搜索产品
+   * Search products
    */
   async searchProducts(query: string, pageNo = 1, lang = this.lang): Promise<XOOBAYProductListResponse> {
     return this.getProductList({ pageNo, name: query, lang });
   }
 }
 
-// 单例实例
+// Singleton instance
 let clientInstance: XOOBAYClient | null = null;
 
 export function getXOOBAYClient(): XOOBAYClient {

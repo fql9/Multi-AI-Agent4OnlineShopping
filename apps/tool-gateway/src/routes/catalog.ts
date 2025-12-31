@@ -1,10 +1,10 @@
 /**
- * Catalog Tool Routes - 商品目录工具
+ * Catalog Tool Routes
  * 
- * 实现:
- * - catalog.search_offers: 搜索商品
- * - catalog.get_offer_card: 获取商品详情 (AROC)
- * - catalog.get_availability: 获取库存状态
+ * Implements:
+ * - catalog.search_offers: Search products
+ * - catalog.get_offer_card: Get product details (AROC)
+ * - catalog.get_availability: Get stock status
  */
 
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
@@ -13,7 +13,7 @@ import { getXOOBAYClient } from '../services/xoobay.js';
 
 const logger = createLogger('catalog');
 
-// 商品类型定义
+// Product type definitions
 interface OfferRow {
   id: string;
   spu_id: string;
@@ -49,15 +49,15 @@ export async function catalogRoutes(app: FastifyInstance): Promise<void> {
   /**
    * catalog.search_offers
    * 
-   * 搜索商品，支持关键词、类目、价格范围等过滤
+   * Search products with keyword, category, price range filters
    */
   app.post('/search_offers', async (request: FastifyRequest, reply: FastifyReply) => {
     const body = request.body as { params?: Record<string, unknown> };
     const params = body.params ?? {};
 
-    // 支持两种参数格式：
-    // 1. 扁平格式: {query, category_id, price_min, price_max, limit}
-    // 2. 嵌套格式: {query, filters: {category_id, price_range: {min, max}}, limit}
+    // Support two parameter formats:
+    // 1. Flat format: {query, category_id, price_min, price_max, limit}
+    // 2. Nested format: {query, filters: {category_id, price_range: {min, max}}, limit}
     const filters = params.filters as Record<string, unknown> | undefined;
     const priceRange = filters?.price_range as { min?: number; max?: number } | undefined;
 
@@ -71,26 +71,26 @@ export async function catalogRoutes(app: FastifyInstance): Promise<void> {
     logger.info({ query: searchQuery, category_id: categoryId, limit }, 'Searching offers');
 
     try {
-      // 构建 SQL 查询
+      // Build SQL query
       const conditions: string[] = [];
       const sqlParams: unknown[] = [];
       let paramIndex = 1;
 
-      // 关键词搜索（标题）
+      // Keyword search (title)
       if (searchQuery) {
         conditions.push(`(title_en ILIKE $${paramIndex} OR title_zh ILIKE $${paramIndex} OR brand_name ILIKE $${paramIndex})`);
         sqlParams.push(`%${searchQuery}%`);
         paramIndex++;
       }
 
-      // 类目过滤
+      // Category filter
       if (categoryId) {
         conditions.push(`category_id = $${paramIndex}`);
         sqlParams.push(categoryId);
         paramIndex++;
       }
 
-      // 价格范围
+      // Price range
       if (priceMin !== undefined) {
         conditions.push(`base_price >= $${paramIndex}`);
         sqlParams.push(priceMin);
@@ -104,12 +104,12 @@ export async function catalogRoutes(app: FastifyInstance): Promise<void> {
 
       const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
-      // 查询总数
+      // Query total count
       const countSql = `SELECT COUNT(*) as total FROM agent.offers ${whereClause}`;
       const countResult = await queryOne<{ total: string }>(countSql, sqlParams);
       const totalCount = parseInt(countResult?.total ?? '0', 10);
 
-      // 查询商品 ID 和分数
+      // Query product IDs and scores
       const searchSql = `
         SELECT id, rating as score
         FROM agent.offers
@@ -121,10 +121,10 @@ export async function catalogRoutes(app: FastifyInstance): Promise<void> {
 
       const offers = await query<{ id: string; score: number }>(searchSql, sqlParams);
 
-      // XOOBAY API 集成：如果结果不足或启用了 XOOBAY，补充数据
+      // XOOBAY API integration: supplement data if results are insufficient or XOOBAY is enabled
       let xoobayOffers: Array<{ id: string; score: number }> = [];
       const xoobayEnabled = process.env.XOOBAY_ENABLED === 'true';
-      const minResults = Math.max(limit, 10); // 至少需要的结果数
+      const minResults = Math.max(limit, 10); // Minimum required results
 
       logger.info({ 
         xoobay_enabled: xoobayEnabled,
@@ -134,7 +134,7 @@ export async function catalogRoutes(app: FastifyInstance): Promise<void> {
         search_query: searchQuery
       }, 'XOOBAY integration check');
 
-      // 如果启用了 XOOBAY 且有搜索查询，或者结果不足，则调用 XOOBAY API
+      // Call XOOBAY API if enabled and has search query, or if results are insufficient
       if (xoobayEnabled && (offers.length < minResults || searchQuery)) {
         logger.info({ searchQuery, offers_count: offers.length }, 'Attempting to fetch from XOOBAY API');
         try {
@@ -147,12 +147,12 @@ export async function catalogRoutes(app: FastifyInstance): Promise<void> {
             pager: xoobayResult.pager
           }, 'XOOBAY API response received');
           
-          // 转换 XOOBAY 产品为 offer 格式
+          // Convert XOOBAY products to offer format
           xoobayOffers = xoobayResult.list
-            .slice(0, Math.max(limit - offers.length, 0)) // 只取需要的数量
+            .slice(0, Math.max(limit - offers.length, 0)) // Only take needed quantity
             .map(product => ({
               id: `xoobay_${product.id}`,
-              score: 4.0, // 默认评分
+              score: 4.0, // Default rating
             }));
 
           logger.info({ 
@@ -173,7 +173,7 @@ export async function catalogRoutes(app: FastifyInstance): Promise<void> {
         }, 'Skipping XOOBAY API call');
       }
 
-      // 合并结果，去重
+      // Merge results, remove duplicates
       const allOfferIds = new Set(offers.map(o => o.id));
       const mergedOffers = [...offers];
       
@@ -201,7 +201,7 @@ export async function catalogRoutes(app: FastifyInstance): Promise<void> {
           total_count: finalTotal,
           has_more: offset + mergedOffers.length < finalTotal,
         }, {
-          ttl_seconds: 60, // 搜索结果缓存 60 秒
+          ttl_seconds: 60, // Cache search results for 60 seconds
         })
       );
     } catch (error) {
@@ -215,7 +215,7 @@ export async function catalogRoutes(app: FastifyInstance): Promise<void> {
   /**
    * catalog.get_offer_card
    * 
-   * 获取商品详情 (AROC - AI-Ready Offer Card)
+   * Get product details (AROC - AI-Ready Offer Card)
    */
   app.post('/get_offer_card', async (request: FastifyRequest, reply: FastifyReply) => {
     const body = request.body as { params?: { offer_id?: string } };
@@ -230,13 +230,13 @@ export async function catalogRoutes(app: FastifyInstance): Promise<void> {
     logger.info({ offer_id: offerId }, 'Getting offer card');
 
     try {
-      // 查询商品详情
+      // Query product details
       let offer = await queryOne<OfferRow>(
         `SELECT * FROM agent.offers WHERE id = $1`,
         [offerId]
       );
 
-      // 如果数据库中没有，且是 XOOBAY 产品，从 API 获取
+      // If not in database and is XOOBAY product, fetch from API
       if (!offer && offerId.startsWith('xoobay_') && process.env.XOOBAY_ENABLED === 'true') {
         logger.info({ offer_id: offerId, xoobay_enabled: true }, 'Fetching from XOOBAY API');
         try {
@@ -246,20 +246,20 @@ export async function catalogRoutes(app: FastifyInstance): Promise<void> {
           const xoobayProduct = await xoobayClient.getProductInfo(xoobayId);
           logger.info({ product_name: xoobayProduct.name }, 'XOOBAY product fetched successfully');
 
-          // 转换为数据库格式
-          // 修复价格解析：确保正确转换为数字
+          // Convert to database format
+          // Fix price parsing: ensure correct conversion to number
           let basePrice = 0
           if (xoobayProduct.price) {
-            const priceStr = String(xoobayProduct.price).replace(/[^\d.-]/g, '') // 移除货币符号等
+            const priceStr = String(xoobayProduct.price).replace(/[^\d.-]/g, '') // Remove currency symbols etc
             const priceNum = parseFloat(priceStr)
-            basePrice = isNaN(priceNum) ? 0 : Math.round(priceNum * 100) / 100 // 保留2位小数
+            basePrice = isNaN(priceNum) ? 0 : Math.round(priceNum * 100) / 100 // Keep 2 decimal places
           }
           
           offer = {
             id: offerId,
             spu_id: `spu_${xoobayProduct.id}`,
             merchant_id: `merchant_${xoobayProduct.store_id}`,
-            category_id: 'cat_other', // 默认分类
+            category_id: 'cat_other', // Default category
             title_en: xoobayProduct.name,
             title_zh: xoobayProduct.name,
             brand_name: xoobayProduct.brand_name || 'XOOBAY',
@@ -306,13 +306,13 @@ export async function catalogRoutes(app: FastifyInstance): Promise<void> {
         );
       }
 
-      // 查询 SKU 变体
+      // Query SKU variants
       let skus = await query<SkuRow>(
         `SELECT * FROM agent.skus WHERE offer_id = $1`,
         [offerId]
       );
 
-      // 如果是从 XOOBAY API 获取的产品且没有 SKU，创建默认 SKU
+      // If product from XOOBAY API has no SKU, create default SKU
       if (skus.length === 0 && offerId.startsWith('xoobay_')) {
         const xoobayId = offerId.replace('xoobay_', '');
         skus = [{
@@ -321,17 +321,17 @@ export async function catalogRoutes(app: FastifyInstance): Promise<void> {
           options: {},
           price: offer.base_price,
           currency: offer.currency,
-          stock: 100, // 默认库存
+          stock: 100, // Default stock
         }];
       }
 
-      // 查询类目路径
+      // Query category path
       const category = await queryOne<{ path: string[] }>(
         `SELECT path FROM agent.categories WHERE id = $1`,
         [offer.category_id]
       );
 
-      // 构建 AROC 响应
+      // Build AROC response
       const aroc = {
         aroc_version: '0.1',
         offer_id: offer.id,
@@ -384,7 +384,7 @@ export async function catalogRoutes(app: FastifyInstance): Promise<void> {
 
       return reply.send(
         createSuccessResponse(aroc, {
-          ttl_seconds: 300, // AROC 缓存 5 分钟
+          ttl_seconds: 300, // Cache AROC for 5 minutes
         })
       );
     } catch (error) {
@@ -398,7 +398,7 @@ export async function catalogRoutes(app: FastifyInstance): Promise<void> {
   /**
    * catalog.get_availability
    * 
-   * 获取商品库存状态
+   * Get product stock status
    */
   app.post('/get_availability', async (request: FastifyRequest, reply: FastifyReply) => {
     const body = request.body as { params?: { sku_id?: string; offer_id?: string } };
@@ -444,7 +444,7 @@ export async function catalogRoutes(app: FastifyInstance): Promise<void> {
         createSuccessResponse({
           items: availability,
         }, {
-          ttl_seconds: 30, // 库存状态缓存 30 秒
+          ttl_seconds: 30, // Cache stock status for 30 seconds
         })
       );
     } catch (error) {
@@ -457,7 +457,7 @@ export async function catalogRoutes(app: FastifyInstance): Promise<void> {
 }
 
 /**
- * 从 SKU 列表提取变体轴
+ * Extract variant axes from SKU list
  */
 function extractVariantAxes(skus: SkuRow[]): Array<{ axis: string; values: string[] }> {
   const axesMap = new Map<string, Set<string>>();
