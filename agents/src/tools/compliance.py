@@ -30,6 +30,8 @@ async def check_compliance(
             "reason_codes": [],
             "required_docs": [],
             "mitigations": [],
+            "warnings": [],
+            "issues": [],
             "ruleset_version": "cr_2025_12_20",
         })
 
@@ -40,6 +42,52 @@ async def check_compliance(
             "sku_id": sku_id,
             "destination_country": destination_country,
             "shipping_option_id": shipping_option_id,
+        },
+        user_id=user_id,
+    )
+
+
+async def get_compliance_rules(
+    destination_country: str,
+    category_id: str | None = None,
+    user_id: str | None = None,
+) -> dict[str, Any]:
+    """
+    Get compliance rules for a destination country.
+
+    Args:
+        destination_country: ISO 2-letter country code
+        category_id: Optional category filter
+
+    Returns:
+        Response envelope with compliance rules
+    """
+    if MOCK_MODE:
+        return mock_response({
+            "rules": [
+                {
+                    "rule_type": "import_restriction",
+                    "name": {"en": "Battery Restriction", "zh": "电池限制"},
+                    "severity": "warning",
+                    "applies_to": ["battery_included"],
+                },
+                {
+                    "rule_type": "certification",
+                    "name": {"en": "CE Marking Required", "zh": "需要CE认证"},
+                    "severity": "error",
+                    "applies_to": ["electronics"],
+                },
+            ],
+            "country": destination_country,
+            "ruleset_version": "cr_2025_12_20",
+        })
+
+    return await call_tool(
+        mcp_server="core",
+        tool_name="compliance.get_rules",
+        params={
+            "destination_country": destination_country,
+            "category_id": category_id,
         },
         user_id=user_id,
     )
