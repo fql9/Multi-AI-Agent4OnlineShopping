@@ -378,6 +378,7 @@ export const useShoppingStore = create<ShoppingState>((set, get) => ({
     
     const agentIds = ['intent', 'candidate', 'verifier', 'plan', 'execution'] as const
     let totalTokens = 0
+    let realProducts: Product[] = []
     
     for (let i = 0; i < agentIds.length; i++) {
       const agentId = agentIds[i]
@@ -407,34 +408,155 @@ export const useShoppingStore = create<ShoppingState>((set, get) => ({
         await delay(400 + Math.random() * 300)
       }
       
-      // 模拟工具调用
-      for (const tool of process.tools) {
+      // 工具调用 - 如果是 candidate agent，调用真实 API
+      if (agentId === 'candidate') {
+        // 提取搜索关键词：移除常见停用词，保留核心关键词
+        const stopWords = ['i', 'need', 'want', 'buy', 'looking', 'for', 'a', 'an', 'the', 'to', 'my', 'me', 'is', 'are', 'was', 'were', 'be', 'been', 'being', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'should', 'could', 'may', 'might', 'can', 'must', 'shall', 'of', 'in', 'on', 'at', 'by', 'for', 'with', 'about', 'into', 'through', 'during', 'including', 'against', 'among', 'throughout', 'despite', 'towards', 'upon', 'concerning', 'to', 'from', 'up', 'about', 'into', 'through', 'during', 'before', 'after', 'above', 'below', 'out', 'off', 'over', 'under', 'again', 'further', 'then', 'once', 'some', 'keeping', 'budget', 'under', 'within', 'three', 'days', 'prioritizing', 'avoiding', 'small', 'parts', 'that', 'easy', 'swallow', 'delivery', 'stem']
+        const words = query.toLowerCase()
+          .replace(/[^\w\s]/g, ' ') // 移除标点符号
+          .split(/\s+/)
+          .filter(word => word.length > 1 && !stopWords.includes(word)) // 只保留长度>1的词
+          .slice(0, 5) // 最多取5个关键词
+        // 如果提取的关键词太少，尝试提取更重要的词（名词、形容词）
+        let searchQuery = words.length > 0 ? words.join(' ') : ''
+        if (searchQuery.length < 3 || words.length < 2) {
+          // 尝试提取更具体的词：移除所有停用词后，取前3个词
+          const allWords = query.toLowerCase()
+            .replace(/[^\w\s]/g, ' ')
+            .split(/\s+/)
+            .filter(word => word.length > 1)
+          const importantWords = allWords.filter(w => !stopWords.includes(w)).slice(0, 3)
+          searchQuery = importantWords.length > 0 ? importantWords.join(' ') : query.trim().slice(0, 50)
+        }
+        
         const toolCall: ToolCall = {
-          id: `tc_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
-          name: tool.name,
-          input: tool.input,
+          id: `tc_${Date.now()}_search`,
+          name: 'catalog.search_offers',
+          input: JSON.stringify({ query: searchQuery, limit: 10 }),
           output: '',
           duration: 0,
           status: 'running',
         }
         addToolCall(i, toolCall)
-        await delay(200)
         
-        const duration = 50 + Math.floor(Math.random() * 150)
-        await delay(duration)
-        
-        updateToolCall(i, toolCall.id, {
-          output: tool.output,
-          duration,
-          status: 'success',
-        })
+        try {
+          const requestId = crypto.randomUUID()
+          const response = await fetch('http://localhost:3000/tools/catalog/search_offers', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              request_id: requestId,
+              actor: { type: 'user', id: 'web-user' },
+              client: { app: 'web', version: '1.0.0' },
+              params: {
+                query: searchQuery,
+                limit: 10,
+              },
+            }),
+          })
+          
+          const result = await response.json()
+          const duration = Date.now() - startTime
+          
+          if (result.ok && result.data?.offer_ids && result.data.offer_ids.length > 0) {
+            // 获取产品详情
+            const offerIds = result.data.offer_ids.slice(0, 3) // 只取前3个
+            const products: Product[] = []
+            
+            for (const offerId of offerIds) {
+              try {
+                const detailResponse = await fetch('http://localhost:3000/tools/catalog/get_offer_card', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    request_id: crypto.randomUUID(),
+                    actor: { type: 'user', id: 'web-user' },
+                    client: { app: 'web', version: '1.0.0' },
+                    params: { offer_id: offerId },
+                  }),
+                })
+                
+                const detailResult = await detailResponse.json()
+                if (detailResult.ok && detailResult.data) {
+                  const data = detailResult.data
+                  // 修复价格解析：确保是数字类型，并保留2位小数
+                  let price = 0
+                  if (data.price?.amount !== undefined) {
+                    const priceValue = typeof data.price.amount === 'string' 
+                      ? parseFloat(data.price.amount.replace(/[^\d.-]/g, '')) 
+                      : Number(data.price.amount)
+                    price = isNaN(priceValue) ? 0 : Math.round(priceValue * 100) / 100 // 保留2位小数
+                  }
+                  
+                  products.push({
+                    id: offerId,
+                    title: data.titles?.[0]?.text || data.titles?.[1]?.text || 'Product',
+                    price: price,
+                    image: '📦',
+                    brand: data.brand?.name || 'Unknown',
+                    rating: typeof data.rating === 'number' ? data.rating : (parseFloat(String(data.rating || 0)) || 4.0),
+                    complianceRisks: [],
+                  })
+                }
+              } catch (err) {
+                console.error('Failed to fetch product detail:', err)
+              }
+            }
+            
+            realProducts = products.length > 0 ? products : mockProducts
+            
+            updateToolCall(i, toolCall.id, {
+              output: JSON.stringify({ count: result.data.offer_ids.length, products: realProducts.length, query: searchQuery }),
+              duration,
+              status: 'success',
+            })
+          } else {
+            updateToolCall(i, toolCall.id, {
+              output: JSON.stringify({ error: 'API call failed or no results', fallback: 'using mock data', query: searchQuery }),
+              duration,
+              status: 'success',
+            })
+            realProducts = mockProducts
+          }
+        } catch (error) {
+          console.error('API call failed:', error)
+          updateToolCall(i, toolCall.id, {
+            output: JSON.stringify({ error: String(error), fallback: 'using mock data' }),
+            duration: Date.now() - startTime,
+            status: 'success',
+          })
+          realProducts = mockProducts
+        }
+      } else {
+        // 其他工具调用保持模拟
+        for (const tool of process.tools) {
+          const toolCall: ToolCall = {
+            id: `tc_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
+            name: tool.name,
+            input: tool.input,
+            output: '',
+            duration: 0,
+            status: 'running',
+          }
+          addToolCall(i, toolCall)
+          await delay(200)
+          
+          const duration = 50 + Math.floor(Math.random() * 150)
+          await delay(duration)
+          
+          updateToolCall(i, toolCall.id, {
+            output: tool.output,
+            duration,
+            status: 'success',
+          })
+        }
       }
       
       set({ isStreaming: false, currentThinkingStep: '' })
       
       // 更新状态机
       if (i === 0) set({ orderState: 'MISSION_READY' })
-      if (i === 1) set({ orderState: 'CANDIDATES_READY', candidates: mockProducts })
+      if (i === 1) set({ orderState: 'CANDIDATES_READY', candidates: realProducts.length > 0 ? realProducts : mockProducts })
       if (i === 2) set({ orderState: 'VERIFIED_TOPN_READY' })
       if (i === 3) set({ orderState: 'TOTAL_COMPUTED' })
       
@@ -457,62 +579,47 @@ export const useShoppingStore = create<ShoppingState>((set, get) => ({
       await delay(200)
     }
     
+    // 使用真实产品或 mock 产品生成方案
+    const productsToUse = realProducts.length > 0 ? realProducts : mockProducts
+    
     // 生成方案
-    const plans: Plan[] = [
-      {
-        name: 'Budget Saver',
-        type: 'cheapest',
-        product: mockProducts[0],
-        shipping: 5.99,
-        shippingOption: 'Standard International (7-14 days)',
-        tax: { amount: 3.36, currency: 'USD', confidence: 'medium', method: 'rule_based', breakdown: { vat: 2.50, duty: 0.50, handling: 0.36 } },
-        total: 45.34,
-        deliveryDays: '7-14',
-        emoji: '💰',
-        recommended: true,
-        reason: 'Best match for your $50 budget with reliable shipping',
-        risks: ['Tax estimate may vary at customs'],
-        confidence: 0.92,
+    const plans: Plan[] = productsToUse.slice(0, 3).map((product, idx) => ({
+      name: idx === 0 ? 'Budget Saver' : idx === 1 ? 'Express Delivery' : 'Best Value',
+      type: idx === 0 ? 'cheapest' as const : idx === 1 ? 'fastest' as const : 'best_value' as const,
+      product,
+      shipping: idx === 0 ? 5.99 : idx === 1 ? 12.99 : 0,
+      shippingOption: idx === 0 ? 'Standard International (7-14 days)' : 
+                     idx === 1 ? 'DHL Express (3-5 days)' : 
+                     'Free Premium Shipping (5-7 days)',
+      tax: { 
+        amount: Math.round(product.price * 0.1 * 100) / 100, 
+        currency: 'USD', 
+        confidence: idx === 0 ? 'medium' as const : idx === 1 ? 'high' as const : 'low' as const, 
+        method: 'rule_based', 
+        breakdown: { 
+          vat: Math.round(product.price * 0.07 * 100) / 100, 
+          duty: Math.round(product.price * 0.02 * 100) / 100, 
+          handling: Math.round(product.price * 0.01 * 100) / 100 
+        } 
       },
-      {
-        name: 'Express Delivery',
-        type: 'fastest',
-        product: mockProducts[2],
-        shipping: 12.99,
-        shippingOption: 'DHL Express (3-5 days)',
-        tax: { amount: 4.16, currency: 'USD', confidence: 'high', method: 'hs_code', breakdown: { vat: 3.00, duty: 0.80, handling: 0.36 } },
-        total: 56.15,
-        deliveryDays: '3-5',
-        emoji: '⚡',
-        recommended: false,
-        reason: 'Fastest delivery with Apple quality',
-        risks: ['Slightly over budget'],
-        confidence: 0.85,
-      },
-      {
-        name: 'Best Value',
-        type: 'best_value',
-        product: mockProducts[1],
-        shipping: 0,
-        shippingOption: 'Free Premium Shipping (5-7 days)',
-        tax: { amount: 7.20, currency: 'USD', confidence: 'low', method: 'ml_estimate', breakdown: { vat: 5.00, duty: 1.50, handling: 0.70 } },
-        total: 97.19,
-        deliveryDays: '5-7',
-        emoji: '⭐',
-        recommended: false,
-        reason: '3-in-1 charger with free shipping',
-        risks: ['Above budget', 'Low tax confidence'],
-        confidence: 0.78,
-      },
-    ]
+      total: Math.round((product.price + (idx === 0 ? 5.99 : idx === 1 ? 12.99 : 0) + Math.round(product.price * 0.1 * 100) / 100) * 100) / 100,
+      deliveryDays: idx === 0 ? '7-14' : idx === 1 ? '3-5' : '5-7',
+      emoji: idx === 0 ? '💰' : idx === 1 ? '⚡' : '⭐',
+      recommended: idx === 0,
+      reason: idx === 0 ? `Best match for your budget: ${product.title}` :
+              idx === 1 ? `Fastest delivery: ${product.title}` :
+              `Best value: ${product.title}`,
+      risks: [],
+      confidence: idx === 0 ? 0.92 : idx === 1 ? 0.85 : 0.78,
+    }))
     
     set({
       plans,
       aiRecommendation: {
-        plan: 'Budget Saver',
-        reason: 'Based on your $50 budget and shipping to Germany, this Anker charger offers the best value.',
+        plan: plans[0]?.name || 'Budget Saver',
+        reason: `Based on your query "${query}", we found ${productsToUse.length} products. ${plans[0]?.reason || ''}`,
         model: 'GPT-4o-mini',
-        confidence: 0.92,
+        confidence: plans[0]?.confidence || 0.92,
       },
     })
   },

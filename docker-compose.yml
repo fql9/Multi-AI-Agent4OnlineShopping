@@ -6,7 +6,7 @@ services:
     image: pgvector/pgvector:pg16
     container_name: agent-postgres
     ports:
-      - "5432:5432"
+      - "5433:5432"
     environment:
       POSTGRES_USER: agent
       POSTGRES_PASSWORD: agent_dev_password
