@@ -6,14 +6,14 @@
 
 ## 当前版本
 
-**v0.2.0** (2025-12-27) - [PR #2 已合并](https://github.com/fql9/Multi-AI-Agent4OnlineShopping/pull/2)
+**v0.3.0** (2026-01-02) - RAG 检索 + XOOBAY 集成 + 错误处理增强
 
 ---
 
 ## 进度总览
 
 ```
-██████████████████████████████████░░ 85%
+██████████████████████████████████████░░ 92%
 ```
 
 | 模块 | 进度 | 状态 |
@@ -21,6 +21,7 @@
 | 基础设施 | 100% | ✅ 完成 |
 | 工具层 | 100% | ✅ 完成 |
 | Agent 层 | 95% | ✅ 完成 |
+| RAG 检索 | 100% | ✅ 完成 |
 | 前端 | 80% | ✅ Demo 可用 |
 | 支付集成 | 0% | ⏳ 待开始 |
 
@@ -38,7 +39,7 @@
 | 种子数据 | 12 类目 + 6 规则 + 14 商品 + 22 SKU | `infra/docker/seed-data.sql` |
 | CI/CD | GitHub Actions 自动构建测试 | `.github/workflows/ci.yml` |
 
-### 🔧 工具层（19 个端点）
+### 🔧 工具层（23 个端点）
 
 | 域 | 工具 | 功能 |
 |----|------|------|
@@ -61,6 +62,10 @@
 | | `attach_to_draft_order` | 绑定证据 |
 | | `get_snapshot` | 获取快照 |
 | | `list_snapshots` | 快照列表 |
+| **Knowledge** | `search` | 混合 RAG 检索（BM25 + 向量） |
+| | `get_chunk` | 获取证据块 + 引用 |
+| | `index_product` | 产品内容索引 |
+| | `sync_xoobay` | XOOBAY 产品批量同步 |
 
 ### 🐍 Python Agent
 
@@ -115,18 +120,19 @@
 - [x] ~~**完整流程测试** - 端到端购物流程验证~~
 - [x] ~~**前端 Web App** - Next.js 用户界面~~
 - [x] ~~**真实 LLM 测试** - 使用 Poe API 进行端到端测试~~
-- [ ] **错误处理增强** - 超时、重试、降级策略
+- [x] ~~**错误处理增强** - 超时、重试、降级策略~~
 
 ### 中优先级 (P1)
 
-- [ ] **RAG 检索** - 实现 evidence_chunks 向量检索
+- [x] ~~**RAG 检索** - 实现 evidence_chunks 向量检索~~
+- [x] ~~**XOOBAY 产品同步** - 批量索引真实产品~~
 - [ ] **TypeScript 测试** - 添加 API 端点测试
 - [ ] **日志增强** - 结构化日志 + OpenTelemetry trace
 
 ### 低优先级 (P2)
 
 - [ ] **支付集成** - Stripe/PayPal
-- [ ] **知识图谱** - 兼容性/替代品推理
+- [ ] **知识图谱** - 兼容性/替代品推理（GraphRAG）
 - [ ] **生产部署** - Docker Compose → K8s
 
 ---
@@ -145,6 +151,20 @@
 ---
 
 ## 变更日志
+
+### 2026-01-02 (v0.3.0) - RAG 检索 + 错误处理
+
+- ✅ **RAG 混合检索** - BM25 关键词 + 向量语义搜索
+- ✅ **Knowledge 工具** - search, get_chunk, index_product, sync_xoobay
+- ✅ **XOOBAY 完整集成** - 47,000+ 产品批量索引
+- ✅ **错误处理增强**:
+  - Circuit Breaker 熔断器模式
+  - 指数退避重试策略
+  - 请求超时处理
+  - 内存缓存降级
+  - 批量操作并发控制
+- ✅ **数据库迁移** - 全文搜索索引 + 知识图谱表结构
+- ✅ **通用工具库** - `packages/common/src/retry.ts`
 
 ### 2025-12-27 (v0.2.0) - [PR #2](https://github.com/fql9/Multi-AI-Agent4OnlineShopping/pull/2)
 
