@@ -1,0 +1,191 @@
+# 生产环境 Docker Compose 配置
+# 使用: docker compose -f docker-compose.prod.yml up -d
+
+services:
+  # ========================================
+  # 数据库服务
+  # ========================================
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: agent-postgres-prod
+    ports:
+      - "${DB_EXTERNAL_PORT:-5432}:5432"
+    environment:
+      POSTGRES_USER: ${DB_USER:-agent}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME:-agent_db}
+    volumes:
+      - pgdata-prod:/var/lib/postgresql/data
+      - ./infra/docker/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-agent} -d ${DB_NAME:-agent_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: always
+    networks:
+      - agent-network-prod
+    # 生产环境建议添加资源限制
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '1'
+          memory: 1G
+
+  # ========================================
+  # Tool Gateway (统一工具网关)
+  # ========================================
+  tool-gateway:
+    build:
+      context: .
+      dockerfile: apps/tool-gateway/Dockerfile
+    container_name: agent-tool-gateway-prod
+    ports:
+      - "${TOOL_GATEWAY_PORT:-3000}:3000"
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: ${DB_USER:-agent}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME:-agent_db}
+      DATABASE_URL: postgresql://${DB_USER:-agent}:${DB_PASSWORD}@postgres:5432/${DB_NAME:-agent_db}
+      MCP_CORE_URL: http://core-mcp:3010
+      MCP_CHECKOUT_URL: http://checkout-mcp:3011
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3001}
+      JWT_SECRET: ${JWT_SECRET}
+      AUTH_ENABLED: ${AUTH_ENABLED:-false}
+      # XOOBAY API 配置（可选）
+      XOOBAY_ENABLED: ${XOOBAY_ENABLED:-false}
+      XOOBAY_API_KEY: ${XOOBAY_API_KEY:-xoobay_api_ai_geo}
+      XOOBAY_BASE_URL: ${XOOBAY_BASE_URL:-https://www.xoobay.com}
+      XOOBAY_LANG: ${XOOBAY_LANG:-en}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: always
+    networks:
+      - agent-network-prod
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+
+  # ========================================
+  # Core MCP Server
+  # ========================================
+  core-mcp:
+    build:
+      context: .
+      dockerfile: apps/mcp-servers/core-mcp/Dockerfile
+    container_name: agent-core-mcp-prod
+    ports:
+      - "${CORE_MCP_PORT:-3010}:3010"
+    environment:
+      NODE_ENV: production
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: ${DB_USER:-agent}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME:-agent_db}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: always
+    networks:
+      - agent-network-prod
+
+  # ========================================
+  # Checkout MCP Server
+  # ========================================
+  checkout-mcp:
+    build:
+      context: .
+      dockerfile: apps/mcp-servers/checkout-mcp/Dockerfile
+    container_name: agent-checkout-mcp-prod
+    ports:
+      - "${CHECKOUT_MCP_PORT:-3011}:3011"
+    environment:
+      NODE_ENV: production
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: ${DB_USER:-agent}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME:-agent_db}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: always
+    networks:
+      - agent-network-prod
+
+  # ========================================
+  # Web App (Next.js 前端)
+  # ========================================
+  web-app:
+    build:
+      context: .
+      dockerfile: apps/web-app/Dockerfile
+    container_name: agent-web-app-prod
+    ports:
+      - "${WEB_APP_PORT:-3001}:3001"
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      NEXT_PUBLIC_TOOL_GATEWAY_URL: ${NEXT_PUBLIC_TOOL_GATEWAY_URL:-http://localhost:3000}
+    depends_on:
+      - tool-gateway
+    restart: always
+    networks:
+      - agent-network-prod
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+
+  # ========================================
+  # Python Agent (LangGraph 编排层)
+  # ========================================
+  agent:
+    build:
+      context: .
+      dockerfile: agents/Dockerfile
+    container_name: agent-python-prod
+    environment:
+      APP_ENV: production
+      DEBUG: "false"
+      DATABASE_URL: postgresql+asyncpg://${DB_USER:-agent}:${DB_PASSWORD}@postgres:5432/${DB_NAME:-agent_db}
+      TOOL_GATEWAY_URL: http://tool-gateway:3000
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
+      OPENAI_MODEL_PLANNER: ${OPENAI_MODEL_PLANNER:-gpt-4o-mini}
+      OPENAI_MODEL_VERIFIER: ${OPENAI_MODEL_VERIFIER:-gpt-4o}
+      TOKEN_BUDGET_TOTAL: ${TOKEN_BUDGET_TOTAL:-50000}
+      MOCK_TOOLS: ${MOCK_TOOLS:-false}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      tool-gateway:
+        condition: service_started
+    restart: always
+    networks:
+      - agent-network-prod
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 1G
+
+volumes:
+  pgdata-prod:
+
+networks:
+  agent-network-prod:
+    name: agent-network-prod
+    driver: bridge

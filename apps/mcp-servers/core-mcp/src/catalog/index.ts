@@ -1,7 +1,7 @@
 /**
- * Catalog Tools - 商品目录工具
+ * Catalog Tools
  * 
- * 提供商品搜索、详情、变体、库存查询
+ * Provides product search, details, variants, and stock queries
  */
 
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
@@ -108,38 +108,158 @@ interface SkuRow {
 // ============================================================
 
 /**
- * 搜索商品
+ * Search products - Priority: XOOBAY API, fallback to local database
  */
 async function searchOffers(params: Record<string, unknown>): Promise<unknown> {
-  const searchQuery = (params.query as string) ?? '';
-  const categoryId = params.category_id as string | undefined;
-  const priceMin = params.price_min as number | undefined;
-  const priceMax = params.price_max as number | undefined;
-  const brand = params.brand as string | undefined;
+  // Ensure query is always a string, even if LLM didn't parse correctly
+  const searchQuery = String(params.query || '').trim();
+  if (!searchQuery) {
+    console.log('[searchOffers] Empty query, returning empty result');
+    return { 
+      offer_ids: [], 
+      offers: [], 
+      total_count: 0, 
+      has_more: false,
+      search_query: '' 
+    };
+  }
+
+  // Support both flat and nested parameter formats
+  const filters = params.filters as Record<string, unknown> | undefined;
+  const priceRange = filters?.price_range as { min?: number; max?: number } | undefined;
+  
+  const categoryId = (params.category_id as string | undefined) ?? (filters?.category_id as string | undefined);
+  const priceMin = (params.price_min as number | undefined) ?? priceRange?.min;
+  const priceMax = (params.price_max as number | undefined) ?? priceRange?.max;
+  const brand = (params.brand as string | undefined) ?? (filters?.brand as string | undefined);
   const sort = (params.sort as string) ?? 'relevance';
   const limit = Math.min((params.limit as number) ?? 50, 100);
   const offset = (params.offset as number) ?? 0;
 
-  // 构建查询
+  // Try XOOBAY API first if we have a search query
+  if (searchQuery) {
+    try {
+      const apiKey = process.env.XOOBAY_API_KEY || 'xoobay_api_ai_geo';
+      const lang = process.env.XOOBAY_LANG || 'zh_cn';
+      const baseUrl = process.env.XOOBAY_BASE_URL || 'https://www.xoobay.com';
+      
+      const url = `${baseUrl}/api-geo/product-list?name=${encodeURIComponent(searchQuery)}&apiKey=${apiKey}&lang=${lang}&pageNo=1`;
+      
+      // Log the full request URL for debugging
+      console.log('[searchOffers] Calling XOOBAY API:', url);
+      
+      const response = await fetch(url);
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      
+      const result = await response.json() as {
+        code: number;
+        msg?: string;
+        data?: {
+          list?: Array<{
+            id: number;
+            name: string;
+            money: string;
+            img_logo: string;
+          }>;
+          pager?: {
+            page: number;
+            count: number;
+            pageCount: number;
+          };
+        };
+      };
+
+      console.log('[searchOffers] XOOBAY API response:', {
+        code: result.code,
+        listCount: result.data?.list?.length ?? 0,
+        totalCount: result.data?.pager?.count ?? 0
+      });
+
+      if (result.code === 200 && result.data?.list && result.data.list.length > 0) {
+        const rows = result.data.list;
+        const pager = result.data.pager || { page: 1, count: rows.length, pageCount: 1 };
+        
+        // Apply limit and offset
+        const startIndex = offset;
+        const endIndex = Math.min(offset + limit, rows.length);
+        const paginatedRows = rows.slice(startIndex, endIndex);
+
+        // Map XOOBAY fields to expected format
+        const mappedOffers = paginatedRows.map((r) => {
+          // Parse price: remove currency symbols and convert to number
+          const priceStr = String(r.money || '0').replace(/[^\d.-]/g, '');
+          const priceAmount = parseFloat(priceStr) || 0;
+          
+          return {
+            offer_id: `xoobay_${r.id}`,
+            title: String(r.name || ''),
+            brand: 'XOOBAY',
+            price: { 
+              amount: Math.round(priceAmount * 100) / 100, // Round to 2 decimal places
+              currency: 'USD' 
+            },
+            rating: 5.0,
+            reviews_count: 10,
+            image_url: String(r.img_logo || ''),
+          };
+        });
+
+        console.log('[searchOffers] XOOBAY API success, returning', mappedOffers.length, 'products');
+        
+        // Calculate scores (normalized to 0-1 range, based on position)
+        const scores = mappedOffers.map((_, index) => {
+          // Higher score for earlier results
+          return Math.max(0, 1 - (index * 0.05));
+        });
+        
+        return {
+          offer_ids: mappedOffers.map((o) => o.offer_id),
+          scores: scores,
+          offers: mappedOffers,
+          total_count: pager.count,
+          has_more: endIndex < rows.length || pager.page < pager.pageCount,
+          search_query: searchQuery,
+        };
+      } else {
+        console.log('[searchOffers] XOOBAY API returned no results, code:', result.code, 'msg:', result.msg);
+      }
+    } catch (error) {
+      // Detailed error logging
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorStack = error instanceof Error ? error.stack : undefined;
+      console.error('[searchOffers] XOOBAY API call failed, falling back to local database...', {
+        error: errorMessage,
+        stack: errorStack,
+        searchQuery,
+        url: `${process.env.XOOBAY_BASE_URL || 'https://www.xoobay.com'}/api-geo/product-list?name=${encodeURIComponent(searchQuery)}&apiKey=${process.env.XOOBAY_API_KEY || 'xoobay_api_ai_geo'}&lang=${process.env.XOOBAY_LANG || 'zh_cn'}&pageNo=1`
+      });
+    }
+  }
+
+  // Fallback to local database query
+  // Build query conditions
   const conditions: string[] = [];
   const values: unknown[] = [];
   let paramIndex = 1;
 
-  // 文本搜索（标题匹配）
+  // Text search (title matching)
   if (searchQuery) {
     conditions.push(`(title_en ILIKE $${paramIndex} OR title_zh ILIKE $${paramIndex})`);
     values.push(`%${searchQuery}%`);
     paramIndex++;
   }
 
-  // 类目过滤
+  // Category filter
   if (categoryId) {
     conditions.push(`category_id = $${paramIndex}`);
     values.push(categoryId);
     paramIndex++;
   }
 
-  // 价格范围
+  // Price range
   if (priceMin !== undefined) {
     conditions.push(`base_price >= $${paramIndex}`);
     values.push(priceMin);
@@ -151,14 +271,14 @@ async function searchOffers(params: Record<string, unknown>): Promise<unknown> {
     paramIndex++;
   }
 
-  // 品牌过滤
+  // Brand filter
   if (brand) {
     conditions.push(`brand_name ILIKE $${paramIndex}`);
     values.push(`%${brand}%`);
     paramIndex++;
   }
 
-  // 排序
+  // Sorting
   let orderBy = 'rating DESC';
   switch (sort) {
     case 'price':
@@ -171,20 +291,20 @@ async function searchOffers(params: Record<string, unknown>): Promise<unknown> {
       orderBy = 'reviews_count DESC';
       break;
     default:
-      // relevance: 按评分和评价数综合排序
+      // relevance: sort by rating and review count
       orderBy = 'rating DESC, reviews_count DESC';
   }
 
   const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
-  // 查询总数
+  // Query total count
   const countResult = await queryOne<{ count: string }>(
     `SELECT COUNT(*) as count FROM agent.offers ${whereClause}`,
     values
   );
   const totalCount = parseInt(countResult?.count ?? '0');
 
-  // 查询结果
+  // Query results
   values.push(limit, offset);
   const rows = await query<OfferRow>(
     `SELECT id, title_en, title_zh, brand_name, base_price, currency, rating, reviews_count, category_id
@@ -195,8 +315,15 @@ async function searchOffers(params: Record<string, unknown>): Promise<unknown> {
     values
   );
 
+  // Calculate scores based on rating (normalized to 0-1)
+  const scores = rows.map((r) => {
+    const rating = parseFloat(String(r.rating)) || 0;
+    return Math.min(1, rating / 5.0); // Normalize 0-5 rating to 0-1
+  });
+
   return {
     offer_ids: rows.map((r) => r.id),
+    scores: scores,
     offers: rows.map((r) => ({
       offer_id: r.id,
       title: r.title_en,
@@ -213,27 +340,158 @@ async function searchOffers(params: Record<string, unknown>): Promise<unknown> {
 }
 
 /**
- * 获取商品详情 (AROC)
+ * Get product details (AROC) - Priority: XOOBAY API for XOOBAY products, fallback to local database
  */
 async function getOfferCard(params: Record<string, unknown>): Promise<unknown> {
-  const offerId = params.offer_id as string;
+  // Ensure offer_id is always a string
+  const offerId = String(params.offer_id || '').trim();
+  
+  if (!offerId) {
+    console.error('[getOfferCard] Empty offer_id provided');
+    return { error: { code: 'INVALID_ARGUMENT', message: 'offer_id is required' } };
+  }
 
+  // If it's a XOOBAY product, try to fetch from API first
+  if (offerId.startsWith('xoobay_')) {
+    try {
+      const xoobayId = offerId.replace('xoobay_', '');
+      const apiKey = process.env.XOOBAY_API_KEY || 'xoobay_api_ai_geo';
+      const lang = process.env.XOOBAY_LANG || 'zh_cn';
+      const baseUrl = process.env.XOOBAY_BASE_URL || 'https://www.xoobay.com';
+      
+      const url = `${baseUrl}/api-geo/product-info?id=${encodeURIComponent(xoobayId)}&apiKey=${apiKey}&lang=${lang}`;
+      
+      // Log the full request URL for debugging
+      console.log('[getOfferCard] Calling XOOBAY API for product details:', url);
+      
+      const response = await fetch(url);
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      
+      const result = await response.json() as {
+        code: number;
+        msg?: string;
+        data?: {
+          id: string;
+          name: string;
+          description?: string;
+          short_description?: string;
+          price: string;
+          image_url?: string;
+          gallery_images?: string[];
+          brand_name?: string;
+          category?: string;
+          store_name?: string;
+        };
+      };
+
+      console.log('[getOfferCard] XOOBAY API response:', {
+        code: result.code,
+        hasData: !!result.data
+      });
+
+      if (result.code === 200 && result.data) {
+        const product = result.data;
+        
+        // Parse price
+        const priceStr = String(product.price || '0').replace(/[^\d.-]/g, '');
+        const priceAmount = parseFloat(priceStr) || 0;
+        
+        // Build AROC format
+        const aroc = {
+          aroc_version: '0.1',
+          offer_id: offerId,
+          spu_id: `spu_xoobay_${xoobayId}`,
+          merchant_id: `merchant_xoobay`,
+          category: {
+            id: 'cat_other',
+            name: product.category || 'Other',
+            path: product.category ? [product.category] : [],
+          },
+          titles: [
+            { lang: 'en', text: String(product.name || '') },
+            { lang: 'zh', text: String(product.name || '') },
+          ],
+          brand: {
+            name: String(product.brand_name || 'XOOBAY'),
+            normalized_id: `brand_${(product.brand_name || 'xoobay').toLowerCase().replace(/\s+/g, '_')}`,
+            confidence: 'high',
+          },
+          price: {
+            amount: Math.round(priceAmount * 100) / 100,
+            currency: 'USD',
+          },
+          attributes: {
+            description: product.description || product.short_description || '',
+            image_url: product.image_url || '',
+            gallery_images: product.gallery_images || [],
+            store_name: product.store_name || '',
+            source: 'xoobay',
+          },
+          variants: {
+            skus: [{
+              sku_id: `sku_xoobay_${xoobayId}`,
+              options: {},
+              price: Math.round(priceAmount * 100) / 100,
+              currency: 'USD',
+              stock: 100, // Default stock for XOOBAY products
+              in_stock: true,
+            }],
+          },
+          packaging: {
+            weight_g: 0,
+            dimensions_mm: { l: 0, w: 0, h: 0 },
+          },
+          risk_tags: [],
+          certifications: [],
+          policies: {
+            return_policy: {},
+            warranty_months: 0,
+          },
+          metrics: {
+            rating: 5.0,
+            reviews_count: 10,
+          },
+        };
+
+        console.log('[getOfferCard] XOOBAY API success, returning AROC for', offerId);
+        return aroc;
+      } else {
+        console.log('[getOfferCard] XOOBAY API returned no data, code:', result.code, 'msg:', result.msg);
+      }
+    } catch (error) {
+      // Detailed error logging
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorStack = error instanceof Error ? error.stack : undefined;
+      console.error('[getOfferCard] XOOBAY API call failed, falling back to local database...', {
+        error: errorMessage,
+        stack: errorStack,
+        offerId,
+        url: `${process.env.XOOBAY_BASE_URL || 'https://www.xoobay.com'}/api-geo/product-info?id=${offerId.replace('xoobay_', '')}&apiKey=${process.env.XOOBAY_API_KEY || 'xoobay_api_ai_geo'}&lang=${process.env.XOOBAY_LANG || 'zh_cn'}`
+      });
+    }
+  }
+
+  // Fallback to local database query
   const offer = await queryOne<OfferRow>(
     `SELECT * FROM agent.offers WHERE id = $1`,
     [offerId]
   );
 
   if (!offer) {
+    console.error('[getOfferCard] Offer not found in database:', offerId);
     return { error: { code: 'NOT_FOUND', message: `Offer ${offerId} not found` } };
   }
 
-  // 获取 SKU 变体
+  // Get SKU variants
   const skus = await query<SkuRow>(
     `SELECT * FROM agent.skus WHERE offer_id = $1`,
     [offerId]
   );
 
-  // 获取类目信息
+  // Get category information
   const category = await queryOne<{ id: string; name_en: string; path: string[] }>(
     `SELECT id, name_en, path FROM agent.categories WHERE id = $1`,
     [offer.category_id]
@@ -291,7 +549,7 @@ async function getOfferCard(params: Record<string, unknown>): Promise<unknown> {
 }
 
 /**
- * 获取商品变体
+ * Get product variants
  */
 async function getOfferVariants(params: Record<string, unknown>): Promise<unknown> {
   const offerId = params.offer_id as string;
@@ -305,7 +563,7 @@ async function getOfferVariants(params: Record<string, unknown>): Promise<unknow
     return { error: { code: 'NOT_FOUND', message: `No SKUs found for offer ${offerId}` } };
   }
 
-  // 提取变体轴
+  // Extract variant axes
   const axes: Record<string, Set<string>> = {};
   for (const sku of skus) {
     if (sku.options) {
@@ -334,7 +592,7 @@ async function getOfferVariants(params: Record<string, unknown>): Promise<unknow
 }
 
 /**
- * 检查库存
+ * Check stock availability
  */
 async function getAvailability(params: Record<string, unknown>): Promise<unknown> {
   const skuId = params.sku_id as string;
