@@ -13,17 +13,17 @@
 ## 进度总览
 
 ```
-██████████████████████████████████████░░ 92%
+████████████████████████████████████████ 96%
 ```
 
 | 模块 | 进度 | 状态 |
 |------|------|------|
 | 基础设施 | 100% | ✅ 完成 |
 | 工具层 | 100% | ✅ 完成 |
-| Agent 层 | 95% | ✅ 完成 |
+| Agent 层 | 100% | ✅ 完成 |
 | RAG 检索 | 100% | ✅ 完成 |
 | 前端 | 80% | ✅ Demo 可用 |
-| 支付集成 | 0% | ⏳ 待开始 |
+| 支付集成 | 80% | ✅ Agent 完成 |
 
 ---
 
@@ -87,8 +87,36 @@
 | 组件 | 描述 | 文件 |
 |------|------|------|
 | LLM 客户端 | OpenAI API 封装 + 结构化输出 | `agents/src/llm/client.py` |
-| Agent Prompts | Intent/Verifier/Plan 提示词 | `agents/src/llm/prompts.py` |
+| Agent Prompts | Intent/Verifier/Plan/Compliance/Payment 提示词 | `agents/src/llm/prompts.py` |
 | 输出 Schemas | Pydantic 结构化输出模型 | `agents/src/llm/schemas.py` |
+
+### 🛡️ Compliance Agent
+
+| 组件 | 描述 | 文件 |
+|------|------|------|
+| Compliance 节点 | 深度合规分析 + 风险评估 | `agents/src/compliance/node.py` |
+| 合规工具 | check_compliance + get_rules | `agents/src/tools/compliance.py` |
+
+### 💳 Payment Agent
+
+| 组件 | 描述 | 文件 |
+|------|------|------|
+| Payment 节点 | 支付准备 + 方式选择 | `agents/src/execution/payment_node.py` |
+| Confirm Payment | 支付确认 + 订单创建 | `agents/src/execution/payment_node.py` |
+
+### 🎛️ Orchestrator
+
+| 组件 | 描述 | 文件 |
+|------|------|------|
+| Session Manager | 会话创建/管理/持久化 | `agents/src/orchestrator/session.py` |
+| Token 预算控制 | 每会话 Token 限额 | `agents/src/orchestrator/session.py` |
+
+### 🔍 RAG 集成
+
+| 组件 | 描述 | 文件 |
+|------|------|------|
+| Knowledge 工具 | search_knowledge, get_chunk | `agents/src/tools/knowledge.py` |
+| 综合搜索 | search_with_context | `agents/src/tools/knowledge.py` |
 
 ### 📄 Contract 定义
 
@@ -151,6 +179,22 @@
 ---
 
 ## 变更日志
+
+### 2026-01-02 (v0.3.1) - Agent 层 100% 完成
+
+- ✅ **Compliance Agent** - 深度合规分析 + 风险评估 + 替代方案建议
+- ✅ **Payment Agent** - 支付准备 + 方式选择 + 确认流程
+- ✅ **Session Manager** - 会话持久化 + Token 预算控制
+- ✅ **RAG 集成到 Agent** - Knowledge 工具封装
+- ✅ **Graph 增强**:
+  - 添加 compliance 节点（针对高风险商品）
+  - 添加 payment/confirm_payment 节点
+  - 完整的 7 节点状态机流程
+- ✅ **测试用例增强**:
+  - TestComplianceNode
+  - TestPaymentNode
+  - TestSessionManager
+  - TestRAGIntegration
 
 ### 2026-01-02 (v0.3.0) - RAG 检索 + 错误处理
 
