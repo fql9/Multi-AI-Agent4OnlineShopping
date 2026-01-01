@@ -1,8 +1,20 @@
 /**
  * XOOBAY API Client
  * 
- * Integrates XOOBAY product API to provide product data source
+ * Integrates XOOBAY product API with robust error handling:
+ * - Retry with exponential backoff
+ * - Timeout handling
+ * - Circuit breaker pattern
+ * - Graceful degradation
  */
+
+import { createLogger } from '@shopping-agent/common';
+
+const logger = createLogger('xoobay-client');
+
+// ============================================================
+// Types
+// ============================================================
 
 interface XOOBAYProduct {
   id: number;
@@ -53,19 +65,324 @@ interface XOOBAYProductListResponse {
   };
 }
 
+// ============================================================
+// Retry & Circuit Breaker Implementation
+// ============================================================
+
+interface RetryOptions {
+  maxRetries: number;
+  initialDelay: number;
+  maxDelay: number;
+  timeout: number;
+}
+
+type CircuitState = 'CLOSED' | 'OPEN' | 'HALF_OPEN';
+
+class CircuitBreaker {
+  private state: CircuitState = 'CLOSED';
+  private failures = 0;
+  private lastFailureTime: Date | null = null;
+  private successCount = 0;
+  
+  private readonly failureThreshold: number;
+  private readonly resetTimeout: number;
+  private readonly successThreshold: number;
+
+  constructor(options: {
+    failureThreshold?: number;
+    resetTimeout?: number;
+    successThreshold?: number;
+  } = {}) {
+    this.failureThreshold = options.failureThreshold ?? 5;
+    this.resetTimeout = options.resetTimeout ?? 60000;
+    this.successThreshold = options.successThreshold ?? 2;
+  }
+
+  getState(): CircuitState {
+    return this.state;
+  }
+
+  canExecute(): boolean {
+    if (this.state === 'CLOSED') return true;
+    
+    if (this.state === 'OPEN') {
+      const timeSinceLastFailure = this.lastFailureTime
+        ? Date.now() - this.lastFailureTime.getTime()
+        : Infinity;
+      
+      if (timeSinceLastFailure >= this.resetTimeout) {
+        this.state = 'HALF_OPEN';
+        this.successCount = 0;
+        logger.info('Circuit breaker transitioning to HALF_OPEN');
+        return true;
+      }
+      return false;
+    }
+    
+    return true; // HALF_OPEN allows requests
+  }
+
+  recordSuccess(): void {
+    if (this.state === 'HALF_OPEN') {
+      this.successCount++;
+      if (this.successCount >= this.successThreshold) {
+        this.state = 'CLOSED';
+        this.failures = 0;
+        this.successCount = 0;
+        logger.info('Circuit breaker closed after successful recovery');
+      }
+    } else if (this.state === 'CLOSED') {
+      this.failures = 0;
+    }
+  }
+
+  recordFailure(): void {
+    this.failures++;
+    this.lastFailureTime = new Date();
+    this.successCount = 0;
+    
+    if (this.state === 'HALF_OPEN' || this.failures >= this.failureThreshold) {
+      this.state = 'OPEN';
+      logger.warn({ failures: this.failures }, 'Circuit breaker opened');
+    }
+  }
+
+  reset(): void {
+    this.state = 'CLOSED';
+    this.failures = 0;
+    this.successCount = 0;
+    this.lastFailureTime = null;
+  }
+}
+
+/**
+ * Sleep for specified milliseconds
+ */
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/**
+ * Fetch with timeout
+ */
+async function fetchWithTimeout(
+  url: string,
+  timeout: number,
+  options: RequestInit = {}
+): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeout);
+
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal,
+    });
+    return response;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+/**
+ * Retry with exponential backoff
+ */
+async function retryWithBackoff<T>(
+  fn: () => Promise<T>,
+  options: RetryOptions
+): Promise<T> {
+  let lastError: Error = new Error('Unknown error');
+  
+  for (let attempt = 0; attempt <= options.maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      
+      if (attempt >= options.maxRetries) {
+        throw lastError;
+      }
+
+      // Calculate delay with exponential backoff and jitter
+      const baseDelay = options.initialDelay * Math.pow(2, attempt);
+      const cappedDelay = Math.min(baseDelay, options.maxDelay);
+      const jitter = cappedDelay * 0.1 * Math.random();
+      const delay = Math.floor(cappedDelay + jitter);
+
+      logger.warn({ 
+        attempt: attempt + 1, 
+        maxRetries: options.maxRetries,
+        delay,
+        error: lastError.message 
+      }, 'Retrying after error');
+
+      await sleep(delay);
+    }
+  }
+
+  throw lastError;
+}
+
+// ============================================================
+// XOOBAY Client
+// ============================================================
+
 export class XOOBAYClient {
   private baseUrl: string;
   private apiKey: string;
   private lang: string;
+  private circuitBreaker: CircuitBreaker;
+  private retryOptions: RetryOptions;
+  
+  // Cache for product details (5 minute TTL)
+  private cache: Map<string, { data: unknown; timestamp: number }> = new Map();
+  private readonly cacheTTL = 5 * 60 * 1000;
 
   constructor() {
     this.baseUrl = process.env.XOOBAY_BASE_URL || 'https://www.xoobay.com';
     this.apiKey = process.env.XOOBAY_API_KEY || 'xoobay_api_ai_geo';
     this.lang = process.env.XOOBAY_LANG || 'en';
+    
+    // Initialize circuit breaker
+    this.circuitBreaker = new CircuitBreaker({
+      failureThreshold: 5,
+      resetTimeout: 60000,
+      successThreshold: 2,
+    });
+
+    // Retry configuration
+    this.retryOptions = {
+      maxRetries: 3,
+      initialDelay: 1000,
+      maxDelay: 10000,
+      timeout: 15000,
+    };
+
+    logger.info({
+      baseUrl: this.baseUrl,
+      lang: this.lang,
+    }, 'XOOBAY client initialized');
   }
 
   /**
-   * Get product list
+   * Check if circuit allows requests
+   */
+  private checkCircuit(): void {
+    if (!this.circuitBreaker.canExecute()) {
+      const error = new Error('Circuit breaker is open, rejecting request');
+      error.name = 'CircuitOpenError';
+      throw error;
+    }
+  }
+
+  /**
+   * Get cached value or null
+   */
+  private getCached<T>(key: string): T | null {
+    const cached = this.cache.get(key);
+    if (cached && Date.now() - cached.timestamp < this.cacheTTL) {
+      logger.debug({ key }, 'Cache hit');
+      return cached.data as T;
+    }
+    return null;
+  }
+
+  /**
+   * Set cache value
+   */
+  private setCache(key: string, data: unknown): void {
+    this.cache.set(key, { data, timestamp: Date.now() });
+    
+    // Cleanup old entries periodically
+    if (this.cache.size > 1000) {
+      const now = Date.now();
+      for (const [k, v] of this.cache.entries()) {
+        if (now - v.timestamp > this.cacheTTL) {
+          this.cache.delete(k);
+        }
+      }
+    }
+  }
+
+  /**
+   * Make API request with retry and circuit breaker
+   */
+  private async apiRequest<T>(
+    endpoint: string,
+    params: Record<string, string> = {},
+    cacheKey?: string
+  ): Promise<T> {
+    // Check circuit breaker
+    this.checkCircuit();
+
+    // Check cache
+    if (cacheKey) {
+      const cached = this.getCached<T>(cacheKey);
+      if (cached) return cached;
+    }
+
+    const url = new URL(`${this.baseUrl}${endpoint}`);
+    url.searchParams.set('apiKey', this.apiKey);
+    url.searchParams.set('lang', this.lang);
+    
+    for (const [key, value] of Object.entries(params)) {
+      if (value) url.searchParams.set(key, value);
+    }
+
+    logger.debug({ url: url.toString() }, 'Making XOOBAY API request');
+
+    try {
+      const result = await retryWithBackoff(
+        async () => {
+          const response = await fetchWithTimeout(
+            url.toString(),
+            this.retryOptions.timeout
+          );
+
+          if (!response.ok) {
+            const error = new Error(`HTTP ${response.status}: ${response.statusText}`);
+            error.name = 'HttpError';
+            throw error;
+          }
+
+          const data = await response.json() as XOOBAYResponse<T>;
+
+          if (data.code !== 200) {
+            const error = new Error(`API error: ${data.msg || 'Unknown error'}`);
+            error.name = 'ApiError';
+            throw error;
+          }
+
+          return data.data;
+        },
+        this.retryOptions
+      );
+
+      // Record success
+      this.circuitBreaker.recordSuccess();
+
+      // Cache result
+      if (cacheKey) {
+        this.setCache(cacheKey, result);
+      }
+
+      return result;
+    } catch (error) {
+      // Record failure for circuit breaker
+      this.circuitBreaker.recordFailure();
+
+      logger.error({
+        endpoint,
+        error: error instanceof Error ? error.message : String(error),
+        circuitState: this.circuitBreaker.getState(),
+      }, 'XOOBAY API request failed');
+
+      throw error;
+    }
+  }
+
+  /**
+   * Get product list with pagination
    */
   async getProductList(params: {
     pageNo?: number;
@@ -75,97 +392,204 @@ export class XOOBAYClient {
   } = {}): Promise<XOOBAYProductListResponse> {
     const { pageNo = 1, name = '', shopId = '', lang = this.lang } = params;
     
-    const url = new URL(`${this.baseUrl}/api-geo/product-list`);
-    url.searchParams.set('pageNo', String(pageNo));
-    if (name) url.searchParams.set('name', name);
-    if (shopId) url.searchParams.set('shopId', shopId);
-    url.searchParams.set('lang', lang);
-    url.searchParams.set('apiKey', this.apiKey);
-
-    try {
-      const response = await fetch(url.toString());
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      
-      const result = await response.json() as XOOBAYResponse<XOOBAYProductListResponse>;
-      
-      if (result.code !== 200) {
-        throw new Error(`API error: ${result.msg}`);
-      }
-
-      return result.data;
-    } catch (error) {
-      console.error('XOOBAY API error:', error);
-      throw error;
-    }
+    const cacheKey = `products:${pageNo}:${name}:${shopId}:${lang}`;
+    
+    return this.apiRequest<XOOBAYProductListResponse>(
+      '/api-geo/product-list',
+      {
+        pageNo: String(pageNo),
+        name,
+        shopId,
+        lang,
+      },
+      cacheKey
+    );
   }
 
   /**
    * Get product details
    */
   async getProductInfo(id: string | number, lang = this.lang): Promise<XOOBAYProductDetail> {
-    const url = new URL(`${this.baseUrl}/api-geo/product-info`);
-    url.searchParams.set('id', String(id));
-    url.searchParams.set('lang', lang);
-    url.searchParams.set('apiKey', this.apiKey);
-
-    try {
-      const response = await fetch(url.toString());
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      
-      const result = await response.json() as XOOBAYResponse<XOOBAYProductDetail>;
-      
-      if (result.code !== 200) {
-        throw new Error(`API error: ${result.msg}`);
-      }
-
-      return result.data;
-    } catch (error) {
-      console.error('XOOBAY API error:', error);
-      throw error;
-    }
+    const cacheKey = `product:${id}:${lang}`;
+    
+    return this.apiRequest<XOOBAYProductDetail>(
+      '/api-geo/product-info',
+      {
+        id: String(id),
+        lang,
+      },
+      cacheKey
+    );
   }
 
   /**
    * Get store details
    */
   async getStoreInfo(id: string | number, lang = this.lang): Promise<XOOBAYStore> {
-    const url = new URL(`${this.baseUrl}/api-geo/store-info`);
-    url.searchParams.set('id', String(id));
-    url.searchParams.set('lang', lang);
-    url.searchParams.set('apiKey', this.apiKey);
-
-    try {
-      const response = await fetch(url.toString());
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      
-      const result = await response.json() as XOOBAYResponse<XOOBAYStore>;
-      
-      if (result.code !== 200) {
-        throw new Error(`API error: ${result.msg}`);
-      }
-
-      return result.data;
-    } catch (error) {
-      console.error('XOOBAY API error:', error);
-      throw error;
-    }
+    const cacheKey = `store:${id}:${lang}`;
+    
+    return this.apiRequest<XOOBAYStore>(
+      '/api-geo/store-info',
+      {
+        id: String(id),
+        lang,
+      },
+      cacheKey
+    );
   }
 
   /**
    * Search products
    */
-  async searchProducts(query: string, pageNo = 1, lang = this.lang): Promise<XOOBAYProductListResponse> {
+  async searchProducts(
+    query: string,
+    pageNo = 1,
+    lang = this.lang
+  ): Promise<XOOBAYProductListResponse> {
     return this.getProductList({ pageNo, name: query, lang });
+  }
+
+  /**
+   * Batch get product details with concurrency control
+   */
+  async batchGetProductInfo(
+    ids: (string | number)[],
+    options: {
+      concurrency?: number;
+      lang?: string;
+      onProgress?: (completed: number, total: number) => void;
+    } = {}
+  ): Promise<Map<string, XOOBAYProductDetail | null>> {
+    const { concurrency = 5, lang = this.lang, onProgress } = options;
+    const results = new Map<string, XOOBAYProductDetail | null>();
+    
+    let completed = 0;
+    const total = ids.length;
+
+    // Process in batches
+    for (let i = 0; i < ids.length; i += concurrency) {
+      const batch = ids.slice(i, i + concurrency);
+      
+      const batchResults = await Promise.allSettled(
+        batch.map(async (id) => {
+          try {
+            const product = await this.getProductInfo(id, lang);
+            return { id: String(id), product };
+          } catch (error) {
+            logger.warn({ id, error: String(error) }, 'Failed to get product info');
+            return { id: String(id), product: null };
+          }
+        })
+      );
+
+      for (const result of batchResults) {
+        completed++;
+        if (result.status === 'fulfilled') {
+          results.set(result.value.id, result.value.product);
+        }
+        if (onProgress) {
+          onProgress(completed, total);
+        }
+      }
+
+      // Rate limiting between batches
+      if (i + concurrency < ids.length) {
+        await sleep(200);
+      }
+    }
+
+    return results;
+  }
+
+  /**
+   * Get all products with pagination
+   */
+  async getAllProducts(options: {
+    maxPages?: number;
+    lang?: string;
+    onPage?: (page: number, products: XOOBAYProduct[]) => void;
+  } = {}): Promise<XOOBAYProduct[]> {
+    const { maxPages = 100, lang = this.lang, onPage } = options;
+    const allProducts: XOOBAYProduct[] = [];
+    
+    let page = 1;
+    let hasMore = true;
+
+    while (hasMore && page <= maxPages) {
+      try {
+        const result = await this.getProductList({ pageNo: page, lang });
+        
+        if (!result.list || result.list.length === 0) {
+          hasMore = false;
+          break;
+        }
+
+        allProducts.push(...result.list);
+        
+        if (onPage) {
+          onPage(page, result.list);
+        }
+
+        hasMore = page < result.pager.pageCount;
+        page++;
+
+        // Rate limiting
+        await sleep(200);
+      } catch (error) {
+        logger.error({ page, error: String(error) }, 'Failed to get product page');
+        
+        // If circuit is open, stop pagination
+        if (this.circuitBreaker.getState() === 'OPEN') {
+          break;
+        }
+        
+        // Skip failed page and continue
+        page++;
+      }
+    }
+
+    logger.info({ 
+      totalProducts: allProducts.length,
+      pagesProcessed: page - 1,
+    }, 'Finished getting all products');
+
+    return allProducts;
+  }
+
+  /**
+   * Get circuit breaker status
+   */
+  getCircuitStatus(): {
+    state: CircuitState;
+    canExecute: boolean;
+  } {
+    return {
+      state: this.circuitBreaker.getState(),
+      canExecute: this.circuitBreaker.canExecute(),
+    };
+  }
+
+  /**
+   * Reset circuit breaker
+   */
+  resetCircuit(): void {
+    this.circuitBreaker.reset();
+    logger.info('Circuit breaker manually reset');
+  }
+
+  /**
+   * Clear cache
+   */
+  clearCache(): void {
+    this.cache.clear();
+    logger.info('Cache cleared');
   }
 }
 
-// Singleton instance
+// ============================================================
+// Singleton Instance
+// ============================================================
+
 let clientInstance: XOOBAYClient | null = null;
 
 export function getXOOBAYClient(): XOOBAYClient {
@@ -173,4 +597,15 @@ export function getXOOBAYClient(): XOOBAYClient {
     clientInstance = new XOOBAYClient();
   }
   return clientInstance;
+}
+
+/**
+ * Reset client instance (for testing)
+ */
+export function resetXOOBAYClient(): void {
+  if (clientInstance) {
+    clientInstance.clearCache();
+    clientInstance.resetCircuit();
+  }
+  clientInstance = null;
 }

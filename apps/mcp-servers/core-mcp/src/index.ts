@@ -24,6 +24,7 @@ import { pricingTools, handlePricingTool } from './pricing/index.js';
 import { shippingTools, handleShippingTool } from './shipping/index.js';
 import { taxTools, handleTaxTool } from './tax/index.js';
 import { complianceTools, handleComplianceTool } from './compliance/index.js';
+import { knowledgeTools, handleKnowledgeTool } from './knowledge/index.js';
 
 const logger = createLogger('core-mcp');
 
@@ -72,6 +73,7 @@ const ALL_TOOLS = [
   ...shippingTools,
   ...taxTools,
   ...complianceTools,
+  ...knowledgeTools,
 ];
 
 // 工具处理器映射
@@ -96,6 +98,12 @@ const toolHandlers: Record<string, (params: unknown) => Promise<unknown>> = {
   // Compliance
   'compliance.check_item': handleComplianceTool('check_item'),
   'compliance.policy_ruleset_version': handleComplianceTool('policy_ruleset_version'),
+
+  // Knowledge (RAG)
+  'knowledge.search': handleKnowledgeTool('search'),
+  'knowledge.get_chunk': handleKnowledgeTool('get_chunk'),
+  'knowledge.index_product': handleKnowledgeTool('index_product'),
+  'knowledge.batch_index_xoobay': handleKnowledgeTool('batch_index_xoobay'),
 };
 
 async function main() {
