@@ -226,7 +226,10 @@ async def chat(request: ChatRequest):
         }
         
         # 运行 Agent
-        config = {"configurable": {"thread_id": session.session_id}}
+        config = {
+            "configurable": {"thread_id": session.session_id},
+            "recursion_limit": 50,  # 增加递归限制以便调试
+        }
         result = await agent_graph.ainvoke(initial_state, config)
         
         # 更新会话
@@ -352,11 +355,34 @@ async def list_sessions(user_id: str | None = None):
 
 
 def _extract_message(result: dict) -> str | None:
-    """从结果中提取最后一条 AI 消息"""
+    """从结果中提取最后一条 AI 消息，或生成默认消息"""
     messages = result.get("messages", [])
     for msg in reversed(messages):
         if hasattr(msg, "content") and hasattr(msg, "type") and msg.type == "ai":
             return msg.content
+    
+    # 如果没有 AI 消息但需要用户输入，根据当前步骤生成默认消息
+    if result.get("needs_user_input"):
+        current_step = result.get("current_step", "")
+        
+        if current_step == "no_results":
+            return "I couldn't find any products matching your request. Could you try a different search term or be more specific about what you're looking for?"
+        
+        if current_step == "no_valid_candidates":
+            return "I found some products but none of them meet all your requirements. Would you like to adjust your criteria (budget, shipping destination, etc.)?"
+        
+        if current_step == "waiting_user":
+            # 检查是否有 plans 需要用户选择
+            if result.get("plans"):
+                return "I've found several options for you. Please select a plan to proceed with your purchase."
+            return "I need some additional information to proceed. Could you please clarify your requirements?"
+        
+        if current_step == "awaiting_clarification":
+            return "I need some clarification about your request. Could you please provide more details?"
+        
+        # 默认消息
+        return "I need your input to continue. Please provide the requested information."
+    
     return None
 
 

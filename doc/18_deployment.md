@@ -289,6 +289,8 @@ docker compose -f docker-compose.full.yml --profile seed up seed-data
 docker compose -f docker-compose.full.yml --profile sync up xoobay-sync
 ```
 
+> ⚠️ **务必导入足够多的商品数据**：生产/演示环境至少需要跑完一次 `seed-data`，并通过 `xoobay-sync` 同步真实商品（建议覆盖上万商品与 SKU），否则候选商品不足会导致 Candidate/Plan 阶段无法给出理想的方案。
+
 ---
 
 ## 服务详解

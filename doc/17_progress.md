@@ -6,7 +6,7 @@
 
 ## 当前版本
 
-**v0.5.0** (2026-01-02) - 全服务 Docker 部署完成
+**v0.6.0** (2026-01-02) - 前端增强与 API 集成
 
 ---
 
@@ -23,7 +23,7 @@
 | Agent 层 | 100% | ✅ 完成 |
 | RAG 检索 | 100% | ✅ 完成 |
 | Docker 部署 | 100% | ✅ 完成 |
-| 前端 | 85% | ✅ Demo 可用 |
+| 前端 | 95% | ✅ 完整功能 |
 | 支付集成 | 80% | ✅ Agent 完成 |
 
 ---
@@ -220,6 +220,40 @@
 ---
 
 ## 变更日志
+
+### 2026-01-02 (v0.6.0) - 前端增强与 API 集成
+
+- ✅ **API 客户端**:
+  - 新增 `src/lib/api.ts` 完整 API 客户端
+  - 支持后端 Agent API (`/api/v1/chat`)
+  - 支持会话管理 (`/api/v1/sessions`)
+  - 支持 Tool Gateway API
+  - 连接状态检查功能
+- ✅ **Store 重构**:
+  - 支持 3 种 API 模式：real / mock / hybrid
+  - 会话持久化 (zustand persist)
+  - 错误状态管理
+  - 连接状态追踪
+- ✅ **UI 组件增强**:
+  - 新增 Button 组件（多种变体和尺寸）
+  - 新增 Card 组件（支持多种样式）
+  - 新增 Input / Textarea 组件
+  - 新增 Skeleton 加载骨架屏组件
+  - 新增 Alert 提示组件
+  - 新增 Tooltip 工具提示组件
+  - 新增 Dialog 对话框组件
+- ✅ **功能增强**:
+  - 新增 ConnectionStatus 组件显示服务状态
+  - 新增 API 模式选择器
+  - 新增错误提示组件
+  - Settings 面板可切换 API 模式
+  - 优化代码结构和组件复用
+- ✅ **Processing 体验优化**:
+  - Real API 模式增加 Agent 进度模拟，实时展示 Thinking/Tool Calls
+  - 步骤卡片支持运行中高亮、动画和 token/time 指标
+  - Processing 页不再直接跳转，先展示多 Agent 运行细节
+- ✅ **部署文档提醒**:
+  - 部署指南强调需要导入足够商品（seed + XOOBAY 同步）以获得理想推荐效果
 
 ### 2026-01-02 (v0.5.0) - 全服务 Docker 部署完成
 

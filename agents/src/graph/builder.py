@@ -17,8 +17,11 @@ def should_continue_to_candidate(state: AgentState) -> str:
     """判断是否继续到候选生成阶段"""
     if state.get("error"):
         return "error_handler"
+    # 如果正在等待用户澄清，结束流程
+    if state.get("current_step") == "awaiting_clarification":
+        return "wait_user"
     if state.get("mission") is None:
-        return "intent"  # 需要更多信息
+        return "wait_user"  # 没有 mission 也等待用户
     return "candidate"
 
 
@@ -166,7 +169,7 @@ def build_agent_graph():
         should_continue_to_candidate,
         {
             "candidate": "candidate",
-            "intent": "intent",  # 循环澄清
+            "wait_user": "wait_user",  # 等待用户提供更多信息
             "error_handler": "error_handler",
         },
     )

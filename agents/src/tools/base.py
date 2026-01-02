@@ -38,14 +38,12 @@ def create_request_envelope(
     idempotency_key: str | None = None,
 ) -> dict[str, Any]:
     """创建标准请求 Envelope"""
-    return {
+    envelope: dict[str, Any] = {
         "request_id": str(uuid.uuid4()),
         "actor": {
             "type": actor_type,
             "id": actor_id or "shopping-agent",
         },
-        "user_id": user_id,
-        "session_id": session_id,
         "locale": locale,
         "currency": currency,
         "timezone": "UTC",
@@ -54,11 +52,20 @@ def create_request_envelope(
             "version": "0.1.0",
         },
         "dry_run": dry_run,
-        "idempotency_key": idempotency_key,
         "trace": {
             "span_id": str(uuid.uuid4())[:16],
         },
     }
+    
+    # 只有当值不为 None 时才添加可选字段，避免发送 null
+    if user_id is not None:
+        envelope["user_id"] = user_id
+    if session_id is not None:
+        envelope["session_id"] = session_id
+    if idempotency_key is not None:
+        envelope["idempotency_key"] = idempotency_key
+    
+    return envelope
 
 
 def hash_response(response: dict) -> str:
@@ -109,11 +116,23 @@ async def call_tool(
         "tool.call",
         tool=tool_name,
         mcp_server=mcp_server,
+        url=url,
         request_id=envelope["request_id"],
     )
 
     try:
         response = await client.post(url, json=request_body)
+        
+        # Log response for debugging if error
+        if response.status_code >= 400:
+            error_text = response.text
+            logger.error(
+                "tool.response_error",
+                tool=tool_name,
+                status_code=response.status_code,
+                response_body=error_text[:500],  # Truncate for logging
+            )
+        
         response.raise_for_status()
         result = response.json()
 
