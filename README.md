@@ -5,6 +5,8 @@
 Build an auditable, tool-driven multi-agent system that turns a user's *purchase mission* into an executable **Draft Order** (without capturing payment), backed by **strong facts** (pricing/stock/shipping/tax/compliance/policies) obtained only via tools and **evidence snapshots** that can be replayed for cross-border disputes.
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
+[![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?logo=docker)](docker-compose.full.yml)
+[![Progress](https://img.shields.io/badge/Progress-100%25-success)](doc/17_progress.md)
 
 ---
 
@@ -13,8 +15,9 @@ Build an auditable, tool-driven multi-agent system that turns a user's *purchase
 - [Why this repo](#why-this-repo)
 - [Tech Stack](#tech-stack)
 - [Architecture](#architecture)
-- [Docs (Chinese)](#docs-chinese)
 - [Quick Start](#quick-start)
+- [Docker Deployment](#docker-deployment)
+- [Docs (Chinese)](#docs-chinese)
 - [中文版本](#中文版本)
 
 ---
@@ -33,13 +36,12 @@ Build an auditable, tool-driven multi-agent system that turns a user's *purchase
 
 | Layer | Technology | Notes |
 |-------|------------|-------|
-| **Agent Orchestration** | Python 3.11+ / LangGraph | State machine driven, controllable |
+| **Agent Orchestration** | Python 3.11+ / LangGraph / FastAPI | State machine driven, controllable |
 | **Tool Gateway / MCP** | TypeScript / Fastify | Type-safe API, Contract First |
 | **Frontend** | Next.js 14 / Tailwind / shadcn/ui | Modern UI |
-| **Database (MVP)** | PostgreSQL 16 + pgvector | All-in-one for MVP |
+| **Database** | PostgreSQL 16 + pgvector | Vector search + Full-text search |
+| **Cache** | Redis 7 | Session + Idempotency + Rate Limit |
 | **LLM** | GPT-4o-mini (routing) + GPT-4o (verification) | Tiered usage |
-
-**MVP only needs PostgreSQL + pgvector. Expand to Redis/Neo4j/Kafka as needed.**
 
 ---
 
@@ -48,64 +50,151 @@ Build an auditable, tool-driven multi-agent system that turns a user's *purchase
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
 │                           Frontend                                   │
-│  Next.js 14 + TypeScript + Tailwind + shadcn/ui                     │
+│  Next.js 14 + TypeScript + Tailwind + shadcn/ui      :3001          │
+└─────────────────────────────────────────────────────────────────────┘
+                                │
+┌─────────────────────────────────────────────────────────────────────┐
+│                       Python Agent                                   │
+│  LangGraph + Pydantic + OpenAI + FastAPI             :8000          │
+│  ┌────────┐ ┌─────────┐ ┌────────┐ ┌──────┐ ┌─────────┐            │
+│  │ Intent │→│Candidate│→│Verifier│→│ Plan │→│ Execute │            │
+│  └────────┘ └─────────┘ └────────┘ └──────┘ └─────────┘            │
+│                    ↘ Compliance ↗      ↘ Payment ↗                  │
 └─────────────────────────────────────────────────────────────────────┘
                                 │
 ┌─────────────────────────────────────────────────────────────────────┐
 │                        Tool Gateway                                  │
-│  TypeScript + Fastify + Zod + OpenTelemetry                         │
+│  TypeScript + Fastify + Zod + OpenTelemetry          :3000          │
 │  (Envelope / Auth / Idempotency / Rate Limit / Audit)               │
 └─────────────────────────────────────────────────────────────────────┘
                                 │
                 ┌───────────────┼───────────────┐
-                ▼               ▼               ▼
-┌───────────────────┐ ┌───────────────────┐ ┌───────────────────┐
-│ Agent Layer       │ │ MCP Servers       │ │ Data Pipelines    │
-│ Python 3.11+      │ │ TypeScript        │ │ Python            │
-│ LangGraph         │ │ (core/checkout)   │ │ (AROC/KG/Cluster) │
-│ Pydantic          │ │                   │ │                   │
-└───────────────────┘ └───────────────────┘ └───────────────────┘
+                ▼                               ▼
+┌───────────────────────────┐   ┌───────────────────────────────┐
+│       Core MCP :3010      │   │     Checkout MCP :3011        │
+│  (SSE Transport)          │   │     (SSE Transport)           │
+│  • Catalog                │   │  • Cart                       │
+│  • Pricing                │   │  • Checkout                   │
+│  • Shipping               │   │  • Evidence                   │
+│  • Compliance             │   │  • Payment                    │
+│  • Knowledge (RAG)        │   │                               │
+└───────────────────────────┘   └───────────────────────────────┘
                                 │
 ┌─────────────────────────────────────────────────────────────────────┐
 │                          Data Layer                                  │
-│  MVP: PostgreSQL 16 + pgvector                                      │
-│  Scale: + Redis + Neo4j + OpenSearch + Kafka                        │
+│  ┌─────────────────────────┐  ┌─────────────────────────────┐      │
+│  │   PostgreSQL + pgvector │  │          Redis              │      │
+│  │        :5433            │  │          :6379              │      │
+│  └─────────────────────────┘  └─────────────────────────────┘      │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
-### Agent Flow (LangGraph State Machine)
+---
 
+## Quick Start
+
+### Option 1: Docker (Recommended) 🐳
+
+```bash
+# 1. Clone the repo
+git clone https://github.com/fql9/Multi-AI-Agent4OnlineShopping.git
+cd Multi-AI-Agent4OnlineShopping
+
+# 2. Configure environment
+cp .env.example .env
+# Edit .env and set OPENAI_API_KEY
+
+# 3. Start all services
+docker compose -f docker-compose.full.yml up -d
+
+# 4. Verify services
+docker compose -f docker-compose.full.yml ps
+
+# 5. Open frontend
+open http://localhost:3001
 ```
-User Message
-     │
-     ▼
-┌─────────────┐
-│   Intent    │ ─── Parse user intent → Mission
-└─────────────┘
-     │
-     ▼
-┌─────────────┐
-│  Candidate  │ ─── Search offers (catalog.*)
-└─────────────┘
-     │
-     ▼
-┌─────────────┐
-│   Verify    │ ─── Real-time tools (pricing/shipping/tax/compliance)
-└─────────────┘
-     │
-     ▼
-┌─────────────┐
-│    Plan     │ ─── Generate 2-3 executable plans
-└─────────────┘
-     │ (user selects)
-     ▼
-┌─────────────┐
-│  Execution  │ ─── Create Draft Order + Evidence Snapshot
-└─────────────┘
-     │
-     ▼
-  Payment (requires_user_action: true)
+
+### Option 2: Local Development
+
+```bash
+# 1. Start database only
+docker compose up -d
+
+# 2. Install dependencies
+pnpm install
+cd agents && pip install -e .
+
+# 3. Start services
+pnpm --filter @shopping-agent/tool-gateway dev  # :3000
+pnpm --filter @shopping-agent/web-app dev       # :3001
+
+# 4. Test API
+curl http://localhost:3000/health
 ```
+
+---
+
+## Docker Deployment
+
+### Services Overview
+
+| Service | Port | Status |
+|---------|------|--------|
+| PostgreSQL | 5433 | ✅ healthy |
+| Redis | 6379 | ✅ healthy |
+| Tool Gateway | 3000 | ✅ healthy |
+| Core MCP (SSE) | 3010 | ✅ healthy |
+| Checkout MCP (SSE) | 3011 | ✅ healthy |
+| Web App | 3001 | ✅ healthy |
+| Python Agent | 8000 | ✅ healthy |
+
+### Commands
+
+```bash
+# Start all services
+docker compose -f docker-compose.full.yml up -d
+
+# Start with management tools (Adminer, Redis Commander)
+docker compose -f docker-compose.full.yml --profile tools up -d
+
+# Run database migrations
+docker compose -f docker-compose.full.yml --profile migrate up db-migrate
+
+# Import seed data
+docker compose -f docker-compose.full.yml --profile seed up seed-data
+
+# XOOBAY product sync
+docker compose -f docker-compose.full.yml --profile sync up xoobay-sync
+
+# View logs
+docker compose -f docker-compose.full.yml logs -f
+
+# Stop all services
+docker compose -f docker-compose.full.yml down
+
+# Full reset (delete data)
+docker compose -f docker-compose.full.yml down -v
+```
+
+### Environment Variables
+
+Key configuration in `.env`:
+
+```bash
+# Required
+OPENAI_API_KEY=sk-your-api-key
+
+# Optional: XOOBAY product integration
+XOOBAY_ENABLED=true
+XOOBAY_API_KEY=your-key
+
+# Ports (if conflicts)
+POSTGRES_PORT=5433
+TOOL_GATEWAY_PORT=3000
+WEB_APP_PORT=3001
+```
+
+📚 Full deployment guide: [`doc/18_deployment.md`](doc/18_deployment.md)
 
 ---
 
@@ -116,62 +205,24 @@ User Message
 | Document | Description |
 |----------|-------------|
 | [00_overview](doc/00_overview.md) | 项目概览：三层架构 |
-| [01_repo_structure](doc/01_repo_structure.md) | 仓库目录结构（Python Agent + TS API） |
-| [02_tech_stack](doc/02_tech_stack.md) | **技术栈（落地版，分阶段演进）** |
+| [01_repo_structure](doc/01_repo_structure.md) | 仓库目录结构 |
+| [02_tech_stack](doc/02_tech_stack.md) | 技术栈（落地版） |
 | [03_dev_process](doc/03_dev_process.md) | 开发流程与里程碑 |
 | [04_tooling_spec](doc/04_tooling_spec.md) | 工具调用统一规范 |
-| [05_tool_catalog](doc/05_tool_catalog.md) | 平台级工具目录 |
-| [06_evidence_audit](doc/06_evidence_audit.md) | Evidence Snapshot 审计机制 |
+| [05_tool_catalog](doc/05_tool_catalog.md) | 平台级工具目录（23 个） |
+| [06_evidence_audit](doc/06_evidence_audit.md) | Evidence Snapshot 审计 |
 | [07_draft_order](doc/07_draft_order.md) | Draft Order 状态机 |
 | [08_aroc_schema](doc/08_aroc_schema.md) | AROC Schema 设计 |
 | [09_kg_design](doc/09_kg_design.md) | 知识图谱设计 |
-| [10_rag_graphrag](doc/10_rag_graphrag.md) | GraphRAG 检索 |
-| [11_multi_agent](doc/11_multi_agent.md) | **Multi-Agent 编排（LangGraph）** |
-| [12_mcp_design](doc/12_mcp_design.md) | **MCP Server 设计（分阶段拆分）** |
+| [10_rag_graphrag](doc/10_rag_graphrag.md) | RAG/GraphRAG 检索 |
+| [11_multi_agent](doc/11_multi_agent.md) | Multi-Agent 编排 |
+| [12_mcp_design](doc/12_mcp_design.md) | MCP Server 设计 |
 | [13_security_risk](doc/13_security_risk.md) | 安全与风控 |
-| [14_cold_start](doc/14_cold_start.md) | **冷启动策略** |
-| [15_llm_selection](doc/15_llm_selection.md) | **LLM 选型指南** |
-| [16_cost_estimation](doc/16_cost_estimation.md) | **成本估算** |
-
----
-
-## Quick Start
-
-### Prerequisites
-
-- Python 3.11+
-- Node.js 20+
-- Docker (for PostgreSQL)
-
-### 1. Start Database
-
-```bash
-docker compose up -d
-```
-
-### 2. Install Dependencies
-
-```bash
-# Python (agents)
-cd agents && uv sync  # or pip install -e .
-
-# TypeScript (gateway & MCP)
-pnpm install
-```
-
-### 3. Run Services
-
-```bash
-# Tool Gateway
-pnpm --filter tool-gateway dev
-
-# MCP Servers
-pnpm --filter core-mcp dev
-pnpm --filter checkout-mcp dev
-
-# Agent
-cd agents && python -m src.main
-```
+| [14_cold_start](doc/14_cold_start.md) | 冷启动策略 |
+| [15_llm_selection](doc/15_llm_selection.md) | LLM 选型指南 |
+| [16_cost_estimation](doc/16_cost_estimation.md) | 成本估算 |
+| [17_progress](doc/17_progress.md) | **开发进度 (100%)** |
+| [18_deployment](doc/18_deployment.md) | **部署指南** |
 
 ---
 
@@ -190,39 +241,74 @@ cd agents && python -m src.main
 | 原则 | 说明 |
 |------|------|
 | **强事实不允许模型猜** | 所有可验证交易事实必须来自结构化源或实时工具返回 |
-| **可审计** | 关键决策点必须产出 Evidence Snapshot，可回放"当时为什么这么报价/合规判定/下单" |
+| **可审计** | 关键决策点必须产出 Evidence Snapshot，可回放 |
 | **RAG 只做证据补全** | 说明书/QA/评价洞察必须带引用，且不替代强事实 |
 
-### 技术栈（落地版）
+### 技术栈
 
 | 层 | 技术 | 说明 |
 |----|------|------|
-| **Agent 编排** | Python + LangGraph | 状态机驱动、可控 |
-| **Tool Gateway / MCP** | TypeScript + Fastify | 强类型 API |
+| **Agent 编排** | Python + LangGraph + FastAPI | 7 节点状态机 + HTTP API |
+| **Tool Gateway** | TypeScript + Fastify | 23 个工具端点 |
+| **MCP 服务** | TypeScript + SSE | Core MCP + Checkout MCP |
 | **前端** | Next.js + Tailwind | 现代 UI |
-| **数据库（MVP）** | PostgreSQL + pgvector | 一站式 |
+| **数据库** | PostgreSQL + pgvector | 向量 + 全文搜索 |
+| **缓存** | Redis | 会话 + 幂等性 |
 | **LLM** | GPT-4o-mini + GPT-4o | 分层使用 |
 
-### 文档入口
+### 一键部署
 
-📚 从这里开始：[`doc/README.md`](doc/README.md)
+```bash
+# 克隆项目
+git clone https://github.com/fql9/Multi-AI-Agent4OnlineShopping.git
+cd Multi-AI-Agent4OnlineShopping
+
+# 配置
+cp .env.example .env
+# 编辑 .env，设置 OPENAI_API_KEY
+
+# 启动所有服务
+docker compose -f docker-compose.full.yml up -d
+
+# 验证服务
+docker compose -f docker-compose.full.yml ps
+
+# 访问
+open http://localhost:3001
+```
+
+### 项目进度 (100%)
+
+| 模块 | 进度 | 状态 |
+|------|------|------|
+| 基础设施 | 100% | ✅ |
+| 工具层 | 100% | ✅ |
+| Agent 层 | 100% | ✅ |
+| RAG 检索 | 100% | ✅ |
+| Docker 部署 | 100% | ✅ |
+| 前端 | 85% | ✅ Demo |
+| 支付集成 | 80% | ✅ Agent 完成 |
 
 ### MVP 检查清单
 
 - [x] 类目树 + 属性定义导入 *(12 类目)*
 - [x] 合规规则导入 *(6 条规则)*
 - [x] 样例 AROC 导入 *(14 商品 / 22 SKU)*
-- [x] Tool Gateway 实现 *(19 个端点)*
-- [x] core-mcp 实现 *(catalog/pricing/shipping/compliance)*
+- [x] Tool Gateway 实现 *(23 个端点)*
+- [x] core-mcp 实现 *(catalog/pricing/shipping/compliance/knowledge)*
 - [x] checkout-mcp 实现 *(cart/checkout/evidence)*
-- [x] LangGraph Agent 骨架 *(intent → candidate → verify → plan → execution)*
+- [x] LangGraph Agent *(7 节点状态机)*
+- [x] Agent HTTP Server *(FastAPI 端点)*
 - [x] Draft Order 可回放证据
-- [x] 支付确认 *(requires_user_action: true)*
-- [x] LLM 集成 *(GPT-4o-mini + Claude-3-Haiku via Poe API)*
-- [x] 端到端测试 *(10 tests, 58% coverage)*
-- [x] 前端 Web App *(Next.js + Tailwind + shadcn/ui)*
+- [x] RAG 混合检索 *(BM25 + 向量)*
+- [x] XOOBAY 产品集成
+- [x] LLM 集成 *(GPT-4o-mini + GPT-4o)*
+- [x] 端到端测试 *(10 tests)*
+- [x] 前端 Web App
+- [x] Docker 完整打包 *(10 服务)*
+- [x] 部署文档
 - [ ] 支付集成 *(Stripe/PayPal)*
-- [ ] RAG 向量检索
+- [ ] K8s 部署
 
 ---
 
@@ -231,6 +317,33 @@ cd agents && python -m src.main
 - **Contract First**: Tool schemas, error codes, TTL, and evidence formats are defined before implementations.
 - **Least Privilege**: Payment capture is never callable by agents; user confirmation is mandatory.
 - **Python (Agent) + TypeScript (API)**: LLM ecosystem is more mature in Python; API layer uses TypeScript for type safety.
+
+---
+
+## MCP: GitHub CI & Docker Jobs (Python)
+
+本项目包含一个 Python MCP Server，提供 GitHub Actions CI 管理和本地 Docker Job 执行能力。
+
+### 功能特性
+
+**CI 工具（6 个）**:
+- `ci_trigger` - 触发 workflow_dispatch（自动注入 correlation_id）
+- `ci_find_latest_run` - 查找最新 run（支持 correlation_id 过滤）
+- `ci_get_run` - 获取 run 详情
+- `ci_get_run_jobs` - 获取 jobs/steps 结构化信息
+- `ci_get_failure_summary` - 获取失败日志 tail
+- `ci_comment_pr` - 在 PR 上评论
+
+**Docker Job 工具（7 个）**:
+- `job_start` - 启动 Docker 容器（带安全约束）
+- `job_status` - 查询 job 状态
+- `job_logs` - 获取容器日志
+- `job_cancel` - 取消运行中的 job
+- `job_artifacts` - 列出产物
+- `job_list` - 列出所有 jobs
+- `job_cleanup` - 清理旧 jobs
+
+详细文档：[`tools/mcp-gh-ci-jobs/README.md`](tools/mcp-gh-ci-jobs/README.md)
 
 ---
 

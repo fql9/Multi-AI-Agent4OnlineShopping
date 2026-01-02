@@ -5,8 +5,11 @@ import {
   ShoppingCart, Bot, Package, CheckCircle, Loader2, Send, 
   Sparkles, AlertTriangle, Info, Shield, Truck, Receipt,
   ChevronRight, Clock, Zap, Terminal, Brain, Wrench,
-  ChevronDown, ChevronUp, Code, Activity
+  ChevronDown, ChevronUp, Code, Activity, Cpu, Layers,
+  LayoutGrid, Table2, ArrowUpDown, Star, DollarSign,
+  ExternalLink, Store, ImageIcon
 } from 'lucide-react'
+import Image from 'next/image'
 import { useShoppingStore, type OrderState, type TaxEstimate, type ComplianceRisk, type ThinkingStep, type ToolCall, type AgentStep } from '@/store/shopping'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Progress } from '@/components/ui/progress'
@@ -28,20 +31,20 @@ const STATE_LABELS: Record<OrderState, { label: string; step: number }> = {
   'PAID': { label: 'Paid', step: 10 },
 }
 
-// 思考类型图标和颜色
+// 思考类型图标和颜色 - Light theme
 const thinkingTypeConfig = {
-  thinking: { icon: Brain, color: 'text-sky-400', bg: 'bg-sky-500/10', label: 'Thinking' },
-  decision: { icon: Sparkles, color: 'text-amber-400', bg: 'bg-amber-500/10', label: 'Decision' },
-  action: { icon: Zap, color: 'text-emerald-400', bg: 'bg-emerald-500/10', label: 'Action' },
-  result: { icon: CheckCircle, color: 'text-green-400', bg: 'bg-green-500/10', label: 'Result' },
+  thinking: { icon: Brain, color: 'text-primary-600', bg: 'bg-primary-50', label: 'Thinking' },
+  decision: { icon: Sparkles, color: 'text-warning-600', bg: 'bg-warning-50', label: 'Decision' },
+  action: { icon: Zap, color: 'text-accent-600', bg: 'bg-accent-50', label: 'Action' },
+  result: { icon: CheckCircle, color: 'text-success-600', bg: 'bg-success-50', label: 'Result' },
 }
 
-// 税费置信度颜色
+// 税费置信度颜色 - Light theme
 function getTaxConfidenceColor(confidence: TaxEstimate['confidence']) {
   switch (confidence) {
-    case 'high': return 'text-emerald-400'
-    case 'medium': return 'text-amber-400'
-    case 'low': return 'text-red-400'
+    case 'high': return 'text-success-600'
+    case 'medium': return 'text-warning-600'
+    case 'low': return 'text-danger-600'
   }
 }
 
@@ -58,78 +61,158 @@ function getComplianceIcon(type: ComplianceRisk['type']) {
   }
 }
 
-// 思考步骤组件
+// 产品图片组件 - 支持真实图片和 emoji 后备
+function ProductImage({ 
+  imageUrl, 
+  fallbackEmoji, 
+  alt, 
+  size = 'md',
+  className = ''
+}: { 
+  imageUrl?: string
+  fallbackEmoji: string
+  alt: string
+  size?: 'sm' | 'md' | 'lg' | 'xl'
+  className?: string
+}) {
+  const [imgError, setImgError] = useState(false)
+  
+  const sizeClasses = {
+    sm: 'w-10 h-10',
+    md: 'w-16 h-16',
+    lg: 'w-20 h-20',
+    xl: 'w-24 h-24'
+  }
+  
+  const emojiSizes = {
+    sm: 'text-2xl',
+    md: 'text-4xl',
+    lg: 'text-5xl',
+    xl: 'text-6xl'
+  }
+  
+  if (!imageUrl || imgError) {
+    return (
+      <div className={cn(
+        "flex items-center justify-center rounded-xl bg-surface-100",
+        sizeClasses[size],
+        className
+      )}>
+        <span className={emojiSizes[size]}>{fallbackEmoji}</span>
+      </div>
+    )
+  }
+  
+  return (
+    <div className={cn(
+      "relative rounded-xl overflow-hidden bg-white border border-surface-200",
+      sizeClasses[size],
+      className
+    )}>
+      <Image
+        src={imageUrl}
+        alt={alt}
+        fill
+        className="object-cover"
+        onError={() => setImgError(true)}
+        unoptimized // 允许外部图片
+      />
+    </div>
+  )
+}
+
+// 产品链接按钮
+function ProductLink({ url, storeName }: { url?: string; storeName?: string }) {
+  if (!url) return null
+  
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noopener noreferrer"
+      onClick={(e) => e.stopPropagation()}
+      className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-primary-50 hover:bg-primary-100 text-primary-700 rounded-lg text-xs font-medium transition-colors border border-primary-200"
+    >
+      <Store className="w-3.5 h-3.5" />
+      <span>{storeName || 'View Product'}</span>
+      <ExternalLink className="w-3 h-3" />
+    </a>
+  )
+}
+
+// 思考步骤组件 - Light theme
 function ThinkingStepItem({ step, isLatest }: { step: ThinkingStep; isLatest: boolean }) {
   const config = thinkingTypeConfig[step.type]
   const Icon = config.icon
   
   return (
     <div className={cn(
-      "flex items-start gap-3 py-2 px-3 rounded-lg transition-all duration-300",
+      "flex items-start gap-3 py-2.5 px-3 rounded-xl transition-all duration-300 border",
       isLatest && "animate-slide-in",
-      config.bg
+      config.bg,
+      "border-transparent"
     )}>
       <div className={cn("mt-0.5", config.color)}>
         <Icon className="w-4 h-4" />
       </div>
       <div className="flex-1 min-w-0">
-        <span className={cn("text-sm", config.color)}>{step.text}</span>
+        <span className={cn("text-sm font-medium", config.color)}>{step.text}</span>
       </div>
-      <Badge variant="default" className="text-xs opacity-60">
+      <Badge variant="default" className="text-xs">
         {config.label}
       </Badge>
     </div>
   )
 }
 
-// 工具调用组件
+// 工具调用组件 - Light theme
 function ToolCallItem({ tool }: { tool: ToolCall }) {
   const [expanded, setExpanded] = useState(false)
   
   return (
-    <div className="border border-slate-700 rounded-lg overflow-hidden bg-slate-900/50">
+    <div className="border border-surface-200 rounded-xl overflow-hidden bg-white shadow-sm">
       <button
         onClick={() => setExpanded(!expanded)}
-        className="w-full flex items-center gap-3 p-3 hover:bg-slate-800/50 transition-colors"
+        className="w-full flex items-center gap-3 p-3 hover:bg-surface-50 transition-colors"
       >
         <div className={cn(
-          "w-6 h-6 rounded flex items-center justify-center",
-          tool.status === 'success' ? "bg-emerald-500/20" : 
-          tool.status === 'running' ? "bg-sky-500/20" : "bg-slate-700"
+          "w-7 h-7 rounded-lg flex items-center justify-center",
+          tool.status === 'success' ? "bg-success-100" : 
+          tool.status === 'running' ? "bg-primary-100" : "bg-surface-100"
         )}>
           {tool.status === 'running' ? (
-            <Loader2 className="w-3 h-3 text-sky-400 animate-spin" />
+            <Loader2 className="w-3.5 h-3.5 text-primary-600 animate-spin" />
           ) : tool.status === 'success' ? (
-            <CheckCircle className="w-3 h-3 text-emerald-400" />
+            <CheckCircle className="w-3.5 h-3.5 text-success-600" />
           ) : (
-            <Terminal className="w-3 h-3 text-slate-400" />
+            <Terminal className="w-3.5 h-3.5 text-surface-500" />
           )}
         </div>
-        <code className="text-sm text-emerald-400 font-mono flex-1 text-left truncate">
+        <code className="text-sm text-primary-600 font-mono flex-1 text-left truncate">
           {tool.name}
         </code>
         {tool.duration > 0 && (
-          <span className="text-xs text-slate-500">{tool.duration}ms</span>
+          <span className="text-xs text-surface-400 font-medium">{tool.duration}ms</span>
         )}
         {expanded ? (
-          <ChevronUp className="w-4 h-4 text-slate-400" />
+          <ChevronUp className="w-4 h-4 text-surface-400" />
         ) : (
-          <ChevronDown className="w-4 h-4 text-slate-400" />
+          <ChevronDown className="w-4 h-4 text-surface-400" />
         )}
       </button>
       
       {expanded && (
-        <div className="border-t border-slate-700 p-3 space-y-3 animate-expand">
+        <div className="border-t border-surface-100 p-3 space-y-3 animate-expand bg-surface-50">
           <div>
-            <span className="text-xs text-slate-500 block mb-1">Input:</span>
-            <pre className="text-xs text-slate-300 bg-slate-800 p-2 rounded overflow-x-auto font-mono">
+            <span className="text-xs text-surface-500 font-medium block mb-1.5">Input:</span>
+            <pre className="text-xs text-surface-700 bg-white p-2.5 rounded-lg overflow-x-auto font-mono border border-surface-200">
               {tool.input}
             </pre>
           </div>
           {tool.output && (
             <div>
-              <span className="text-xs text-slate-500 block mb-1">Output:</span>
-              <pre className="text-xs text-emerald-300 bg-slate-800 p-2 rounded overflow-x-auto font-mono">
+              <span className="text-xs text-surface-500 font-medium block mb-1.5">Output:</span>
+              <pre className="text-xs text-success-700 bg-success-50 p-2.5 rounded-lg overflow-x-auto font-mono border border-success-100">
                 {tool.output}
               </pre>
             </div>
@@ -140,7 +223,7 @@ function ToolCallItem({ tool }: { tool: ToolCall }) {
   )
 }
 
-// Agent 步骤详情组件
+// Agent 步骤详情组件 - Light theme
 function AgentStepDetail({ step, isActive }: { step: AgentStep; isActive: boolean }) {
   const scrollRef = useRef<HTMLDivElement>(null)
   
@@ -157,7 +240,7 @@ function AgentStepDetail({ step, isActive }: { step: AgentStep; isActive: boolea
       {/* 思考过程 */}
       {step.thinkingSteps.length > 0 && (
         <div className="space-y-2">
-          <div className="flex items-center gap-2 text-sm text-slate-400">
+          <div className="flex items-center gap-2 text-sm text-surface-500 font-medium">
             <Brain className="w-4 h-4" />
             <span>LLM Reasoning ({step.thinkingSteps.length} steps)</span>
           </div>
@@ -179,7 +262,7 @@ function AgentStepDetail({ step, isActive }: { step: AgentStep; isActive: boolea
       {/* 工具调用 */}
       {step.toolCalls.length > 0 && (
         <div className="space-y-2">
-          <div className="flex items-center gap-2 text-sm text-slate-400">
+          <div className="flex items-center gap-2 text-sm text-surface-500 font-medium">
             <Wrench className="w-4 h-4" />
             <span>Tool Calls ({step.toolCalls.length})</span>
           </div>
@@ -193,20 +276,20 @@ function AgentStepDetail({ step, isActive }: { step: AgentStep; isActive: boolea
       
       {/* 步骤统计 */}
       {step.status === 'completed' && (
-        <div className="flex items-center gap-4 text-xs text-slate-500 pt-2 border-t border-slate-700/50">
+        <div className="flex items-center gap-4 text-xs text-surface-400 pt-3 border-t border-surface-100">
           {step.tokenUsed && (
-            <span className="flex items-center gap-1">
+            <span className="flex items-center gap-1.5">
               <Activity className="w-3 h-3" />
               ~{step.tokenUsed} tokens
             </span>
           )}
           {step.duration && (
-            <span className="flex items-center gap-1">
+            <span className="flex items-center gap-1.5">
               <Clock className="w-3 h-3" />
               {(step.duration / 1000).toFixed(1)}s
             </span>
           )}
-          <span className="flex items-center gap-1">
+          <span className="flex items-center gap-1.5">
             <Terminal className="w-3 h-3" />
             {step.toolCalls.length} tool calls
           </span>
@@ -216,21 +299,26 @@ function AgentStepDetail({ step, isActive }: { step: AgentStep; isActive: boolea
   )
 }
 
-// 状态机进度条
+// 状态机进度条 - Light theme
 function StateMachineProgress({ currentState }: { currentState: OrderState }) {
   const { step } = STATE_LABELS[currentState]
   const progress = (step / 10) * 100
   
   return (
-    <div className="mb-6">
-      <div className="flex items-center justify-between mb-2">
-        <span className="text-sm text-slate-400">Order State Machine</span>
-        <Badge variant={step >= 8 ? 'success' : 'default'}>
+    <div className="mb-6 p-4 bg-white rounded-2xl border border-surface-200 shadow-sm">
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <div className="w-8 h-8 rounded-lg bg-primary-100 flex items-center justify-center">
+            <Layers className="w-4 h-4 text-primary-600" />
+          </div>
+          <span className="text-sm font-medium text-surface-600">Order State Machine</span>
+        </div>
+        <Badge variant={step >= 8 ? 'success' : 'info'}>
           {STATE_LABELS[currentState].label}
         </Badge>
       </div>
       <Progress value={progress} />
-      <div className="flex justify-between mt-1 text-xs text-slate-500">
+      <div className="flex justify-between mt-2 text-xs text-surface-400 font-medium">
         <span>IDLE</span>
         <span>DRAFT_ORDER</span>
         <span>PAID</span>
@@ -239,30 +327,216 @@ function StateMachineProgress({ currentState }: { currentState: OrderState }) {
   )
 }
 
-// 实时统计面板
+// 实时统计面板 - Light theme
 function LiveStats({ tokens, toolCalls, isProcessing }: { tokens: number; toolCalls: number; isProcessing: boolean }) {
   return (
-    <div className="flex items-center gap-4 p-3 bg-slate-800/50 rounded-xl border border-slate-700 mb-6">
+    <div className="flex items-center gap-4 p-4 bg-white rounded-2xl border border-surface-200 shadow-sm mb-6">
       <div className="flex items-center gap-2">
         <div className={cn(
-          "w-2 h-2 rounded-full",
-          isProcessing ? "bg-emerald-500 animate-pulse" : "bg-slate-500"
+          "w-2.5 h-2.5 rounded-full",
+          isProcessing ? "bg-success-500 animate-pulse" : "bg-surface-300"
         )} />
-        <span className="text-sm text-slate-400">
+        <span className="text-sm font-medium text-surface-600">
           {isProcessing ? 'Processing...' : 'Idle'}
         </span>
       </div>
-      <div className="h-4 w-px bg-slate-700" />
+      <div className="h-5 w-px bg-surface-200" />
       <div className="flex items-center gap-2 text-sm">
-        <Activity className="w-4 h-4 text-sky-400" />
-        <span className="text-slate-300">{tokens}</span>
-        <span className="text-slate-500">tokens</span>
+        <div className="w-7 h-7 rounded-lg bg-primary-100 flex items-center justify-center">
+          <Activity className="w-3.5 h-3.5 text-primary-600" />
+        </div>
+        <span className="text-surface-700 font-semibold">{tokens}</span>
+        <span className="text-surface-400">tokens</span>
       </div>
-      <div className="h-4 w-px bg-slate-700" />
+      <div className="h-5 w-px bg-surface-200" />
       <div className="flex items-center gap-2 text-sm">
-        <Terminal className="w-4 h-4 text-emerald-400" />
-        <span className="text-slate-300">{toolCalls}</span>
-        <span className="text-slate-500">tool calls</span>
+        <div className="w-7 h-7 rounded-lg bg-accent-100 flex items-center justify-center">
+          <Terminal className="w-3.5 h-3.5 text-accent-600" />
+        </div>
+        <span className="text-surface-700 font-semibold">{toolCalls}</span>
+        <span className="text-surface-400">tool calls</span>
+      </div>
+    </div>
+  )
+}
+
+// 对比表格组件
+type Plan = ReturnType<typeof useShoppingStore.getState>['plans'][0]
+function ComparisonTable({ plans, onSelectPlan }: { plans: Plan[]; onSelectPlan: (plan: Plan) => void }) {
+  const [sortKey, setSortKey] = useState<'total' | 'price' | 'shipping' | 'delivery'>('total')
+  const [sortAsc, setSortAsc] = useState(true)
+  
+  const sortedPlans = [...plans].sort((a, b) => {
+    let aVal: number, bVal: number
+    switch (sortKey) {
+      case 'total': aVal = a.total; bVal = b.total; break
+      case 'price': aVal = a.product.price; bVal = b.product.price; break
+      case 'shipping': aVal = a.shipping; bVal = b.shipping; break
+      case 'delivery': 
+        aVal = parseInt(a.deliveryDays.split('-')[0])
+        bVal = parseInt(b.deliveryDays.split('-')[0])
+        break
+      default: aVal = a.total; bVal = b.total
+    }
+    return sortAsc ? aVal - bVal : bVal - aVal
+  })
+  
+  const handleSort = (key: typeof sortKey) => {
+    if (sortKey === key) {
+      setSortAsc(!sortAsc)
+    } else {
+      setSortKey(key)
+      setSortAsc(true)
+    }
+  }
+  
+  const SortHeader = ({ label, sortKeyName }: { label: string; sortKeyName: typeof sortKey }) => (
+    <button
+      onClick={() => handleSort(sortKeyName)}
+      className={cn(
+        "flex items-center gap-1.5 font-semibold text-xs uppercase tracking-wide transition-colors",
+        sortKey === sortKeyName ? "text-primary-600" : "text-surface-500 hover:text-surface-700"
+      )}
+    >
+      {label}
+      <ArrowUpDown className={cn("w-3.5 h-3.5", sortKey === sortKeyName && "text-primary-500")} />
+    </button>
+  )
+  
+  return (
+    <div className="bg-white rounded-2xl border border-surface-200 shadow-sm overflow-hidden">
+      {/* Table Header */}
+      <div className="grid grid-cols-12 gap-4 p-4 bg-surface-50 border-b border-surface-200">
+        <div className="col-span-4 flex items-center gap-2">
+          <span className="font-semibold text-xs uppercase tracking-wide text-surface-500">Product</span>
+        </div>
+        <div className="col-span-2 flex justify-center">
+          <SortHeader label="Price" sortKeyName="price" />
+        </div>
+        <div className="col-span-2 flex justify-center">
+          <SortHeader label="Shipping" sortKeyName="shipping" />
+        </div>
+        <div className="col-span-1 flex justify-center">
+          <span className="font-semibold text-xs uppercase tracking-wide text-surface-500">Tax</span>
+        </div>
+        <div className="col-span-1 flex justify-center">
+          <SortHeader label="Delivery" sortKeyName="delivery" />
+        </div>
+        <div className="col-span-2 flex justify-center">
+          <SortHeader label="Total" sortKeyName="total" />
+        </div>
+      </div>
+      
+      {/* Table Body */}
+      <div className="divide-y divide-surface-100">
+        {sortedPlans.map((plan, idx) => (
+          <div 
+            key={plan.name + idx}
+            onClick={() => onSelectPlan(plan)}
+            className={cn(
+              "grid grid-cols-12 gap-4 p-4 cursor-pointer transition-all hover:bg-primary-50/50 group",
+              plan.recommended && "bg-primary-50/30"
+            )}
+          >
+            {/* Product Info */}
+            <div className="col-span-4 flex items-center gap-3">
+              <ProductImage 
+                imageUrl={plan.product.imageUrl}
+                fallbackEmoji={plan.emoji}
+                alt={plan.product.title}
+                size="sm"
+              />
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="font-semibold text-surface-800 truncate">{plan.name}</span>
+                  {plan.recommended && (
+                    <Star className="w-4 h-4 text-warning-500 fill-warning-500 flex-shrink-0" />
+                  )}
+                </div>
+                <p className="text-sm text-surface-500 truncate">{plan.product.title}</p>
+                <div className="flex items-center gap-1.5 mt-1">
+                  <Badge variant={
+                    plan.type === 'cheapest' ? 'success' :
+                    plan.type === 'fastest' ? 'info' : 'warning'
+                  } className="text-[10px]">
+                    {plan.type.replace('_', ' ')}
+                  </Badge>
+                  <span className="text-xs text-surface-400">★ {plan.product.rating}</span>
+                  {plan.product.productUrl && (
+                    <a
+                      href={plan.product.productUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={(e) => e.stopPropagation()}
+                      className="text-primary-500 hover:text-primary-600"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5" />
+                    </a>
+                  )}
+                </div>
+              </div>
+            </div>
+            
+            {/* Price */}
+            <div className="col-span-2 flex items-center justify-center">
+              <span className="font-bold text-surface-800">${plan.product.price}</span>
+            </div>
+            
+            {/* Shipping */}
+            <div className="col-span-2 flex items-center justify-center">
+              <div className="text-center">
+                <span className={cn(
+                  "font-semibold",
+                  plan.shipping === 0 ? "text-success-600" : "text-surface-700"
+                )}>
+                  {plan.shipping === 0 ? 'FREE' : `$${plan.shipping}`}
+                </span>
+              </div>
+            </div>
+            
+            {/* Tax */}
+            <div className="col-span-1 flex items-center justify-center">
+              <div className="text-center">
+                <span className={cn("font-medium text-sm", getTaxConfidenceColor(plan.tax.confidence))}>
+                  ${plan.tax.amount}
+                </span>
+              </div>
+            </div>
+            
+            {/* Delivery */}
+            <div className="col-span-1 flex items-center justify-center">
+              <div className="text-center">
+                <span className="font-medium text-surface-700 text-sm">{plan.deliveryDays}</span>
+                <span className="text-xs text-surface-400 block">days</span>
+              </div>
+            </div>
+            
+            {/* Total */}
+            <div className="col-span-2 flex items-center justify-center gap-2">
+              <span className="font-bold text-lg text-surface-800">${plan.total}</span>
+              <ChevronRight className="w-4 h-4 text-surface-300 group-hover:text-primary-500 transition-colors" />
+            </div>
+          </div>
+        ))}
+      </div>
+      
+      {/* Table Footer - Summary */}
+      <div className="p-4 bg-surface-50 border-t border-surface-200">
+        <div className="flex items-center justify-between text-sm">
+          <div className="flex items-center gap-4">
+            <span className="text-surface-500">
+              <span className="font-semibold text-surface-700">{plans.length}</span> plans available
+            </span>
+            <span className="text-surface-300">|</span>
+            <span className="text-surface-500">
+              Price range: <span className="font-semibold text-surface-700">${Math.min(...plans.map(p => p.total))} - ${Math.max(...plans.map(p => p.total))}</span>
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <Star className="w-4 h-4 text-warning-500 fill-warning-500" />
+            <span className="text-surface-500">= AI Recommended</span>
+          </div>
+        </div>
       </div>
     </div>
   )
@@ -272,6 +546,7 @@ export default function Home() {
   const store = useShoppingStore()
   const [currentView, setCurrentView] = useState<'input' | 'processing' | 'plans' | 'confirmation'>('input')
   const [expandedStep, setExpandedStep] = useState<number | null>(null)
+  const [viewMode, setViewMode] = useState<'cards' | 'table'>('cards')
 
   // 根据状态切换视图
   useEffect(() => {
@@ -282,7 +557,6 @@ export default function Home() {
     } else if (store.plans.length > 0 && store.orderState === 'TOTAL_COMPUTED') {
       setCurrentView('plans')
     } else {
-      // 其他状态（MISSION_READY, CANDIDATES_READY, VERIFIED_TOPN_READY 等）
       setCurrentView('processing')
     }
   }, [store.orderState, store.plans.length])
@@ -297,9 +571,11 @@ export default function Home() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!store.query.trim()) return
+    // 先重置部分状态，确保从干净状态开始
+    store.setOrderState('MISSION_READY')
     setCurrentView('processing')
     await store.startAgentProcess()
-    setCurrentView('plans')
+    // 处理完成后，状态会是 TOTAL_COMPUTED，useEffect 会自动切换到 plans 视图
   }
 
   const handleSelectPlan = (plan: typeof store.plans[0]) => {
@@ -318,40 +594,39 @@ export default function Home() {
   }
 
   return (
-    <main className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950">
-      {/* Geometric pattern background */}
-      <div className="fixed inset-0 opacity-5">
-        <div className="absolute inset-0" style={{
-          backgroundImage: `url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='0.4'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")`,
-        }} />
-      </div>
+    <main className="min-h-screen bg-gradient-to-br from-surface-50 via-white to-surface-100">
+      {/* Background patterns */}
+      <div className="fixed inset-0 gradient-mesh pointer-events-none" />
+      <div className="fixed inset-0 circuit-pattern pointer-events-none" />
 
-      {/* Header */}
-      <header className="relative border-b border-slate-800 bg-slate-950/80 backdrop-blur-xl">
+      {/* Header - Light tech theme */}
+      <header className="relative border-b border-surface-200 bg-white/80 backdrop-blur-xl shadow-sm">
         <div className="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-400 to-teal-600 flex items-center justify-center shadow-lg shadow-emerald-500/20">
+            <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-primary-500 to-accent-500 flex items-center justify-center shadow-lg shadow-primary-500/20">
               <Bot className="w-6 h-6 text-white" />
             </div>
             <div>
-              <h1 className="text-xl font-bold text-white">AI Shopping Agent</h1>
-              <p className="text-xs text-slate-500">Shopping like prompting!</p>
+              <h1 className="text-xl font-bold gradient-text">AI Shopping Agent</h1>
+              <p className="text-xs text-surface-500 font-medium">Shopping like prompting!</p>
             </div>
           </div>
           <div className="flex items-center gap-4">
-            <div className="hidden md:flex items-center gap-2 px-3 py-1.5 bg-slate-800 rounded-lg text-sm">
-              <Code className="w-4 h-4 text-slate-400" />
-              <span className="text-emerald-400 font-mono">GPT-4o-mini</span>
+            <div className="hidden md:flex items-center gap-2 px-3 py-2 bg-surface-100 rounded-xl text-sm border border-surface-200">
+              <Cpu className="w-4 h-4 text-surface-500" />
+              <span className="text-primary-600 font-mono font-medium">GPT-4o-mini</span>
             </div>
-            <div className="flex items-center gap-2 text-slate-400 text-sm">
-              <Sparkles className="w-4 h-4 text-emerald-400" />
+            <div className="flex items-center gap-2 text-surface-500 text-sm font-medium">
+              <div className="w-8 h-8 rounded-lg bg-accent-100 flex items-center justify-center">
+                <Sparkles className="w-4 h-4 text-accent-600" />
+              </div>
               <span>Multi-Agent</span>
             </div>
           </div>
         </div>
       </header>
 
-      <div className="relative max-w-4xl mx-auto px-4 py-8 pb-24">
+      <div className="relative max-w-4xl mx-auto px-4 py-8 pb-28">
         {/* State Machine Progress */}
         {currentView !== 'input' && (
           <StateMachineProgress currentState={store.orderState} />
@@ -366,14 +641,17 @@ export default function Home() {
           />
         )}
 
-        {/* Input View */}
+        {/* Input View - Light theme */}
         {currentView === 'input' && (
           <div className="animate-fade-in">
             <div className="text-center mb-12">
-              <h2 className="text-4xl font-bold text-white mb-4">
+              <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-br from-primary-500 to-accent-500 mb-6 shadow-tech animate-float">
+                <ShoppingCart className="w-8 h-8 text-white" />
+              </div>
+              <h2 className="text-4xl font-bold text-surface-800 mb-4">
                 What would you like to buy?
               </h2>
-              <p className="text-slate-400 text-lg">
+              <p className="text-surface-500 text-lg max-w-xl mx-auto">
                 Describe your shopping needs and watch our AI agents work in real-time.
               </p>
             </div>
@@ -384,12 +662,12 @@ export default function Home() {
                   value={store.query}
                   onChange={(e) => store.setQuery(e.target.value)}
                   placeholder="e.g., I need a wireless charger for my iPhone 15, budget around $50, shipping to Germany..."
-                  className="w-full h-32 px-6 py-4 bg-slate-800/50 border border-slate-700 rounded-2xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500/50 resize-none"
+                  className="w-full h-36 px-6 py-5 bg-white border border-surface-200 rounded-2xl text-surface-800 placeholder-surface-400 focus:outline-none focus:ring-2 focus:ring-primary-500/30 focus:border-primary-500 resize-none shadow-sm transition-all"
                 />
                 <button
                   type="submit"
                   disabled={!store.query.trim()}
-                  className="absolute bottom-4 right-4 px-6 py-2 bg-gradient-to-r from-emerald-500 to-teal-600 text-white rounded-xl font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:from-emerald-600 hover:to-teal-700 transition-all flex items-center gap-2 shadow-lg shadow-emerald-500/20"
+                  className="absolute bottom-4 right-4 px-6 py-2.5 bg-gradient-to-r from-primary-500 to-accent-500 text-white rounded-xl font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:from-primary-600 hover:to-accent-600 transition-all flex items-center gap-2 shadow-lg shadow-primary-500/25 hover:shadow-xl hover:shadow-primary-500/30 hover:-translate-y-0.5"
                 >
                   <Send className="w-4 h-4" />
                   Find Products
@@ -397,9 +675,9 @@ export default function Home() {
               </div>
             </form>
 
-            {/* Example queries */}
+            {/* Example queries - Light theme */}
             <div className="mt-8">
-              <p className="text-slate-500 text-sm mb-3">Try these examples:</p>
+              <p className="text-surface-500 text-sm mb-3 font-medium">Try these examples:</p>
               <div className="flex flex-wrap gap-2">
                 {[
                   'Wireless charger for iPhone, $50 budget, ship to Germany',
@@ -409,7 +687,7 @@ export default function Home() {
                   <button
                     key={example}
                     onClick={() => store.setQuery(example)}
-                    className="px-4 py-2 bg-slate-800/50 hover:bg-slate-700/50 border border-slate-700 rounded-lg text-slate-300 text-sm transition-colors"
+                    className="px-4 py-2.5 bg-white hover:bg-surface-50 border border-surface-200 rounded-xl text-surface-600 text-sm transition-all hover:border-primary-300 hover:text-primary-600 hover:shadow-sm"
                   >
                     {example}
                   </button>
@@ -419,18 +697,18 @@ export default function Home() {
           </div>
         )}
 
-        {/* Processing View */}
+        {/* Processing View - Light theme */}
         {currentView === 'processing' && (
           <div className="animate-fade-in">
             <div className="text-center mb-8">
-              <h2 className="text-2xl font-bold text-white mb-2">Processing your request...</h2>
-              <p className="text-slate-400">&quot;{store.query}&quot;</p>
+              <h2 className="text-2xl font-bold text-surface-800 mb-2">Processing your request...</h2>
+              <p className="text-surface-500">&quot;{store.query}&quot;</p>
             </div>
 
-            {/* Parsed Mission */}
+            {/* Parsed Mission - Light theme */}
             {store.mission && (
-              <div className="mb-6 p-4 bg-slate-800/50 rounded-xl border border-slate-700">
-                <h3 className="text-slate-300 text-sm font-medium mb-2">Parsed Mission</h3>
+              <div className="mb-6 p-5 bg-white rounded-2xl border border-surface-200 shadow-sm">
+                <h3 className="text-surface-700 text-sm font-semibold mb-3">Parsed Mission</h3>
                 <div className="flex flex-wrap gap-3 text-sm">
                   <Badge variant="info">🌍 {store.mission.destination_country}</Badge>
                   <Badge variant="success">💰 ${store.mission.budget_amount}</Badge>
@@ -441,56 +719,62 @@ export default function Home() {
               </div>
             )}
 
-            {/* Current thinking step */}
+            {/* Current thinking step - Light theme */}
             {store.currentThinkingStep && (
-              <div className="mb-6 p-4 bg-sky-500/10 border border-sky-500/30 rounded-xl animate-pulse-slow">
+              <div className="mb-6 p-4 bg-primary-50 border border-primary-100 rounded-2xl animate-pulse-slow">
                 <div className="flex items-center gap-3">
-                  <Brain className="w-5 h-5 text-sky-400 animate-bounce-slow" />
-                  <span className="text-sky-300">{store.currentThinkingStep}</span>
+                  <div className="w-8 h-8 rounded-lg bg-primary-100 flex items-center justify-center">
+                    <Brain className="w-4 h-4 text-primary-600 animate-bounce-slow" />
+                  </div>
+                  <span className="text-primary-700 font-medium">{store.currentThinkingStep}</span>
                 </div>
               </div>
             )}
 
-            {/* Agent Progress */}
+            {/* Agent Progress - Light theme */}
             <div className="space-y-4">
               {store.agentSteps.map((step, index) => (
                 <div
                   key={step.id}
                   className={cn(
-                    "rounded-xl border transition-all duration-500 overflow-hidden",
-                    step.status === 'completed' && "bg-emerald-500/5 border-emerald-500/30",
-                    step.status === 'running' && "bg-slate-800 border-sky-500/50 ring-1 ring-sky-500/20",
-                    step.status === 'pending' && "bg-slate-800/30 border-slate-700/50 opacity-50"
+                    "rounded-2xl border transition-all duration-500 overflow-hidden bg-white shadow-sm",
+                    step.status === 'completed' && "border-success-200 bg-success-50/30",
+                    step.status === 'running' && "border-primary-300 ring-2 ring-primary-100 shadow-lg",
+                    step.status === 'pending' && "border-surface-200 opacity-60"
                   )}
                 >
                   <button
                     onClick={() => step.status !== 'pending' && toggleStepExpansion(index)}
-                    className="w-full p-4 flex items-center gap-4"
+                    className="w-full p-5 flex items-center gap-4"
                     disabled={step.status === 'pending'}
                   >
-                    <div className="text-2xl">{step.icon}</div>
+                    <div className="text-3xl">{step.icon}</div>
                     <div className="flex-1 text-left">
                       <div className="flex items-center gap-2">
-                        <h3 className="text-white font-medium">{step.name}</h3>
+                        <h3 className="text-surface-800 font-semibold">{step.name}</h3>
                         {step.status === 'completed' && step.tokenUsed && (
-                          <span className="text-xs text-slate-500">~{step.tokenUsed} tokens</span>
+                          <span className="text-xs text-surface-400">~{step.tokenUsed} tokens</span>
                         )}
                       </div>
-                      <p className="text-slate-400 text-sm">{step.description}</p>
+                      <p className="text-surface-500 text-sm">{step.description}</p>
                     </div>
                     <div className="flex items-center gap-2">
                       {step.status === 'completed' ? (
-                        <CheckCircle className="w-6 h-6 text-emerald-500" />
+                        <div className="w-8 h-8 rounded-full bg-success-100 flex items-center justify-center">
+                          <CheckCircle className="w-5 h-5 text-success-600" />
+                        </div>
                       ) : step.status === 'running' ? (
-                        <Loader2 className="w-6 h-6 text-sky-400 animate-spin" />
+                        <div className="w-8 h-8 rounded-full bg-primary-100 flex items-center justify-center">
+                          <Loader2 className="w-5 h-5 text-primary-600 animate-spin" />
+                        </div>
                       ) : (
-                        <div className="w-6 h-6 rounded-full border-2 border-slate-600" />
+                        <div className="w-8 h-8 rounded-full border-2 border-surface-300" />
                       )}
                       {step.status !== 'pending' && (
                         expandedStep === index ? (
-                          <ChevronUp className="w-5 h-5 text-slate-400" />
+                          <ChevronUp className="w-5 h-5 text-surface-400" />
                         ) : (
-                          <ChevronDown className="w-5 h-5 text-slate-400" />
+                          <ChevronDown className="w-5 h-5 text-surface-400" />
                         )
                       )}
                     </div>
@@ -498,7 +782,7 @@ export default function Home() {
                   
                   {/* Expanded details */}
                   {expandedStep === index && (
-                    <div className="px-4 pb-4">
+                    <div className="px-5 pb-5">
                       <AgentStepDetail step={step} isActive={step.status === 'running'} />
                     </div>
                   )}
@@ -508,96 +792,165 @@ export default function Home() {
           </div>
         )}
 
-        {/* Plans View */}
+        {/* Plans View - Light theme */}
         {currentView === 'plans' && (
           <div className="animate-fade-in">
             <div className="text-center mb-8">
-              <h2 className="text-2xl font-bold text-white mb-2">Choose Your Plan</h2>
-              <p className="text-slate-400">We found {store.plans.length} options for you</p>
+              <h2 className="text-2xl font-bold text-surface-800 mb-2">Choose Your Plan</h2>
+              <p className="text-surface-500">We found {store.plans.length} options for you</p>
             </div>
 
-            {/* AI Recommendation Card */}
+            {/* AI Recommendation Card - Light theme */}
             {store.aiRecommendation && (
-              <div className="mb-6 p-4 bg-gradient-to-r from-emerald-500/10 to-teal-500/10 border border-emerald-500/30 rounded-2xl">
-                <div className="flex items-start gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-400 to-teal-600 flex items-center justify-center flex-shrink-0">
-                    <Bot className="w-5 h-5 text-white" />
+              <div className="mb-6 p-5 bg-gradient-to-r from-primary-50 to-accent-50 border border-primary-100 rounded-2xl shadow-sm">
+                <div className="flex items-start gap-4">
+                  <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-primary-500 to-accent-500 flex items-center justify-center flex-shrink-0 shadow-lg shadow-primary-500/20">
+                    <Bot className="w-6 h-6 text-white" />
                   </div>
                   <div className="flex-1">
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="text-emerald-400 font-semibold">AI Recommendation</span>
+                    <div className="flex items-center gap-2 mb-1.5">
+                      <span className="text-primary-700 font-bold">AI Recommendation</span>
                       <Badge variant="default">{store.aiRecommendation.model}</Badge>
                       <Badge variant="success">
                         {Math.round(store.aiRecommendation.confidence * 100)}% confidence
                       </Badge>
                     </div>
-                    <p className="text-slate-300 text-sm">{store.aiRecommendation.reason}</p>
+                    <p className="text-surface-600 text-sm">{store.aiRecommendation.reason}</p>
                   </div>
                 </div>
               </div>
             )}
 
-            {/* Summary stats */}
-            <div className="mb-6 p-3 bg-slate-800/50 rounded-xl border border-slate-700 flex items-center justify-center gap-6 text-sm">
-              <div className="flex items-center gap-2">
-                <Activity className="w-4 h-4 text-sky-400" />
-                <span className="text-slate-300">{store.totalTokens}</span>
-                <span className="text-slate-500">tokens used</span>
+            {/* Stats & View Toggle */}
+            <div className="mb-6 p-4 bg-white rounded-2xl border border-surface-200 flex items-center justify-between shadow-sm">
+              <div className="flex items-center gap-6 text-sm">
+                <div className="flex items-center gap-2">
+                  <div className="w-7 h-7 rounded-lg bg-primary-100 flex items-center justify-center">
+                    <Activity className="w-3.5 h-3.5 text-primary-600" />
+                  </div>
+                  <span className="text-surface-700 font-semibold">{store.totalTokens}</span>
+                  <span className="text-surface-400">tokens</span>
+                </div>
+                <div className="h-5 w-px bg-surface-200" />
+                <div className="flex items-center gap-2">
+                  <div className="w-7 h-7 rounded-lg bg-accent-100 flex items-center justify-center">
+                    <Terminal className="w-3.5 h-3.5 text-accent-600" />
+                  </div>
+                  <span className="text-surface-700 font-semibold">{store.totalToolCalls}</span>
+                  <span className="text-surface-400">tools</span>
+                </div>
+                <div className="h-5 w-px bg-surface-200" />
+                <div className="flex items-center gap-2">
+                  <div className="w-7 h-7 rounded-lg bg-success-100 flex items-center justify-center">
+                    <DollarSign className="w-3.5 h-3.5 text-success-600" />
+                  </div>
+                  <span className="text-surface-700 font-semibold">{store.plans.length}</span>
+                  <span className="text-surface-400">plans</span>
+                </div>
               </div>
-              <div className="h-4 w-px bg-slate-700" />
-              <div className="flex items-center gap-2">
-                <Terminal className="w-4 h-4 text-emerald-400" />
-                <span className="text-slate-300">{store.totalToolCalls}</span>
-                <span className="text-slate-500">tool calls</span>
+              
+              {/* View Mode Toggle */}
+              <div className="flex items-center gap-1 p-1 bg-surface-100 rounded-xl">
+                <button
+                  onClick={() => setViewMode('cards')}
+                  className={cn(
+                    "flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all",
+                    viewMode === 'cards' 
+                      ? "bg-white text-primary-600 shadow-sm" 
+                      : "text-surface-500 hover:text-surface-700"
+                  )}
+                >
+                  <LayoutGrid className="w-4 h-4" />
+                  <span className="hidden sm:inline">Cards</span>
+                </button>
+                <button
+                  onClick={() => setViewMode('table')}
+                  className={cn(
+                    "flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all",
+                    viewMode === 'table' 
+                      ? "bg-white text-primary-600 shadow-sm" 
+                      : "text-surface-500 hover:text-surface-700"
+                  )}
+                >
+                  <Table2 className="w-4 h-4" />
+                  <span className="hidden sm:inline">Compare</span>
+                </button>
               </div>
             </div>
 
+            {/* Comparison Table View */}
+            {viewMode === 'table' && (
+              <div className="mb-6">
+                <ComparisonTable plans={store.plans} onSelectPlan={handleSelectPlan} />
+              </div>
+            )}
+
+            {/* Cards View */}
+            {viewMode === 'cards' && (
             <div className="grid gap-4">
               {store.plans.map((plan) => (
                 <div
                   key={plan.name}
                   onClick={() => handleSelectPlan(plan)}
                   className={cn(
-                    "p-6 bg-slate-800/50 hover:bg-slate-800 border rounded-2xl cursor-pointer transition-all group relative",
+                    "p-6 bg-white hover:bg-surface-50 border rounded-2xl cursor-pointer transition-all group relative shadow-sm hover:shadow-lg",
                     plan.recommended 
-                      ? "border-emerald-500/50 ring-1 ring-emerald-500/30" 
-                      : "border-slate-700 hover:border-emerald-500/50"
+                      ? "border-primary-300 ring-2 ring-primary-100" 
+                      : "border-surface-200 hover:border-primary-200"
                   )}
                 >
                   {plan.recommended && (
-                    <div className="absolute -top-3 left-4 px-3 py-1 bg-gradient-to-r from-emerald-500 to-teal-600 rounded-full text-xs text-white font-medium flex items-center gap-1">
+                    <div className="absolute -top-3 left-4 px-3 py-1.5 bg-gradient-to-r from-primary-500 to-accent-500 rounded-full text-xs text-white font-semibold flex items-center gap-1.5 shadow-lg shadow-primary-500/20">
                       <Sparkles className="w-3 h-3" />
                       AI Recommended
                     </div>
                   )}
                   
-                  <div className="flex items-start gap-4">
-                    <div className="text-4xl">{plan.emoji}</div>
+                  <div className="flex items-start gap-5">
+                    <ProductImage 
+                      imageUrl={plan.product.imageUrl}
+                      fallbackEmoji={plan.emoji}
+                      alt={plan.product.title}
+                      size="lg"
+                    />
                     <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-1">
-                        <h3 className="text-xl font-bold text-white">{plan.name}</h3>
+                      <div className="flex items-center gap-2 mb-1.5">
+                        <h3 className="text-xl font-bold text-surface-800">{plan.name}</h3>
                         <Badge variant={
                           plan.type === 'cheapest' ? 'success' :
                           plan.type === 'fastest' ? 'info' : 'warning'
                         }>
                           {plan.type.replace('_', ' ')}
                         </Badge>
+                        {plan.product.source === 'xoobay' && (
+                          <Badge variant="accent" className="text-[10px]">XOOBAY</Badge>
+                        )}
                       </div>
-                      <p className="text-slate-300 mb-2">{plan.product.title}</p>
-                      <p className="text-slate-500 text-sm mb-3">{plan.reason}</p>
+                      <p className="text-surface-700 font-medium mb-1">{plan.product.title}</p>
+                      {plan.product.shortDescription && (
+                        <p className="text-surface-500 text-xs mb-2">{plan.product.shortDescription}</p>
+                      )}
+                      <p className="text-surface-500 text-sm mb-3">{plan.reason}</p>
+                      
+                      {/* Product Link */}
+                      {plan.product.productUrl && (
+                        <div className="mb-3">
+                          <ProductLink url={plan.product.productUrl} storeName={plan.product.storeName} />
+                        </div>
+                      )}
                       
                       {/* Tax Confidence */}
                       <div className="flex items-center gap-4 mb-3">
                         <div className="flex items-center gap-1.5">
-                          <Receipt className="w-4 h-4 text-slate-400" />
-                          <span className="text-sm text-slate-400">Tax:</span>
-                          <span className={cn("text-sm font-medium", getTaxConfidenceColor(plan.tax.confidence))}>
+                          <Receipt className="w-4 h-4 text-surface-400" />
+                          <span className="text-sm text-surface-500">Tax:</span>
+                          <span className={cn("text-sm font-semibold", getTaxConfidenceColor(plan.tax.confidence))}>
                             ${plan.tax.amount} ({plan.tax.confidence})
                           </span>
                         </div>
                         <div className="flex items-center gap-1.5">
-                          <Truck className="w-4 h-4 text-slate-400" />
-                          <span className="text-sm text-slate-400">{plan.deliveryDays} days</span>
+                          <Truck className="w-4 h-4 text-surface-400" />
+                          <span className="text-sm text-surface-500">{plan.deliveryDays} days</span>
                         </div>
                       </div>
 
@@ -605,76 +958,77 @@ export default function Home() {
                       {plan.product.complianceRisks.length > 0 && (
                         <div className="flex flex-wrap gap-2 mb-3">
                           {plan.product.complianceRisks.map((risk, i) => (
-                            <div key={i} className="flex items-center gap-1 px-2 py-1 bg-amber-500/10 border border-amber-500/30 rounded text-xs">
+                            <div key={i} className="flex items-center gap-1.5 px-2.5 py-1 bg-warning-50 border border-warning-200 rounded-lg text-xs">
                               <span>{getComplianceIcon(risk.type)}</span>
-                              <span className="text-amber-400">{risk.message}</span>
+                              <span className="text-warning-700 font-medium">{risk.message}</span>
                             </div>
                           ))}
                         </div>
                       )}
                       
-                      <div className="grid grid-cols-4 gap-4 text-sm mt-4 pt-4 border-t border-slate-700">
+                      <div className="grid grid-cols-4 gap-4 text-sm mt-4 pt-4 border-t border-surface-100">
                         <div>
-                          <span className="text-slate-500 block">Product</span>
-                          <span className="text-white font-medium">${plan.product.price}</span>
+                          <span className="text-surface-400 block text-xs font-medium mb-1">Product</span>
+                          <span className="text-surface-800 font-bold">${plan.product.price}</span>
                         </div>
                         <div>
-                          <span className="text-slate-500 block">Shipping</span>
-                          <span className="text-white font-medium">{plan.shipping === 0 ? 'FREE' : `$${plan.shipping}`}</span>
+                          <span className="text-surface-400 block text-xs font-medium mb-1">Shipping</span>
+                          <span className="text-surface-800 font-bold">{plan.shipping === 0 ? 'FREE' : `$${plan.shipping}`}</span>
                         </div>
                         <div>
-                          <span className="text-slate-500 block">Tax Est.</span>
-                          <span className={cn("font-medium", getTaxConfidenceColor(plan.tax.confidence))}>
+                          <span className="text-surface-400 block text-xs font-medium mb-1">Tax Est.</span>
+                          <span className={cn("font-bold", getTaxConfidenceColor(plan.tax.confidence))}>
                             ${plan.tax.amount}
                           </span>
                         </div>
                         <div>
-                          <span className="text-slate-500 block">Delivery</span>
-                          <span className="text-white font-medium">{plan.deliveryDays} days</span>
+                          <span className="text-surface-400 block text-xs font-medium mb-1">Delivery</span>
+                          <span className="text-surface-800 font-bold">{plan.deliveryDays} days</span>
                         </div>
                       </div>
                     </div>
                     <div className="text-right">
-                      <span className="text-slate-500 text-sm block">Total</span>
-                      <span className="text-3xl font-bold text-white">${plan.total}</span>
-                      <ChevronRight className="w-5 h-5 text-slate-400 ml-auto mt-2 group-hover:text-emerald-400 transition-colors" />
+                      <span className="text-surface-400 text-xs font-medium block">Total</span>
+                      <span className="text-3xl font-bold text-surface-800">${plan.total}</span>
+                      <ChevronRight className="w-5 h-5 text-surface-300 ml-auto mt-2 group-hover:text-primary-500 transition-colors" />
                     </div>
                   </div>
                 </div>
               ))}
             </div>
+            )}
 
             <button
               onClick={handleReset}
-              className="mt-6 w-full py-3 border border-slate-700 text-slate-400 rounded-xl hover:bg-slate-800 transition-colors"
+              className="mt-6 w-full py-3.5 border border-surface-200 text-surface-500 rounded-xl hover:bg-surface-50 hover:text-surface-700 transition-all font-medium"
             >
               Start Over
             </button>
           </div>
         )}
 
-        {/* Confirmation View */}
+        {/* Confirmation View - Light theme */}
         {currentView === 'confirmation' && store.draftOrder && (
           <div className="animate-fade-in">
             <div className="text-center mb-8">
-              <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-emerald-500/20 mb-4">
-                <Package className="w-8 h-8 text-emerald-500" />
+              <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-success-100 mb-4">
+                <Package className="w-8 h-8 text-success-600" />
               </div>
-              <h2 className="text-2xl font-bold text-white mb-2">Draft Order Created!</h2>
-              <p className="text-slate-400">Review and confirm before proceeding to payment</p>
+              <h2 className="text-2xl font-bold text-surface-800 mb-2">Draft Order Created!</h2>
+              <p className="text-surface-500">Review and confirm before proceeding to payment</p>
             </div>
 
-            <div className="bg-slate-800/50 border border-slate-700 rounded-2xl overflow-hidden">
+            <div className="bg-white border border-surface-200 rounded-2xl overflow-hidden shadow-sm">
               {/* Order Header */}
-              <div className="p-6 border-b border-slate-700">
+              <div className="p-6 border-b border-surface-100 bg-surface-50">
                 <div className="flex items-center justify-between">
                   <div>
-                    <span className="text-slate-500 text-sm">Order ID</span>
-                    <p className="text-white font-mono">{store.draftOrder.id}</p>
+                    <span className="text-surface-400 text-xs font-medium">Order ID</span>
+                    <p className="text-surface-800 font-mono font-semibold">{store.draftOrder.id}</p>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <Clock className="w-4 h-4 text-amber-400" />
-                    <span className="text-amber-400 text-sm">
+                  <div className="flex items-center gap-2 px-3 py-1.5 bg-warning-50 border border-warning-200 rounded-lg">
+                    <Clock className="w-4 h-4 text-warning-600" />
+                    <span className="text-warning-700 text-sm font-medium">
                       Expires: {new Date(store.draftOrder.expiresAt).toLocaleString()}
                     </span>
                   </div>
@@ -682,42 +1036,58 @@ export default function Home() {
               </div>
 
               {/* Order Items */}
-              <div className="p-6 border-b border-slate-700">
-                <div className="flex items-center gap-4">
-                  <div className="text-4xl">{store.draftOrder.plan.product.image}</div>
+              <div className="p-6 border-b border-surface-100">
+                <div className="flex items-center gap-5">
+                  <ProductImage 
+                    imageUrl={store.draftOrder.plan.product.imageUrl}
+                    fallbackEmoji={store.draftOrder.plan.product.image}
+                    alt={store.draftOrder.plan.product.title}
+                    size="xl"
+                  />
                   <div className="flex-1">
-                    <h3 className="text-white font-medium">{store.draftOrder.plan.product.title}</h3>
-                    <p className="text-slate-400 text-sm">
+                    <h3 className="text-surface-800 font-semibold text-lg">{store.draftOrder.plan.product.title}</h3>
+                    <p className="text-surface-500 text-sm">
                       {store.draftOrder.plan.product.brand} · ★ {store.draftOrder.plan.product.rating}
                     </p>
+                    {store.draftOrder.plan.product.shortDescription && (
+                      <p className="text-surface-400 text-xs mt-1">{store.draftOrder.plan.product.shortDescription}</p>
+                    )}
+                    {store.draftOrder.plan.product.productUrl && (
+                      <div className="mt-2">
+                        <ProductLink 
+                          url={store.draftOrder.plan.product.productUrl} 
+                          storeName={store.draftOrder.plan.product.storeName} 
+                        />
+                      </div>
+                    )}
                   </div>
-                  <div className="text-white font-medium">${store.draftOrder.plan.product.price}</div>
+                  <div className="text-surface-800 font-bold text-xl">${store.draftOrder.plan.product.price}</div>
                 </div>
               </div>
 
               {/* Tax Breakdown */}
-              <div className="p-6 border-b border-slate-700">
-                <h4 className="text-white font-medium mb-4 flex items-center gap-2">
+              <div className="p-6 border-b border-surface-100">
+                <h4 className="text-surface-800 font-semibold mb-4 flex items-center gap-2">
                   <Receipt className="w-4 h-4" />
                   Tax & Duty Estimate
                 </h4>
-                <div className="space-y-2 text-sm">
+                <div className="space-y-3 text-sm">
                   <div className="flex justify-between">
-                    <span className="text-slate-400">VAT/GST</span>
-                    <span className="text-white">${store.draftOrder.plan.tax.breakdown.vat}</span>
+                    <span className="text-surface-500">VAT/GST</span>
+                    <span className="text-surface-700 font-medium">${store.draftOrder.plan.tax.breakdown.vat}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-slate-400">Import Duty</span>
-                    <span className="text-white">${store.draftOrder.plan.tax.breakdown.duty}</span>
+                    <span className="text-surface-500">Import Duty</span>
+                    <span className="text-surface-700 font-medium">${store.draftOrder.plan.tax.breakdown.duty}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-slate-400">Handling Fee</span>
-                    <span className="text-white">${store.draftOrder.plan.tax.breakdown.handling}</span>
+                    <span className="text-surface-500">Handling Fee</span>
+                    <span className="text-surface-700 font-medium">${store.draftOrder.plan.tax.breakdown.handling}</span>
                   </div>
-                  <div className="flex justify-between pt-2 border-t border-slate-700">
-                    <span className="text-slate-300">Total Tax Estimate</span>
+                  <div className="flex justify-between pt-3 border-t border-surface-100">
+                    <span className="text-surface-700 font-medium">Total Tax Estimate</span>
                     <div className="flex items-center gap-2">
-                      <span className="text-white font-medium">${store.draftOrder.plan.tax.amount}</span>
+                      <span className="text-surface-800 font-bold">${store.draftOrder.plan.tax.amount}</span>
                       <Badge variant={
                         store.draftOrder.plan.tax.confidence === 'high' ? 'success' :
                         store.draftOrder.plan.tax.confidence === 'medium' ? 'warning' : 'danger'
@@ -731,20 +1101,20 @@ export default function Home() {
 
               {/* Compliance Risks */}
               {store.draftOrder.plan.product.complianceRisks.length > 0 && (
-                <div className="p-6 border-b border-slate-700 bg-amber-500/5">
-                  <h4 className="text-white font-medium mb-4 flex items-center gap-2">
-                    <Shield className="w-4 h-4 text-amber-400" />
+                <div className="p-6 border-b border-surface-100 bg-warning-50/50">
+                  <h4 className="text-surface-800 font-semibold mb-4 flex items-center gap-2">
+                    <Shield className="w-4 h-4 text-warning-600" />
                     Compliance Information
                   </h4>
                   <div className="space-y-3">
                     {store.draftOrder.plan.product.complianceRisks.map((risk, i) => (
-                      <div key={i} className="flex items-start gap-3 p-3 bg-slate-800/50 rounded-lg">
+                      <div key={i} className="flex items-start gap-3 p-4 bg-white rounded-xl border border-warning-200">
                         <span className="text-2xl">{getComplianceIcon(risk.type)}</span>
                         <div>
-                          <p className="text-amber-400 font-medium capitalize">{risk.type} Warning</p>
-                          <p className="text-slate-300 text-sm">{risk.message}</p>
+                          <p className="text-warning-700 font-semibold capitalize">{risk.type} Warning</p>
+                          <p className="text-surface-600 text-sm">{risk.message}</p>
                           {risk.mitigation && (
-                            <p className="text-emerald-400 text-sm mt-1">✓ {risk.mitigation}</p>
+                            <p className="text-success-600 text-sm mt-1 font-medium">✓ {risk.mitigation}</p>
                           )}
                         </div>
                       </div>
@@ -754,30 +1124,30 @@ export default function Home() {
               )}
 
               {/* Order Summary */}
-              <div className="p-6 space-y-3 border-b border-slate-700">
-                <div className="flex justify-between text-slate-400">
+              <div className="p-6 space-y-3 border-b border-surface-100">
+                <div className="flex justify-between text-surface-500">
                   <span>Subtotal</span>
-                  <span>${store.draftOrder.plan.product.price}</span>
+                  <span className="font-medium">${store.draftOrder.plan.product.price}</span>
                 </div>
-                <div className="flex justify-between text-slate-400">
+                <div className="flex justify-between text-surface-500">
                   <span>Shipping</span>
-                  <span>{store.draftOrder.plan.shipping === 0 ? 'FREE' : `$${store.draftOrder.plan.shipping}`}</span>
+                  <span className="font-medium">{store.draftOrder.plan.shipping === 0 ? 'FREE' : `$${store.draftOrder.plan.shipping}`}</span>
                 </div>
-                <div className="flex justify-between text-slate-400">
+                <div className="flex justify-between text-surface-500">
                   <span>Tax & Duty</span>
-                  <span>${store.draftOrder.plan.tax.amount}</span>
+                  <span className="font-medium">${store.draftOrder.plan.tax.amount}</span>
                 </div>
-                <div className="h-px bg-slate-700 my-4" />
-                <div className="flex justify-between text-xl font-bold text-white">
+                <div className="h-px bg-surface-200 my-4" />
+                <div className="flex justify-between text-xl font-bold text-surface-800">
                   <span>Total</span>
                   <span>${store.draftOrder.plan.total}</span>
                 </div>
               </div>
 
               {/* Confirmation Items */}
-              <div className="p-6 border-b border-slate-700">
-                <h4 className="text-white font-medium mb-4 flex items-center gap-2">
-                  <CheckCircle className="w-4 h-4 text-emerald-400" />
+              <div className="p-6 border-b border-surface-100">
+                <h4 className="text-surface-800 font-semibold mb-4 flex items-center gap-2">
+                  <CheckCircle className="w-4 h-4 text-primary-500" />
                   Required Confirmations
                 </h4>
                 <div className="space-y-4">
@@ -785,10 +1155,10 @@ export default function Home() {
                     <div 
                       key={item.id} 
                       className={cn(
-                        "flex items-start gap-3 p-4 rounded-lg border transition-colors",
+                        "flex items-start gap-4 p-4 rounded-xl border transition-all",
                         item.checked 
-                          ? "bg-emerald-500/10 border-emerald-500/30" 
-                          : "bg-slate-800/50 border-slate-700"
+                          ? "bg-success-50 border-success-200" 
+                          : "bg-white border-surface-200"
                       )}
                     >
                       <Checkbox
@@ -799,12 +1169,12 @@ export default function Home() {
                       <div className="flex-1">
                         <label 
                           htmlFor={item.id} 
-                          className="text-white font-medium cursor-pointer flex items-center gap-2"
+                          className="text-surface-800 font-medium cursor-pointer flex items-center gap-2"
                         >
                           {item.title}
-                          {item.required && <span className="text-red-400 text-xs">*Required</span>}
+                          {item.required && <span className="text-danger-500 text-xs font-semibold">*Required</span>}
                         </label>
-                        <p className="text-slate-400 text-sm mt-1">{item.description}</p>
+                        <p className="text-surface-500 text-sm mt-1">{item.description}</p>
                       </div>
                     </div>
                   ))}
@@ -812,21 +1182,23 @@ export default function Home() {
               </div>
 
               {/* Evidence */}
-              <div className="p-4 bg-slate-900/50">
-                <div className="flex items-center gap-2 text-slate-500 text-sm">
+              <div className="p-4 bg-surface-50">
+                <div className="flex items-center gap-2 text-surface-400 text-sm">
                   <Info className="w-4 h-4" />
-                  <span>Evidence: <code className="text-emerald-400">{store.draftOrder.evidenceSnapshotId}</code></span>
+                  <span>Evidence: <code className="text-primary-600 font-mono">{store.draftOrder.evidenceSnapshotId}</code></span>
                 </div>
               </div>
             </div>
 
             {/* Important Notice */}
-            <div className="mt-6 p-4 bg-amber-500/10 border border-amber-500/30 rounded-xl">
-              <div className="flex items-start gap-3">
-                <AlertTriangle className="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" />
+            <div className="mt-6 p-5 bg-warning-50 border border-warning-200 rounded-2xl">
+              <div className="flex items-start gap-4">
+                <div className="w-10 h-10 rounded-xl bg-warning-100 flex items-center justify-center flex-shrink-0">
+                  <AlertTriangle className="w-5 h-5 text-warning-600" />
+                </div>
                 <div>
-                  <p className="text-amber-200 font-medium">Payment Not Captured</p>
-                  <p className="text-amber-200/70 text-sm mt-1">
+                  <p className="text-warning-800 font-semibold">Payment Not Captured</p>
+                  <p className="text-warning-700 text-sm mt-1">
                     Check all required boxes to proceed to payment.
                   </p>
                 </div>
@@ -837,17 +1209,17 @@ export default function Home() {
             <div className="mt-6 flex gap-4">
               <button
                 onClick={handleReset}
-                className="flex-1 py-3 border border-slate-700 text-slate-400 rounded-xl hover:bg-slate-800 transition-colors"
+                className="flex-1 py-3.5 border border-surface-200 text-surface-500 rounded-xl hover:bg-surface-50 hover:text-surface-700 transition-all font-medium"
               >
                 Start New Search
               </button>
               <button
                 disabled={!store.canProceedToPayment()}
                 className={cn(
-                  "flex-1 py-3 rounded-xl font-medium flex items-center justify-center gap-2 transition-all",
+                  "flex-1 py-3.5 rounded-xl font-semibold flex items-center justify-center gap-2 transition-all",
                   store.canProceedToPayment()
-                    ? "bg-gradient-to-r from-emerald-500 to-teal-600 text-white hover:from-emerald-600 hover:to-teal-700 shadow-lg shadow-emerald-500/20"
-                    : "bg-slate-700 text-slate-400 cursor-not-allowed"
+                    ? "bg-gradient-to-r from-primary-500 to-accent-500 text-white hover:from-primary-600 hover:to-accent-600 shadow-lg shadow-primary-500/25 hover:shadow-xl hover:shadow-primary-500/30 hover:-translate-y-0.5"
+                    : "bg-surface-100 text-surface-400 cursor-not-allowed"
                 )}
               >
                 <ShoppingCart className="w-5 h-5" />
@@ -858,18 +1230,20 @@ export default function Home() {
         )}
       </div>
 
-      {/* Footer */}
-      <footer className="fixed bottom-0 left-0 right-0 py-4 border-t border-slate-800 bg-slate-950/80 backdrop-blur-xl">
-        <div className="max-w-6xl mx-auto px-4 flex items-center justify-between text-slate-500 text-sm">
-          <span>Multi-AI-Agent4OnlineShopping © 2024</span>
-          <div className="flex items-center gap-4">
+      {/* Footer - Light theme */}
+      <footer className="fixed bottom-0 left-0 right-0 py-4 border-t border-surface-200 bg-white/90 backdrop-blur-xl">
+        <div className="max-w-6xl mx-auto px-4 flex items-center justify-between text-surface-400 text-sm">
+          <span className="font-medium">Multi-AI-Agent4OnlineShopping © 2024</span>
+          <div className="flex items-center gap-6">
             <span className="flex items-center gap-2">
-              <Zap className="w-4 h-4 text-emerald-400" />
-              <span className="text-slate-400">GPT-4o-mini via Poe</span>
+              <div className="w-6 h-6 rounded-md bg-primary-100 flex items-center justify-center">
+                <Zap className="w-3 h-3 text-primary-600" />
+              </div>
+              <span className="text-surface-500 font-medium">GPT-4o-mini via Poe</span>
             </span>
             <span className="flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-              All agents operational
+              <span className="w-2.5 h-2.5 rounded-full bg-success-500 animate-pulse" />
+              <span className="font-medium">All agents operational</span>
             </span>
           </div>
         </div>

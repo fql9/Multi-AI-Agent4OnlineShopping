@@ -1,172 +1,498 @@
-# 完整的 Docker Compose 配置 - 包含所有服务
-# 使用: docker compose -f docker-compose.full.yml up -d
+# ============================================================
+# Multi-AI-Agent Shopping System - Complete Docker Configuration
+# ============================================================
+# 使用方法:
+#   开发环境: docker compose -f docker-compose.full.yml up -d
+#   生产环境: docker compose -f docker-compose.full.yml --profile production up -d
+#
+# 依赖顺序: postgres → redis → core-mcp/checkout-mcp → tool-gateway → web-app/agent
+# ============================================================
 
 services:
   # ========================================
-  # 数据库服务
+  # 🗄️ PostgreSQL 数据库 (含 pgvector 向量扩展)
   # ========================================
   postgres:
     image: pgvector/pgvector:pg16
     container_name: agent-postgres
     ports:
-      - "5433:5432"  # 外部端口 5433，避免与现有 PostgreSQL 冲突
+      - "${POSTGRES_PORT:-5433}:5432"
     environment:
-      POSTGRES_USER: agent
-      POSTGRES_PASSWORD: agent_dev_password
-      POSTGRES_DB: agent_db
+      POSTGRES_USER: ${POSTGRES_USER:-agent}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-agent_dev_password}
+      POSTGRES_DB: ${POSTGRES_DB:-agent_db}
+      # 性能调优
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=C --lc-ctype=C"
     volumes:
       - pgdata:/var/lib/postgresql/data
-      - ./infra/docker/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
+      - ./infra/docker/init-db.sql:/docker-entrypoint-initdb.d/01-init-db.sql:ro
+      - ./infra/docker/seed-data.sql:/docker-entrypoint-initdb.d/02-seed-data.sql:ro
+      - ./infra/docker/migrations:/docker-entrypoint-initdb.d/migrations:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U agent -d agent_db"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-agent} -d ${POSTGRES_DB:-agent_db}"]
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 30s
     restart: unless-stopped
     networks:
       - agent-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   # ========================================
-  # Tool Gateway (统一工具网关)
+  # 🔴 Redis 缓存服务
+  # ========================================
+  redis:
+    image: redis:7-alpine
+    container_name: agent-redis
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    command: >
+      redis-server 
+      --appendonly yes 
+      --maxmemory 256mb 
+      --maxmemory-policy allkeys-lru
+      --requirepass ${REDIS_PASSWORD:-redis_dev_password}
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-redis_dev_password}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - agent-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ========================================
+  # 🔧 Tool Gateway (统一工具网关)
   # ========================================
   tool-gateway:
     build:
       context: .
       dockerfile: apps/tool-gateway/Dockerfile
+      args:
+        NODE_ENV: production
     container_name: agent-tool-gateway
     ports:
-      - "3000:3000"
+      - "${TOOL_GATEWAY_PORT:-3000}:3000"
     environment:
       NODE_ENV: production
       PORT: 3000
+      # 数据库配置
       DB_HOST: postgres
       DB_PORT: 5432
-      DB_USER: agent
-      DB_PASSWORD: agent_dev_password
-      DB_NAME: agent_db
-      DATABASE_URL: postgresql://agent:agent_dev_password@postgres:5432/agent_db
+      DB_USER: ${POSTGRES_USER:-agent}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-agent_dev_password}
+      DB_NAME: ${POSTGRES_DB:-agent_db}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-agent}:${POSTGRES_PASSWORD:-agent_dev_password}@postgres:5432/${POSTGRES_DB:-agent_db}
+      # Redis 配置
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-redis_dev_password}
+      REDIS_URL: redis://:${REDIS_PASSWORD:-redis_dev_password}@redis:6379
+      # MCP 服务配置
       MCP_CORE_URL: http://core-mcp:3010
       MCP_CHECKOUT_URL: http://checkout-mcp:3011
-      CORS_ORIGINS: http://localhost:3001
-      # XOOBAY API 配置（可选）
+      # CORS 配置
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3001,http://web-app:3001}
+      # XOOBAY API 配置
       XOOBAY_ENABLED: ${XOOBAY_ENABLED:-false}
-      XOOBAY_API_KEY: ${XOOBAY_API_KEY:-xoobay_api_ai_geo}
+      XOOBAY_API_KEY: ${XOOBAY_API_KEY:-}
       XOOBAY_BASE_URL: ${XOOBAY_BASE_URL:-https://www.xoobay.com}
       XOOBAY_LANG: ${XOOBAY_LANG:-en}
+      # 日志配置
+      LOG_LEVEL: ${LOG_LEVEL:-info}
     depends_on:
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
     restart: unless-stopped
     networks:
       - agent-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
 
   # ========================================
-  # Core MCP Server (Catalog, Pricing, Shipping, Tax, Compliance)
+  # 📦 Core MCP Server (Catalog/Pricing/Shipping/Tax/Compliance/Knowledge)
   # ========================================
   core-mcp:
     build:
       context: .
       dockerfile: apps/mcp-servers/core-mcp/Dockerfile
+      args:
+        NODE_ENV: production
     container_name: agent-core-mcp
-    # MCP servers 使用 stdio，但为了健康检查暴露端口
     ports:
-      - "3010:3010"
+      - "${CORE_MCP_PORT:-3010}:3010"
     environment:
       NODE_ENV: production
+      PORT: 3010
+      # 数据库配置
       DB_HOST: postgres
       DB_PORT: 5432
-      DB_USER: agent
-      DB_PASSWORD: agent_dev_password
-      DB_NAME: agent_db
-      # XOOBAY API configuration
-      XOOBAY_API_KEY: ${XOOBAY_API_KEY:-xoobay_api_ai_geo}
+      DB_USER: ${POSTGRES_USER:-agent}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-agent_dev_password}
+      DB_NAME: ${POSTGRES_DB:-agent_db}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-agent}:${POSTGRES_PASSWORD:-agent_dev_password}@postgres:5432/${POSTGRES_DB:-agent_db}
+      # Redis 配置
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-redis_dev_password}
+      # XOOBAY API 配置
+      XOOBAY_API_KEY: ${XOOBAY_API_KEY:-}
       XOOBAY_BASE_URL: ${XOOBAY_BASE_URL:-https://www.xoobay.com}
       XOOBAY_LANG: ${XOOBAY_LANG:-zh_cn}
+      # 日志配置
+      LOG_LEVEL: ${LOG_LEVEL:-info}
     depends_on:
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:3010/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
     restart: unless-stopped
     networks:
       - agent-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
 
   # ========================================
-  # Checkout MCP Server (Cart, Checkout, Evidence)
+  # 🛒 Checkout MCP Server (Cart/Checkout/Evidence)
   # ========================================
   checkout-mcp:
     build:
       context: .
       dockerfile: apps/mcp-servers/checkout-mcp/Dockerfile
+      args:
+        NODE_ENV: production
     container_name: agent-checkout-mcp
-    # MCP servers 使用 stdio，但为了健康检查暴露端口
     ports:
-      - "3011:3011"
+      - "${CHECKOUT_MCP_PORT:-3011}:3011"
     environment:
       NODE_ENV: production
+      PORT: 3011
+      # 数据库配置
       DB_HOST: postgres
       DB_PORT: 5432
-      DB_USER: agent
-      DB_PASSWORD: agent_dev_password
-      DB_NAME: agent_db
+      DB_USER: ${POSTGRES_USER:-agent}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-agent_dev_password}
+      DB_NAME: ${POSTGRES_DB:-agent_db}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-agent}:${POSTGRES_PASSWORD:-agent_dev_password}@postgres:5432/${POSTGRES_DB:-agent_db}
+      # Redis 配置
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-redis_dev_password}
+      # 日志配置
+      LOG_LEVEL: ${LOG_LEVEL:-info}
     depends_on:
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:3011/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
     restart: unless-stopped
     networks:
       - agent-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
 
   # ========================================
-  # Web App (Next.js 前端)
+  # 🌐 Web App (Next.js 前端)
   # ========================================
   web-app:
     build:
       context: .
       dockerfile: apps/web-app/Dockerfile
+      args:
+        NODE_ENV: production
     container_name: agent-web-app
     ports:
-      - "3001:3001"
+      - "${WEB_APP_PORT:-3001}:3001"
     environment:
       NODE_ENV: production
       PORT: 3001
-      NEXT_PUBLIC_TOOL_GATEWAY_URL: http://tool-gateway:3000
+      # API 配置 - 客户端使用外部地址，服务端使用内部地址
+      NEXT_PUBLIC_TOOL_GATEWAY_URL: ${NEXT_PUBLIC_TOOL_GATEWAY_URL:-http://localhost:3000}
+      TOOL_GATEWAY_URL: http://tool-gateway:3000
     depends_on:
-      - tool-gateway
+      tool-gateway:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:3001"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
     restart: unless-stopped
     networks:
       - agent-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
 
   # ========================================
-  # Python Agent (LangGraph 编排层)
+  # 🐍 Python Agent (LangGraph 编排层)
   # ========================================
   agent:
     build:
       context: .
       dockerfile: agents/Dockerfile
+      args:
+        PYTHON_VERSION: "3.11"
     container_name: agent-python
+    ports:
+      - "${AGENT_PORT:-8000}:8000"
     environment:
       APP_ENV: production
       DEBUG: "false"
-      DATABASE_URL: postgresql+asyncpg://agent:agent_dev_password@postgres:5432/agent_db
+      PORT: 8000
+      # 数据库配置
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-agent}:${POSTGRES_PASSWORD:-agent_dev_password}@postgres:5432/${POSTGRES_DB:-agent_db}
+      # Redis 配置
+      REDIS_URL: redis://:${REDIS_PASSWORD:-redis_dev_password}@redis:6379
+      # Tool Gateway 配置
       TOOL_GATEWAY_URL: http://tool-gateway:3000
-      # LLM 配置（需要从环境变量或 .env 文件传入）
+      # LLM 配置 (必需)
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
       OPENAI_MODEL_PLANNER: ${OPENAI_MODEL_PLANNER:-gpt-4o-mini}
       OPENAI_MODEL_VERIFIER: ${OPENAI_MODEL_VERIFIER:-gpt-4o}
+      # Token 预算
       TOKEN_BUDGET_TOTAL: ${TOKEN_BUDGET_TOTAL:-50000}
+      TOKEN_BUDGET_PER_STEP: ${TOKEN_BUDGET_PER_STEP:-5000}
+      # 会话配置
+      SESSION_STORAGE_PATH: /app/data/sessions
+      SESSION_TTL_HOURS: ${SESSION_TTL_HOURS:-24}
+      # 功能开关
       MOCK_TOOLS: ${MOCK_TOOLS:-false}
+      RAG_ENABLED: ${ENABLE_RAG:-true}
+      # 日志配置
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      - agent-sessions:/app/data/sessions
     depends_on:
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_healthy
       tool-gateway:
-        condition: service_started
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+    networks:
+      - agent-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  # ========================================
+  # 🔄 数据库迁移服务 (一次性运行)
+  # ========================================
+  db-migrate:
+    image: pgvector/pgvector:pg16
+    container_name: agent-db-migrate
+    profiles:
+      - migrate
+    volumes:
+      - ./infra/docker/migrations:/migrations:ro
+    environment:
+      PGHOST: postgres
+      PGPORT: 5432
+      PGUSER: ${POSTGRES_USER:-agent}
+      PGPASSWORD: ${POSTGRES_PASSWORD:-agent_dev_password}
+      PGDATABASE: ${POSTGRES_DB:-agent_db}
+    command: >
+      sh -c "
+        echo 'Waiting for PostgreSQL...' &&
+        until pg_isready -h postgres -p 5432 -U ${POSTGRES_USER:-agent}; do
+          sleep 2
+        done &&
+        echo 'Running migrations...' &&
+        for f in /migrations/*.sql; do
+          echo \"Applying: \$f\" &&
+          psql -f \"\$f\" || exit 1
+        done &&
+        echo 'Migrations completed successfully!'
+      "
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - agent-network
+
+  # ========================================
+  # 📊 数据库管理界面 (可选)
+  # ========================================
+  adminer:
+    image: adminer:latest
+    container_name: agent-adminer
+    profiles:
+      - tools
+    ports:
+      - "${ADMINER_PORT:-8080}:8080"
+    environment:
+      ADMINER_DEFAULT_SERVER: postgres
+      ADMINER_DESIGN: hydra
+    depends_on:
+      - postgres
     restart: unless-stopped
     networks:
       - agent-network
 
+  # ========================================
+  # 📈 Redis 管理界面 (可选)
+  # ========================================
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    container_name: agent-redis-commander
+    profiles:
+      - tools
+    ports:
+      - "${REDIS_COMMANDER_PORT:-8081}:8081"
+    environment:
+      REDIS_HOSTS: local:redis:6379:0:${REDIS_PASSWORD:-redis_dev_password}
+    depends_on:
+      - redis
+    restart: unless-stopped
+    networks:
+      - agent-network
+
+  # ========================================
+  # 🌱 种子数据导入 (一次性运行)
+  # ========================================
+  seed-data:
+    image: pgvector/pgvector:pg16
+    container_name: agent-seed-data
+    profiles:
+      - seed
+    volumes:
+      - ./infra/docker/seed-data.sql:/seed-data.sql:ro
+    environment:
+      PGHOST: postgres
+      PGPORT: 5432
+      PGUSER: ${POSTGRES_USER:-agent}
+      PGPASSWORD: ${POSTGRES_PASSWORD:-agent_dev_password}
+      PGDATABASE: ${POSTGRES_DB:-agent_db}
+    command: >
+      sh -c "
+        echo 'Waiting for PostgreSQL...' &&
+        until pg_isready -h postgres -p 5432 -U ${POSTGRES_USER:-agent}; do
+          sleep 2
+        done &&
+        echo 'Importing seed data...' &&
+        psql -f /seed-data.sql &&
+        echo 'Seed data imported successfully!'
+      "
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - agent-network
+
+  # ========================================
+  # 🔄 XOOBAY 产品同步 (一次性运行)
+  # ========================================
+  xoobay-sync:
+    build:
+      context: .
+      dockerfile: apps/tool-gateway/Dockerfile
+    container_name: agent-xoobay-sync
+    profiles:
+      - sync
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${POSTGRES_USER:-agent}:${POSTGRES_PASSWORD:-agent_dev_password}@postgres:5432/${POSTGRES_DB:-agent_db}
+      XOOBAY_ENABLED: "true"
+      XOOBAY_API_KEY: ${XOOBAY_API_KEY:-}
+      XOOBAY_BASE_URL: ${XOOBAY_BASE_URL:-https://www.xoobay.com}
+      XOOBAY_LANG: ${XOOBAY_LANG:-en}
+    command: >
+      sh -c "
+        echo 'Starting XOOBAY product sync...' &&
+        node -e \"
+          const { XOOBAYClient } = require('./dist/services/xoobay.js');
+          const client = new XOOBAYClient();
+          client.syncAllProducts().then(() => {
+            console.log('Sync completed!');
+            process.exit(0);
+          }).catch(err => {
+            console.error('Sync failed:', err);
+            process.exit(1);
+          });
+        \"
+      "
+    depends_on:
+      postgres:
+        condition: service_healthy
+      tool-gateway:
+        condition: service_healthy
+    networks:
+      - agent-network
+
+# ========================================
+# 📁 数据卷
+# ========================================
 volumes:
   pgdata:
+    name: agent-pgdata
+  redisdata:
+    name: agent-redisdata
+  agent-sessions:
+    name: agent-sessions
 
+# ========================================
+# 🌐 网络配置
+# ========================================
 networks:
   agent-network:
     name: agent-network
     driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16

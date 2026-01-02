@@ -7,11 +7,12 @@ const badgeVariants = cva(
   {
     variants: {
       variant: {
-        default: "bg-slate-700 text-slate-200",
-        success: "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30",
-        warning: "bg-amber-500/20 text-amber-400 border border-amber-500/30",
-        danger: "bg-red-500/20 text-red-400 border border-red-500/30",
-        info: "bg-sky-500/20 text-sky-400 border border-sky-500/30",
+        default: "bg-surface-100 text-surface-600 border border-surface-200",
+        success: "bg-success-50 text-success-700 border border-success-200",
+        warning: "bg-warning-50 text-warning-700 border border-warning-200",
+        danger: "bg-danger-50 text-danger-700 border border-danger-200",
+        info: "bg-primary-50 text-primary-700 border border-primary-200",
+        accent: "bg-accent-50 text-accent-700 border border-accent-200",
       },
     },
     defaultVariants: {
@@ -31,4 +32,3 @@ function Badge({ className, variant, ...props }: BadgeProps) {
 }
 
 export { Badge, badgeVariants }
-

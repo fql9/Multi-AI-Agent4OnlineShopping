@@ -9,4 +9,5 @@ export * from './errors.js';
 export * from './logger.js';
 export * from './trace.js';
 export * from './db.js';
+export * from './retry.js';
 

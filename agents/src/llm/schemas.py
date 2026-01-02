@@ -139,3 +139,90 @@ class ExecutionResult(BaseModel):
     evidence_snapshot_id: str | None = None
     error_message: str | None = None
 
+
+# ==============================================
+# Compliance Agent Output Schema
+# ==============================================
+class ComplianceIssue(BaseModel):
+    """合规问题"""
+    issue_type: str = Field(description="问题类型: blocked, restricted, certification_required")
+    severity: Literal["error", "warning", "info"] = Field(default="warning")
+    message: str = Field(description="问题描述")
+    rule_id: str | None = Field(default=None, description="相关规则 ID")
+
+
+class SuggestedAlternative(BaseModel):
+    """建议的替代方案"""
+    offer_id: str = Field(description="替代商品 ID")
+    reason: str = Field(description="推荐原因")
+    compliance_status: str = Field(default="allowed", description="合规状态")
+
+
+class ComplianceAnalysis(BaseModel):
+    """Compliance Agent 分析结果"""
+    summary: str = Field(description="合规分析摘要")
+    risk_level: Literal["minimal", "low", "medium", "high", "blocked"] = Field(
+        default="low", description="整体风险等级"
+    )
+    key_issues: list[ComplianceIssue] = Field(default_factory=list, description="主要问题")
+    required_actions: list[str] = Field(default_factory=list, description="需要的操作")
+    suggested_alternatives: list[SuggestedAlternative] = Field(
+        default_factory=list, description="建议的替代方案"
+    )
+    can_proceed: bool = Field(default=True, description="是否可以继续")
+
+
+# ==============================================
+# Payment Agent Output Schema
+# ==============================================
+class PaymentMethod(BaseModel):
+    """支付方式"""
+    method_type: Literal["card", "paypal", "apple_pay", "google_pay", "bank_transfer"]
+    display_name: str
+    is_available: bool = True
+    processing_fee: float = 0.0
+
+
+class PaymentIntent(BaseModel):
+    """支付意图"""
+    draft_order_id: str
+    amount: float
+    currency: str = "USD"
+    payment_method: PaymentMethod | None = None
+    client_secret: str | None = None  # For Stripe
+    status: Literal["pending", "processing", "succeeded", "failed", "cancelled"] = "pending"
+
+
+class PaymentResult(BaseModel):
+    """Payment Agent 执行结果"""
+    success: bool
+    payment_id: str | None = None
+    order_id: str | None = None  # Created order ID after payment
+    status: str = "pending"
+    amount_charged: float | None = None
+    currency: str = "USD"
+    receipt_url: str | None = None
+    error_message: str | None = None
+    next_action: str | None = Field(default=None, description="下一步操作提示")
+
+
+# ==============================================
+# RAG Evidence Schema
+# ==============================================
+class EvidenceChunk(BaseModel):
+    """证据块"""
+    chunk_id: str
+    text: str
+    source_type: str = Field(description="来源类型: product_description, manual, policy, qa")
+    offer_id: str | None = None
+    relevance_score: float = Field(ge=0.0, le=1.0, description="相关性分数")
+    citation: str = Field(description="引用标识")
+
+
+class RAGContext(BaseModel):
+    """RAG 上下文"""
+    chunks: list[EvidenceChunk] = Field(default_factory=list)
+    total_chunks: int = 0
+    query: str = ""
+    search_method: str = "hybrid"  # hybrid, keyword, semantic
+

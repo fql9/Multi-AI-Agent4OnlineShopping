@@ -172,3 +172,46 @@ async def create_draft_order(
         idempotency_key=f"draft_order_{cart_id}",
     )
 
+
+async def get_draft_order_summary(
+    draft_order_id: str,
+    user_id: str | None = None,
+) -> dict[str, Any]:
+    """
+    checkout.get_draft_order_summary - 获取草稿订单摘要
+
+    Returns:
+        标准响应 Envelope，data 包含草稿订单详情
+    """
+    if MOCK_MODE:
+        return mock_response({
+            "draft_order_id": draft_order_id,
+            "status": "pending_confirmation",
+            "payable_amount": {
+                "amount": 60.48,
+                "currency": "USD",
+            },
+            "items": [
+                {
+                    "sku_id": "sku_001",
+                    "title": "Sample Product",
+                    "quantity": 1,
+                    "unit_price": 49.99,
+                },
+            ],
+            "shipping_cost": 5.99,
+            "tax_estimate": 4.50,
+            "expires_at": "2024-12-24T13:00:00Z",
+            "confirmation_items": [
+                "Tax estimate acknowledgment",
+                "Return policy acknowledgment",
+            ],
+        })
+
+    return await call_tool(
+        mcp_server="checkout",
+        tool_name="checkout.get_draft_order_summary",
+        params={"draft_order_id": draft_order_id},
+        user_id=user_id,
+    )
+

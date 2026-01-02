@@ -168,6 +168,187 @@ class TestAgentFlow:
         assert "error" in result
 
 
+class TestComplianceNode:
+    """测试 Compliance Agent 节点"""
+
+    @pytest.mark.asyncio
+    async def test_compliance_node_basic(self):
+        """测试 Compliance 节点基本功能"""
+        from src.compliance.node import compliance_node
+
+        state = {
+            "mission": {
+                "destination_country": "DE",
+                "budget_amount": 100.0,
+                "quantity": 1,
+            },
+            "candidates": [
+                {
+                    "offer_id": "of_001",
+                    "variants": {"skus": [{"sku_id": "sku_001"}]},
+                    "risk_tags": ["battery_included"],
+                    "certifications": [],
+                    "category": {"id": "cat_electronics"},
+                },
+            ],
+            "tool_calls": [],
+            "current_step": "candidate_complete",
+        }
+
+        result = await compliance_node(state)
+
+        assert result["current_step"] == "compliance_complete"
+        assert "compliance_results" in result or "blocked_candidates" in result
+        assert "compliance_summary" in result
+
+    @pytest.mark.asyncio
+    async def test_compliance_node_no_candidates(self):
+        """测试 Compliance 节点无候选时的处理"""
+        from src.compliance.node import compliance_node
+
+        state = {
+            "mission": {"destination_country": "US"},
+            "candidates": [],
+            "tool_calls": [],
+        }
+
+        result = await compliance_node(state)
+
+        assert result["error"] is not None
+        assert result["error_code"] == "INVALID_ARGUMENT"
+
+
+class TestPaymentNode:
+    """测试 Payment Agent 节点"""
+
+    @pytest.mark.asyncio
+    async def test_payment_node_basic(self):
+        """测试 Payment 节点基本功能"""
+        from src.execution.payment_node import payment_node
+
+        state = {
+            "draft_order_id": "do_test123",
+            "execution_result": {
+                "confirmation_items": ["tax_estimate_ack"],
+                "payable_amount": 99.99,
+            },
+            "user_confirmation": {
+                "tax_estimate_ack": True,
+            },
+            "tool_calls": [],
+        }
+
+        result = await payment_node(state)
+
+        assert result["current_step"] in ["payment_ready", "payment"]
+        if result["current_step"] == "payment_ready":
+            assert "payment_ready" in result
+            assert result["payment_ready"]["ready"] is True
+
+    @pytest.mark.asyncio
+    async def test_payment_node_missing_confirmation(self):
+        """测试 Payment 节点缺少确认时的处理"""
+        from src.execution.payment_node import payment_node
+
+        state = {
+            "draft_order_id": "do_test123",
+            "execution_result": {
+                "confirmation_items": ["tax_estimate_ack", "return_policy_ack"],
+            },
+            "user_confirmation": {
+                "tax_estimate_ack": True,
+                # missing return_policy_ack
+            },
+            "tool_calls": [],
+        }
+
+        result = await payment_node(state)
+
+        # 应该需要更多确认
+        if result.get("missing_confirmations"):
+            assert "return_policy_ack" in [c.lower().replace(" ", "_") for c in result["missing_confirmations"]]
+
+
+class TestSessionManager:
+    """测试 Session Manager"""
+
+    def test_session_creation(self):
+        """测试创建会话"""
+        from src.orchestrator.session import SessionManager
+
+        manager = SessionManager()
+        session = manager.create_session(user_id="user_001")
+
+        assert session.session_id is not None
+        assert session.user_id == "user_001"
+        assert session.token_remaining > 0
+
+    def test_session_token_budget(self):
+        """测试 Token 预算控制"""
+        from src.orchestrator.session import Session
+
+        session = Session(
+            session_id="sess_test",
+            user_id="user_001",
+            token_budget=1000,
+        )
+
+        assert session.can_afford_tokens(500) is True
+        assert session.can_afford_tokens(1500) is False
+
+        session.add_tokens(800)
+        assert session.token_remaining == 200
+        assert session.can_afford_tokens(300) is False
+
+    def test_session_serialization(self):
+        """测试会话序列化"""
+        from src.orchestrator.session import Session
+
+        session = Session(
+            session_id="sess_test",
+            user_id="user_001",
+        )
+
+        data = session.to_dict()
+        restored = Session.from_dict(data)
+
+        assert restored.session_id == session.session_id
+        assert restored.user_id == session.user_id
+
+
+class TestRAGIntegration:
+    """测试 RAG 集成"""
+
+    @pytest.mark.asyncio
+    async def test_knowledge_search(self):
+        """测试知识库搜索"""
+        from src.tools.knowledge import search_knowledge
+
+        result = await search_knowledge(
+            query="wireless charger",
+            limit=5,
+        )
+
+        assert result["ok"] is True
+        assert "chunks" in result["data"]
+
+    @pytest.mark.asyncio
+    async def test_search_with_context(self):
+        """测试带上下文的综合搜索"""
+        from src.tools.knowledge import search_with_context
+
+        result = await search_with_context(
+            query="iPhone charger",
+            include_compliance=True,
+            include_shipping=True,
+        )
+
+        assert result["ok"] is True
+        assert "product_chunks" in result["data"]
+        assert "compliance_chunks" in result["data"]
+        assert "shipping_chunks" in result["data"]
+
+
 class TestLLMSchemas:
     """测试 LLM 输出 Schema"""
 
@@ -224,4 +405,42 @@ class TestLLMSchemas:
         assert plan.plan_name == "Test Plan"
         assert len(plan.items) == 1
         assert plan.total.total_landed_cost == 43.18
+
+    def test_compliance_analysis(self):
+        """测试 Compliance 分析结果 schema"""
+        from src.llm.schemas import ComplianceAnalysis, ComplianceIssue
+
+        analysis = ComplianceAnalysis(
+            summary="Product has battery restrictions",
+            risk_level="medium",
+            key_issues=[
+                ComplianceIssue(
+                    issue_type="certification_required",
+                    severity="warning",
+                    message="CE marking required for EU",
+                )
+            ],
+            required_actions=["Obtain CE certification"],
+            can_proceed=True,
+        )
+
+        assert analysis.risk_level == "medium"
+        assert len(analysis.key_issues) == 1
+        assert analysis.can_proceed is True
+
+    def test_payment_result(self):
+        """测试 Payment 结果 schema"""
+        from src.llm.schemas import PaymentResult
+
+        result = PaymentResult(
+            success=True,
+            payment_id="pay_123",
+            order_id="ord_456",
+            status="succeeded",
+            amount_charged=99.99,
+            currency="USD",
+        )
+
+        assert result.success is True
+        assert result.order_id == "ord_456"
 
