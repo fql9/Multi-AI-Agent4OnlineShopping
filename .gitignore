@@ -30,6 +30,9 @@ venv/
 htmlcov/
 .coverage
 
+# MCP docker jobs
+.mcp_jobs/
+
 # Build outputs
 dist/
 build/

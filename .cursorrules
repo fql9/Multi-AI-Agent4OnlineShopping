@@ -1,0 +1,43 @@
+# Multi-AI-Agent Shopping System - Cursor Rules
+# 本文件配置 Cursor 和 Claude Code 的行为
+
+## Project Context
+This is a Multi-AI-Agent system for online shopping automation built with:
+- **Backend Agents**: Python + LangGraph + Pydantic
+- **MCP Servers**: TypeScript + Node.js
+- **Web App**: Next.js + TailwindCSS
+- **Infrastructure**: Docker + PostgreSQL
+
+## Code Style Guidelines
+
+### Python (agents/)
+- Use Python 3.12+ with type hints
+- Follow PEP 8 and use pydantic for data validation
+- Async/await for I/O operations
+- Structured logging with OpenTelemetry
+
+### TypeScript (apps/)
+- Use strict TypeScript with explicit types
+- Prefer functional components in React
+- Use Zod for runtime validation
+- Follow REST conventions for APIs
+
+## Key Architecture Patterns
+- **LangGraph State Machine**: See agents/src/graph/
+- **Tool Gateway Pattern**: All LLM tool calls go through apps/tool-gateway
+- **MCP Protocol**: MCP servers expose tools via JSON-RPC
+- **Evidence-based decisions**: All AI decisions must cite tool-provided evidence
+
+## When Editing Code
+1. Always check existing patterns in similar files first
+2. Use existing abstractions from packages/common/
+3. Follow the envelope pattern for API responses
+4. Add structured logging for observability
+
+## Important Directories
+- `agents/src/` - Python AI agent code
+- `apps/mcp-servers/` - MCP tool servers
+- `apps/tool-gateway/` - HTTP gateway for tools
+- `apps/web-app/` - Next.js frontend
+- `doc/` - Architecture documentation
+

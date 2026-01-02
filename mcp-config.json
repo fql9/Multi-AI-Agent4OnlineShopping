@@ -1,0 +1,28 @@
+{
+  "$schema": "https://raw.githubusercontent.com/anthropics/claude-code/main/schemas/mcp-config.schema.json",
+  "mcpServers": {
+    "core-mcp": {
+      "command": "npx",
+      "args": [
+        "tsx",
+        "apps/mcp-servers/core-mcp/src/index.ts"
+      ],
+      "env": {
+        "DATABASE_URL": "postgresql://agent:agent_dev_password@localhost:5432/agent_db"
+      },
+      "description": "Core MCP server providing catalog, pricing, shipping, compliance, and tax tools"
+    },
+    "checkout-mcp": {
+      "command": "npx",
+      "args": [
+        "tsx",
+        "apps/mcp-servers/checkout-mcp/src/index.ts"
+      ],
+      "env": {
+        "DATABASE_URL": "postgresql://agent:agent_dev_password@localhost:5432/agent_db"
+      },
+      "description": "Checkout MCP server for cart, checkout, and evidence operations"
+    }
+  }
+}
+

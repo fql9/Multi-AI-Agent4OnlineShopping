@@ -6,7 +6,8 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, StateGraph
 
 from ..candidate import candidate_node
-from ..execution import execution_node, plan_node
+from ..compliance import compliance_node
+from ..execution import confirm_payment_node, execution_node, payment_node, plan_node
 from ..intent import intent_node
 from ..verifier import verifier_node
 from .state import AgentState
@@ -94,6 +95,37 @@ def wait_user_node(state: AgentState) -> AgentState:
     }
 
 
+def should_continue_to_compliance(state: AgentState) -> str:
+    """判断是否进行深度合规检查"""
+    if state.get("error"):
+        return "error_handler"
+    # 如果有高风险商品，进行深度合规检查
+    candidates = state.get("candidates", [])
+    for c in candidates:
+        risk_tags = c.get("risk_tags", [])
+        if any(tag in ["battery_included", "contains_liquid", "hazardous"] for tag in risk_tags):
+            return "compliance"
+    return "verify"
+
+
+def should_continue_to_payment(state: AgentState) -> str:
+    """判断是否进入支付流程"""
+    if state.get("error"):
+        return "error_handler"
+    if state.get("draft_order_id") and state.get("user_confirmation"):
+        return "payment"
+    return END
+
+
+def should_confirm_payment(state: AgentState) -> str:
+    """判断是否确认支付"""
+    if state.get("error"):
+        return "error_handler"
+    if state.get("selected_payment_method"):
+        return "confirm_payment"
+    return "wait_user"
+
+
 def build_agent_graph():
     """
     构建 Agent 状态机
@@ -101,9 +133,11 @@ def build_agent_graph():
     流程:
     1. Intent: 解析用户意图 → Mission
     2. Candidate: 召回候选商品
-    3. Verify: 实时核验（价格/库存/物流/合规）
-    4. Plan: 生成可执行方案
-    5. Execute: 创建草稿订单
+    3. Compliance: 深度合规检查（可选）
+    4. Verify: 实时核验（价格/库存/物流/合规）
+    5. Plan: 生成可执行方案
+    6. Execute: 创建草稿订单
+    7. Payment: 处理支付（可选）
     """
 
     # 创建状态图
@@ -112,9 +146,12 @@ def build_agent_graph():
     # 添加节点
     graph.add_node("intent", intent_node)
     graph.add_node("candidate", candidate_node)
+    graph.add_node("compliance", compliance_node)
     graph.add_node("verify", verifier_node)
     graph.add_node("plan", plan_node)
     graph.add_node("execute", execution_node)
+    graph.add_node("payment", payment_node)
+    graph.add_node("confirm_payment", confirm_payment_node)
     graph.add_node("error_handler", error_handler_node)
     graph.add_node("no_results", no_results_node)
     graph.add_node("no_valid_candidates", no_valid_candidates_node)
@@ -136,13 +173,17 @@ def build_agent_graph():
 
     graph.add_conditional_edges(
         "candidate",
-        should_continue_to_verify,
+        should_continue_to_compliance,
         {
             "verify": "verify",
+            "compliance": "compliance",
             "no_results": "no_results",
             "error_handler": "error_handler",
         },
     )
+
+    # 合规检查后进入核验
+    graph.add_edge("compliance", "verify")
 
     graph.add_conditional_edges(
         "verify",
@@ -164,8 +205,30 @@ def build_agent_graph():
         },
     )
 
+    # 执行后可选进入支付
+    graph.add_conditional_edges(
+        "execute",
+        should_continue_to_payment,
+        {
+            "payment": "payment",
+            END: END,
+            "error_handler": "error_handler",
+        },
+    )
+
+    # 支付流程
+    graph.add_conditional_edges(
+        "payment",
+        should_confirm_payment,
+        {
+            "confirm_payment": "confirm_payment",
+            "wait_user": "wait_user",
+            "error_handler": "error_handler",
+        },
+    )
+
     # 结束节点
-    graph.add_edge("execute", END)
+    graph.add_edge("confirm_payment", END)
     graph.add_edge("error_handler", END)
     graph.add_edge("no_results", END)
     graph.add_edge("no_valid_candidates", END)

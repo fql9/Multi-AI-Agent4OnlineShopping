@@ -7,7 +7,7 @@
 
 ## 核心原则
 
-1. **MVP 极简**：能用一个组件解决的不引入多个；PostgreSQL + pgvector 能覆盖 80% 需求
+1. **MVP 极简**：能用一个组件解决的不引入多个；PostgreSQL + pgvector + Redis 能覆盖 90% 需求
 2. **Python 做 Agent，TypeScript 做 API**：LLM Agent 生态 Python 更成熟；API/前端 TypeScript 类型更安全
 3. **Contract First**：无论什么语言，工具 schema 先定义、后实现
 4. **可审计优先**：所有关键路径必须可追溯
@@ -19,6 +19,7 @@
 | 层 | 语言 | 理由 |
 |----|------|------|
 | **Agent 编排层** | **Python 3.11+** | LangGraph/LangChain 官方主力；Pydantic 强类型；LLM SDK 生态完整 |
+| **Agent HTTP Server** | **FastAPI** | 异步、高性能、自动文档、与 Pydantic 深度集成 |
 | **Tool Gateway / MCP Servers** | **TypeScript (Node.js 20 LTS)** | 强类型 API、Contract 生成友好、前后端一致 |
 | **Web 前端** | **TypeScript + React/Next.js** | 类型安全、SSR、生态成熟 |
 | **离线管道** | **Python** | 评价聚类、AROC 抽取、模型评估、数据清洗 |
@@ -46,31 +47,26 @@
 | CrewAI | ❌ 不推荐 | 控制力不足 |
 | 自研状态机 | ⚠️ 备选 | 工作量大，但完全可控 |
 
-**推荐组合**：`LangGraph` + `LangChain Tools` + `Pydantic` 强类型
+**推荐组合**：`LangGraph` + `LangChain Tools` + `Pydantic` 强类型 + `FastAPI` HTTP Server
 
 ---
 
-## 三、存储与检索（分阶段演进）
+## 三、存储与检索（当前实现）
 
-### 3.1 MVP 阶段（极简：只用 PostgreSQL）
+### 3.1 当前架构（已落地）
 
-| 角色 | MVP 方案 | 说明 |
-|------|----------|------|
+| 角色 | 方案 | 说明 |
+|------|------|------|
 | 关系存储 | **PostgreSQL 16** | AROC、Evidence、Mission、DraftOrder、用户、商家 |
-| 向量检索 | **pgvector** 扩展 | 说明书/条款 embedding，够用 |
-| 关键词检索 | **PostgreSQL tsvector** | 型号、标准号、条款关键字 |
-| 图谱查询 | **PostgreSQL + JSON + 递归 CTE** | 模拟图谱（兼容/替代关系），MVP 够用 |
-| 缓存 | 不用 Redis | 先不引入，PostgreSQL 查询足够快 |
-| 对象存储 | 本地文件系统 | 说明书/证书 PDF |
-| 事件流 | 不用 Kafka | 用 PostgreSQL 表 + 轮询 |
-
-**MVP 只需部署一个 PostgreSQL（带 pgvector 扩展）即可跑通核心链路。**
+| 向量检索 | **pgvector** 扩展 | 说明书/条款 embedding，混合检索（BM25 + 向量） |
+| 关键词检索 | **PostgreSQL tsvector** | 型号、标准号、条款关键字，多语言支持 |
+| 缓存 | **Redis 7** | 会话缓存、幂等性检查、速率限制 |
+| 对象存储 | PostgreSQL BLOB / 本地文件 | 说明书/证书 PDF |
 
 ### 3.2 中期阶段（按需扩展）
 
 | 角色 | 中期方案 | 触发条件 |
 |------|----------|----------|
-| 缓存 | + **Redis** | 报价/可售性需要 <10ms 响应 |
 | 向量检索 | + **Milvus** 或 **Qdrant** | 向量规模 >1M 或 QPS >100 |
 | 全文检索 | + **OpenSearch** | 复杂查询、分词、高亮需求 |
 | 对象存储 | + **MinIO / S3** | 文件量大、需要分布式 |
@@ -131,73 +127,141 @@
 
 ---
 
-## 八、部署与交付
+## 八、MCP 通信协议
+
+| 模式 | 用途 | 说明 |
+|------|------|------|
+| **SSE (Server-Sent Events)** | 生产环境 | 所有 MCP 服务使用 SSE 模式，支持 HTTP 健康检查 |
+| stdio | 本地开发/调试 | 仅用于单机测试 |
+
+### MCP 服务端点
+
+| 服务 | 端口 | 模式 | 端点 |
+|------|------|------|------|
+| Core MCP | 3010 | SSE | `/sse`, `/message`, `/health` |
+| Checkout MCP | 3011 | SSE | `/sse`, `/message`, `/health` |
+
+---
+
+## 九、部署与交付
 
 | 阶段 | 方案 |
 |------|------|
-| **本地开发** | Docker Compose（PostgreSQL + pgvector） |
-| **MVP 部署** | 单机 Docker Compose 或云托管 PostgreSQL |
+| **本地开发** | Docker Compose（PostgreSQL + pgvector + Redis） |
+| **MVP 部署** | Docker Compose 完整栈（10 服务） |
 | **生产环境** | Kubernetes + Helm |
 | **CI/CD** | GitHub Actions（lint/test/contract-check/build/deploy） |
 
-### Docker Compose（MVP 版）
+### Docker Compose（当前版本）
 
 ```yaml
-version: '3.8'
+# docker-compose.full.yml 包含 10 个服务:
 services:
-  postgres:
-    image: pgvector/pgvector:pg16
-    ports:
-      - "5432:5432"
-    environment:
-      POSTGRES_USER: agent
-      POSTGRES_PASSWORD: agent
-      POSTGRES_DB: agent
-    volumes:
-      - pgdata:/var/lib/postgresql/data
+  # 数据层
+  postgres:     # PostgreSQL 16 + pgvector
+  redis:        # Redis 7
 
-volumes:
-  pgdata:
+  # 工具层
+  tool-gateway: # Fastify API Gateway
+  core-mcp:     # Catalog/Pricing/Shipping/Compliance/Knowledge (SSE)
+  checkout-mcp: # Cart/Checkout/Evidence (SSE)
+
+  # 前端层
+  web-app:      # Next.js 14
+
+  # Agent 层
+  agent:        # LangGraph + FastAPI
+
+  # 辅助服务 (profiles)
+  db-migrate:   # 数据库迁移 (migrate profile)
+  seed-data:    # 种子数据 (seed profile)
+  xoobay-sync:  # XOOBAY 同步 (sync profile)
+  adminer:      # 数据库管理 (tools profile)
+  redis-commander:  # Redis 管理 (tools profile)
 ```
 
 ---
 
-## 九、技术栈总览图
+## 十、技术栈总览图
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
 │                           前端层                                     │
-│  Next.js 14 + TypeScript + Tailwind + shadcn/ui                     │
+│  Next.js 14 + TypeScript + Tailwind + shadcn/ui      :3001          │
 │  (用户端 + 内部控制台)                                               │
 └─────────────────────────────────────────────────────────────────────┘
                                 │
                                 ▼
 ┌─────────────────────────────────────────────────────────────────────┐
+│                       Agent 编排层                                   │
+│  Python 3.11 + LangGraph + Pydantic + FastAPI        :8000          │
+│  (7 节点状态机: Intent/Candidate/Verifier/Plan/Execute/Compliance/Payment)│
+└─────────────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+┌─────────────────────────────────────────────────────────────────────┐
 │                        Tool Gateway                                  │
-│  TypeScript + Fastify + Zod + OpenTelemetry                         │
+│  TypeScript + Fastify + Zod + OpenTelemetry          :3000          │
 │  (Envelope/鉴权/幂等/限流/审计)                                      │
 └─────────────────────────────────────────────────────────────────────┘
                                 │
                 ┌───────────────┼───────────────┐
                 ▼               ▼               ▼
 ┌───────────────────┐ ┌───────────────────┐ ┌───────────────────┐
-│ Agent 编排层       │ │ MCP Servers       │ │ 数据管道          │
-│ Python 3.11+      │ │ TypeScript        │ │ Python            │
-│ LangGraph         │ │ Fastify           │ │ (AROC/KG/聚类)    │
-│ Pydantic          │ │ (catalog/checkout)│ │                   │
-│ LangChain Tools   │ │                   │ │                   │
+│ Core MCP :3010    │ │ Checkout MCP      │ │ 数据管道          │
+│ (SSE Transport)   │ │ :3011 (SSE)       │ │ Python            │
+│ • Catalog         │ │ • Cart            │ │ (AROC/KG/聚类)    │
+│ • Pricing         │ │ • Checkout        │ │                   │
+│ • Shipping        │ │ • Evidence        │ │                   │
+│ • Compliance      │ │ • Payment         │ │                   │
+│ • Knowledge (RAG) │ │                   │ │                   │
 └───────────────────┘ └───────────────────┘ └───────────────────┘
                                 │
                                 ▼
 ┌─────────────────────────────────────────────────────────────────────┐
 │                          数据层                                      │
 │  ┌─────────────────────────────────────────────────────────────┐    │
-│  │ MVP: PostgreSQL 16 + pgvector                               │    │
-│  │ (关系 + 向量 + 全文 + 图谱模拟)                              │    │
+│  │ PostgreSQL 16 + pgvector + Redis 7                          │    │
+│  │ (关系 + 向量 + 全文 + 缓存 + 会话 + 幂等性)                  │    │
 │  └─────────────────────────────────────────────────────────────┘    │
 │                                                                     │
 │  成熟期扩展:                                                        │
-│  + Redis (缓存) + Neo4j (图谱) + OpenSearch (全文) + Kafka (事件)   │
+│  + Neo4j (图谱) + OpenSearch (全文) + Kafka (事件)                  │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
+---
+
+## 十一、错误处理与韧性
+
+| 机制 | 说明 | 实现 |
+|------|------|------|
+| **Circuit Breaker** | 熔断器模式，防止级联故障 | `packages/common/src/retry.ts` |
+| **Retry** | 指数退避重试策略 | `packages/common/src/retry.ts` |
+| **Timeout** | 请求超时处理 | `packages/common/src/retry.ts` |
+| **Fallback** | 降级缓存策略 | `packages/common/src/retry.ts` |
+| **Batch** | 批量操作并发控制 | `apps/tool-gateway/src/services/xoobay.ts` |
+
+---
+
+## 十二、快速启动命令
+
+```bash
+# 一键启动所有服务
+docker compose -f docker-compose.full.yml up -d
+
+# 启动带管理工具
+docker compose -f docker-compose.full.yml --profile tools up -d
+
+# 运行数据库迁移
+docker compose -f docker-compose.full.yml --profile migrate up db-migrate
+
+# 导入种子数据
+docker compose -f docker-compose.full.yml --profile seed up seed-data
+
+# XOOBAY 产品同步
+docker compose -f docker-compose.full.yml --profile sync up xoobay-sync
+
+# 验证服务状态
+docker compose -f docker-compose.full.yml ps
+```
