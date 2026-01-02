@@ -38,6 +38,28 @@ const nextConfig = {
         hostname: 'img.alicdn.com',
         pathname: '/**',
       },
+      // sobuys.com - XooBay 产品图片主要来源
+      {
+        protocol: 'https',
+        hostname: 'images.sobuys.com',
+        pathname: '/**',
+      },
+      {
+        protocol: 'https',
+        hostname: '*.sobuys.com',
+        pathname: '/**',
+      },
+      // CJ Dropshipping 图片源
+      {
+        protocol: 'https',
+        hostname: 'oss-cf.cjdropshipping.com',
+        pathname: '/**',
+      },
+      {
+        protocol: 'https',
+        hostname: '*.cjdropshipping.com',
+        pathname: '/**',
+      },
     ],
     // Allow any domain with unoptimized prop (fallback)
     unoptimized: false,
