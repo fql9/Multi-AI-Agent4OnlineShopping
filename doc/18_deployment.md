@@ -46,8 +46,8 @@
 | PostgreSQL | 5433 | 数据库 |
 | Redis | 6379 | 缓存 |
 | Tool Gateway | 3000 | API 网关 |
-| Core MCP | 3010 | 核心工具服务 |
-| Checkout MCP | 3011 | 结算工具服务 |
+| Core MCP | 3010 | 核心工具服务 (SSE) |
+| Checkout MCP | 3011 | 结算工具服务 (SSE) |
 | Web App | 3001 | 前端界面 |
 | Agent | 8000 | Python Agent API |
 | Adminer | 8080 | 数据库管理 (可选) |
@@ -95,6 +95,7 @@ docker compose -f docker-compose.full.yml logs -f
 curl http://localhost:3000/health  # Tool Gateway
 curl http://localhost:3010/health  # Core MCP
 curl http://localhost:3011/health  # Checkout MCP
+curl http://localhost:8000/health  # Python Agent
 curl http://localhost:3001         # Web App
 
 # 测试 API
@@ -103,7 +104,7 @@ curl -X POST http://localhost:3000/tools/catalog/search_offers \
   -d '{
     "request_id": "test-001",
     "actor": {"type": "user", "id": "test-user"},
-    "client": {"app": "test", "version": "1.0.0"},
+    "client": {"app": "web", "version": "1.0.0"},
     "params": {"query": "laptop", "limit": 5}
   }'
 ```
@@ -129,11 +130,12 @@ curl -X POST http://localhost:3000/tools/catalog/search_offers \
 ┌─────────────────────────────────────────────────────────────────┐
 │                         Agent 编排层                              │
 │  ┌─────────────────────────────────────────────────────────────┐ │
-│  │               Python Agent (LangGraph)                      │ │
+│  │               Python Agent (LangGraph + FastAPI)            │ │
 │  │                    http://localhost:8000                    │ │
 │  │  ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐   │ │
 │  │  │ Intent │→│Candidate│→│Verifier│→│  Plan  │→│Execute │   │ │
 │  │  └────────┘ └────────┘ └────────┘ └────────┘ └────────┘   │ │
+│  │                    ↘ Compliance ↗      ↘ Payment ↗         │ │
 │  └─────────────────────────────────────────────────────────────┘ │
 └─────────────────────────────────────────────────────────────────┘
                                 │
@@ -153,7 +155,7 @@ curl -X POST http://localhost:3000/tools/catalog/search_offers \
 │        MCP 工具层           │   │           MCP 工具层           │
 │  ┌─────────────────────┐  │   │  ┌─────────────────────────┐  │
 │  │     Core MCP        │  │   │  │     Checkout MCP        │  │
-│  │  :3010              │  │   │  │     :3011               │  │
+│  │  :3010 (SSE)        │  │   │  │     :3011 (SSE)         │  │
 │  │  • Catalog          │  │   │  │  • Cart                 │  │
 │  │  • Pricing          │  │   │  │  • Checkout             │  │
 │  │  • Shipping         │  │   │  │  • Evidence             │  │
@@ -274,6 +276,19 @@ pnpm --filter @shopping-agent/web-app dev
 docker compose -f docker-compose.full.yml --profile migrate up db-migrate
 ```
 
+### 模式 5: 导入种子数据
+
+```bash
+docker compose -f docker-compose.full.yml --profile seed up seed-data
+```
+
+### 模式 6: XOOBAY 产品同步
+
+```bash
+# 设置 XOOBAY_API_KEY 后
+docker compose -f docker-compose.full.yml --profile sync up xoobay-sync
+```
+
 ---
 
 ## 服务详解
@@ -353,11 +368,43 @@ Password: redis_dev_password
 - LLM 调用管理
 - 会话持久化
 
+**HTTP 端点**:
+
+| 端点 | 方法 | 功能 |
+|------|------|------|
+| `/health` | GET | 健康检查 |
+| `/` | GET | 服务信息 |
+| `/api/v1/chat` | POST | 运行 Agent |
+| `/api/v1/sessions` | GET/POST | 会话管理 |
+| `/api/v1/sessions/{id}` | GET/DELETE | 会话详情/删除 |
+
 **Agent 节点**:
 
 ```
 Intent → Candidate → Verifier → Plan → Execute
                   ↘ Compliance ↗     ↘ Payment ↗
+```
+
+### MCP 服务 (SSE 模式)
+
+**Core MCP** (端口 3010):
+- Catalog 工具
+- Pricing 工具
+- Shipping 工具
+- Compliance 工具
+- Knowledge 工具 (RAG)
+
+**Checkout MCP** (端口 3011):
+- Cart 工具
+- Checkout 工具
+- Evidence 工具
+- Payment 工具
+
+**SSE 端点**:
+```
+GET /sse - SSE 连接
+POST /message - MCP 消息
+GET /health - 健康检查
 ```
 
 ---
@@ -427,6 +474,9 @@ docker compose -f docker-compose.full.yml ps
 
 # 检查特定服务健康
 docker inspect --format='{{.State.Health.Status}}' agent-tool-gateway
+docker inspect --format='{{.State.Health.Status}}' agent-python
+docker inspect --format='{{.State.Health.Status}}' agent-core-mcp
+docker inspect --format='{{.State.Health.Status}}' agent-checkout-mcp
 ```
 
 ### 资源监控
@@ -510,6 +560,23 @@ docker stats --no-stream
 #       memory: 512M
 ```
 
+#### 6. MCP 服务重启
+
+如果 MCP 服务不断重启，检查：
+- 健康检查 URL 是否正确 (应使用 `127.0.0.1` 而非 `localhost`)
+- 数据库连接是否正常
+- 端口是否被占用
+
+```bash
+# 查看 MCP 服务日志
+docker compose -f docker-compose.full.yml logs core-mcp
+docker compose -f docker-compose.full.yml logs checkout-mcp
+
+# 验证健康检查
+docker exec agent-core-mcp wget --no-verbose --tries=1 --spider http://127.0.0.1:3010/health
+docker exec agent-checkout-mcp wget --no-verbose --tries=1 --spider http://127.0.0.1:3011/health
+```
+
 ### 重置环境
 
 ```bash
@@ -590,7 +657,9 @@ redis-sentinel:
 | 重新构建 | `docker compose -f docker-compose.full.yml build --no-cache` |
 | 清理数据 | `docker compose -f docker-compose.full.yml down -v` |
 | 运行迁移 | `docker compose -f docker-compose.full.yml --profile migrate up db-migrate` |
+| 导入种子数据 | `docker compose -f docker-compose.full.yml --profile seed up seed-data` |
 | 启动管理工具 | `docker compose -f docker-compose.full.yml --profile tools up -d` |
+| XOOBAY 同步 | `docker compose -f docker-compose.full.yml --profile sync up xoobay-sync` |
 
 ---
 
@@ -598,5 +667,5 @@ redis-sentinel:
 
 | 日期 | 版本 | 变更 |
 |------|------|------|
+| 2026-01-02 | v1.1 | 添加 Agent HTTP 端点、MCP SSE 模式说明、新部署模式 |
 | 2026-01-02 | v1.0 | 初始文档创建 |
-

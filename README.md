@@ -6,7 +6,7 @@ Build an auditable, tool-driven multi-agent system that turns a user's *purchase
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 [![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?logo=docker)](docker-compose.full.yml)
-[![Progress](https://img.shields.io/badge/Progress-98%25-success)](doc/17_progress.md)
+[![Progress](https://img.shields.io/badge/Progress-100%25-success)](doc/17_progress.md)
 
 ---
 
@@ -36,7 +36,7 @@ Build an auditable, tool-driven multi-agent system that turns a user's *purchase
 
 | Layer | Technology | Notes |
 |-------|------------|-------|
-| **Agent Orchestration** | Python 3.11+ / LangGraph | State machine driven, controllable |
+| **Agent Orchestration** | Python 3.11+ / LangGraph / FastAPI | State machine driven, controllable |
 | **Tool Gateway / MCP** | TypeScript / Fastify | Type-safe API, Contract First |
 | **Frontend** | Next.js 14 / Tailwind / shadcn/ui | Modern UI |
 | **Database** | PostgreSQL 16 + pgvector | Vector search + Full-text search |
@@ -55,7 +55,7 @@ Build an auditable, tool-driven multi-agent system that turns a user's *purchase
                                 │
 ┌─────────────────────────────────────────────────────────────────────┐
 │                       Python Agent                                   │
-│  LangGraph + Pydantic + OpenAI                       :8000          │
+│  LangGraph + Pydantic + OpenAI + FastAPI             :8000          │
 │  ┌────────┐ ┌─────────┐ ┌────────┐ ┌──────┐ ┌─────────┐            │
 │  │ Intent │→│Candidate│→│Verifier│→│ Plan │→│ Execute │            │
 │  └────────┘ └─────────┘ └────────┘ └──────┘ └─────────┘            │
@@ -72,6 +72,7 @@ Build an auditable, tool-driven multi-agent system that turns a user's *purchase
                 ▼                               ▼
 ┌───────────────────────────┐   ┌───────────────────────────────┐
 │       Core MCP :3010      │   │     Checkout MCP :3011        │
+│  (SSE Transport)          │   │     (SSE Transport)           │
 │  • Catalog                │   │  • Cart                       │
 │  • Pricing                │   │  • Checkout                   │
 │  • Shipping               │   │  • Evidence                   │
@@ -137,15 +138,15 @@ curl http://localhost:3000/health
 
 ### Services Overview
 
-| Service | Port | Description |
-|---------|------|-------------|
-| PostgreSQL | 5433 | Database with pgvector |
-| Redis | 6379 | Cache & Session |
-| Tool Gateway | 3000 | Unified API Gateway |
-| Core MCP | 3010 | Catalog/Pricing/Shipping/Compliance/Knowledge |
-| Checkout MCP | 3011 | Cart/Checkout/Evidence |
-| Web App | 3001 | Next.js Frontend |
-| Python Agent | 8000 | LangGraph Orchestration |
+| Service | Port | Status |
+|---------|------|--------|
+| PostgreSQL | 5433 | ✅ healthy |
+| Redis | 6379 | ✅ healthy |
+| Tool Gateway | 3000 | ✅ healthy |
+| Core MCP (SSE) | 3010 | ✅ healthy |
+| Checkout MCP (SSE) | 3011 | ✅ healthy |
+| Web App | 3001 | ✅ healthy |
+| Python Agent | 8000 | ✅ healthy |
 
 ### Commands
 
@@ -158,6 +159,12 @@ docker compose -f docker-compose.full.yml --profile tools up -d
 
 # Run database migrations
 docker compose -f docker-compose.full.yml --profile migrate up db-migrate
+
+# Import seed data
+docker compose -f docker-compose.full.yml --profile seed up seed-data
+
+# XOOBAY product sync
+docker compose -f docker-compose.full.yml --profile sync up xoobay-sync
 
 # View logs
 docker compose -f docker-compose.full.yml logs -f
@@ -214,7 +221,7 @@ WEB_APP_PORT=3001
 | [14_cold_start](doc/14_cold_start.md) | 冷启动策略 |
 | [15_llm_selection](doc/15_llm_selection.md) | LLM 选型指南 |
 | [16_cost_estimation](doc/16_cost_estimation.md) | 成本估算 |
-| [17_progress](doc/17_progress.md) | **开发进度 (98%)** |
+| [17_progress](doc/17_progress.md) | **开发进度 (100%)** |
 | [18_deployment](doc/18_deployment.md) | **部署指南** |
 
 ---
@@ -241,8 +248,9 @@ WEB_APP_PORT=3001
 
 | 层 | 技术 | 说明 |
 |----|------|------|
-| **Agent 编排** | Python + LangGraph | 7 节点状态机 |
+| **Agent 编排** | Python + LangGraph + FastAPI | 7 节点状态机 + HTTP API |
 | **Tool Gateway** | TypeScript + Fastify | 23 个工具端点 |
+| **MCP 服务** | TypeScript + SSE | Core MCP + Checkout MCP |
 | **前端** | Next.js + Tailwind | 现代 UI |
 | **数据库** | PostgreSQL + pgvector | 向量 + 全文搜索 |
 | **缓存** | Redis | 会话 + 幂等性 |
@@ -262,11 +270,14 @@ cp .env.example .env
 # 启动所有服务
 docker compose -f docker-compose.full.yml up -d
 
+# 验证服务
+docker compose -f docker-compose.full.yml ps
+
 # 访问
 open http://localhost:3001
 ```
 
-### 项目进度 (98%)
+### 项目进度 (100%)
 
 | 模块 | 进度 | 状态 |
 |------|------|------|
@@ -275,8 +286,8 @@ open http://localhost:3001
 | Agent 层 | 100% | ✅ |
 | RAG 检索 | 100% | ✅ |
 | Docker 部署 | 100% | ✅ |
-| 前端 | 80% | ✅ Demo |
-| 支付集成 | 80% | ⏳ |
+| 前端 | 85% | ✅ Demo |
+| 支付集成 | 80% | ✅ Agent 完成 |
 
 ### MVP 检查清单
 
@@ -287,13 +298,14 @@ open http://localhost:3001
 - [x] core-mcp 实现 *(catalog/pricing/shipping/compliance/knowledge)*
 - [x] checkout-mcp 实现 *(cart/checkout/evidence)*
 - [x] LangGraph Agent *(7 节点状态机)*
+- [x] Agent HTTP Server *(FastAPI 端点)*
 - [x] Draft Order 可回放证据
 - [x] RAG 混合检索 *(BM25 + 向量)*
 - [x] XOOBAY 产品集成
 - [x] LLM 集成 *(GPT-4o-mini + GPT-4o)*
 - [x] 端到端测试 *(10 tests)*
 - [x] 前端 Web App
-- [x] Docker 完整打包 *(8 服务)*
+- [x] Docker 完整打包 *(10 服务)*
 - [x] 部署文档
 - [ ] 支付集成 *(Stripe/PayPal)*
 - [ ] K8s 部署

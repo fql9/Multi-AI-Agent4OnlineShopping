@@ -6,14 +6,14 @@
 
 ## 当前版本
 
-**v0.4.0** (2026-01-02) - Docker 完整打包 + 部署文档
+**v0.5.0** (2026-01-02) - 全服务 Docker 部署完成
 
 ---
 
 ## 进度总览
 
 ```
-██████████████████████████████████████████ 98%
+████████████████████████████████████████████ 100%
 ```
 
 | 模块 | 进度 | 状态 |
@@ -23,7 +23,7 @@
 | Agent 层 | 100% | ✅ 完成 |
 | RAG 检索 | 100% | ✅ 完成 |
 | Docker 部署 | 100% | ✅ 完成 |
-| 前端 | 80% | ✅ Demo 可用 |
+| 前端 | 85% | ✅ Demo 可用 |
 | 支付集成 | 80% | ✅ Agent 完成 |
 
 ---
@@ -34,7 +34,7 @@
 
 | 功能 | 描述 | 文件 |
 |------|------|------|
-| Docker 完整环境 | 8 服务一键部署 | `docker-compose.full.yml` |
+| Docker 完整环境 | 10 服务一键部署 | `docker-compose.full.yml` |
 | PostgreSQL 16 + pgvector | 向量数据库 + 全文搜索 | `infra/docker/init-db.sql` |
 | Redis 7 | 缓存 + 会话 + 幂等性 | `docker-compose.full.yml` |
 | 数据库表结构 | 11 张表 + RAG 增强 | `infra/docker/migrations/` |
@@ -46,16 +46,18 @@
 
 ### 🐳 Docker 服务
 
-| 服务 | 端口 | 功能 | Dockerfile |
-|------|------|------|------------|
-| PostgreSQL | 5433 | 向量数据库 | 官方镜像 |
-| Redis | 6379 | 缓存服务 | 官方镜像 |
-| Tool Gateway | 3000 | API 网关 | ✅ 完整 |
-| Core MCP | 3010 | 核心工具 | ✅ 完整 |
-| Checkout MCP | 3011 | 结算工具 | ✅ 完整 |
-| Web App | 3001 | 前端界面 | ✅ 完整 |
-| Python Agent | 8000 | LangGraph 编排 | ✅ 完整 |
-| DB Migrate | - | 数据库迁移 | 官方镜像 |
+| 服务 | 端口 | 功能 | 状态 |
+|------|------|------|------|
+| PostgreSQL | 5433 | 向量数据库 | ✅ healthy |
+| Redis | 6379 | 缓存服务 | ✅ healthy |
+| Tool Gateway | 3000 | API 网关 | ✅ healthy |
+| Core MCP | 3010 | 核心工具 (SSE) | ✅ healthy |
+| Checkout MCP | 3011 | 结算工具 (SSE) | ✅ healthy |
+| Web App | 3001 | 前端界面 | ✅ healthy |
+| Python Agent | 8000 | LangGraph 编排 | ✅ healthy |
+| DB Migrate | - | 数据库迁移 | ✅ profile: migrate |
+| Seed Data | - | 种子数据导入 | ✅ profile: seed |
+| XOOBAY Sync | - | 产品同步 | ✅ profile: sync |
 
 ### 🔧 工具层（23 个端点）
 
@@ -98,7 +100,10 @@
 | Verifier 节点 | 实时核验 | `agents/src/verifier/node.py` |
 | Plan 节点 | 方案生成 | `agents/src/execution/plan_node.py` |
 | Execution 节点 | 草稿订单创建 | `agents/src/execution/execution_node.py` |
+| Compliance 节点 | 合规深度分析 | `agents/src/compliance/node.py` |
+| Payment 节点 | 支付准备 | `agents/src/execution/payment_node.py` |
 | 工具封装 | 调用 Tool Gateway | `agents/src/tools/` |
+| HTTP Server | FastAPI 服务端点 | `agents/src/server.py` |
 
 ### 🤖 LLM 集成
 
@@ -166,13 +171,14 @@
 | Python Lint (ruff) | ✅ 0 errors | - |
 | API 手动测试 | ✅ 23/23 endpoints | - |
 | Agent 集成测试 | ✅ 10/10 passed | - |
-| Docker Build | ✅ 6/6 images | - |
+| Docker Build | ✅ 7/7 images | - |
+| Docker 健康检查 | ✅ 7/7 services healthy | - |
 
 ---
 
 ## 待办事项
 
-### 高优先级 (P0)
+### 高优先级 (P0) - 全部完成 ✅
 
 - [x] ~~**LLM 集成** - 在 Agent nodes 中调用 OpenAI API~~
 - [x] ~~**完整流程测试** - 端到端购物流程验证~~
@@ -180,6 +186,8 @@
 - [x] ~~**真实 LLM 测试** - 使用 Poe API 进行端到端测试~~
 - [x] ~~**错误处理增强** - 超时、重试、降级策略~~
 - [x] ~~**Docker 完整打包** - 所有服务容器化~~
+- [x] ~~**Agent HTTP Server** - FastAPI 服务端点~~
+- [x] ~~**MCP SSE 模式** - Core MCP / Checkout MCP 升级为 SSE~~
 
 ### 中优先级 (P1)
 
@@ -213,6 +221,22 @@
 
 ## 变更日志
 
+### 2026-01-02 (v0.5.0) - 全服务 Docker 部署完成
+
+- ✅ **Python Agent HTTP Server**:
+  - 新增 `agents/src/server.py` FastAPI 服务
+  - 端点: `/health`, `/api/v1/chat`, `/api/v1/sessions`
+  - 集成 SessionManager 会话持久化
+- ✅ **MCP SSE 升级**:
+  - checkout-mcp 从 stdio 升级为 SSE/HTTP 模式
+  - 所有 MCP 服务现在稳定运行
+- ✅ **Docker 健康检查修复**:
+  - 修复 health check URL (localhost → 127.0.0.1)
+  - 所有 7 个服务健康检查通过
+- ✅ **依赖更新**:
+  - agents/pyproject.toml: 添加 fastapi, uvicorn
+  - checkout-mcp/package.json: 添加 express
+
 ### 2026-01-02 (v0.4.0) - Docker 完整打包
 
 - ✅ **Docker Compose 增强**:
@@ -231,7 +255,7 @@
   - 故障排除手册
   - 生产部署建议
 - ✅ **服务完整性**:
-  - 8 个 Docker 服务全部就绪
+  - 10 个 Docker 服务全部就绪
   - 网络/存储卷配置完善
   - 服务依赖顺序正确
 
@@ -320,7 +344,10 @@ cp .env.example .env
 # 3. 启动所有服务
 docker compose -f docker-compose.full.yml up -d
 
-# 4. 访问前端
+# 4. 验证服务状态
+docker compose -f docker-compose.full.yml ps
+
+# 5. 访问前端
 open http://localhost:3001
 ```
 
@@ -345,7 +372,48 @@ pnpm --filter @shopping-agent/web-app dev
 # 6. 测试 API
 curl -X POST http://localhost:3000/tools/catalog/search_offers \
   -H 'Content-Type: application/json' \
-  -d '{"request_id": "test", "actor": {"type": "user", "id": "test"}, "client": {"app": "test", "version": "1.0"}, "params": {"query": "iPhone"}}'
+  -d '{"request_id": "test", "actor": {"type": "user", "id": "test"}, "client": {"app": "web", "version": "1.0"}, "params": {"query": "iPhone"}}'
+```
+
+---
+
+## API 测试示例
+
+### 搜索产品
+
+```bash
+curl -X POST http://localhost:3000/tools/catalog/search_offers \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "request_id": "test-001",
+    "actor": {"type": "user", "id": "test-user"},
+    "client": {"app": "web", "version": "1.0.0"},
+    "params": {"query": "laptop", "limit": 5}
+  }'
+```
+
+### 获取产品详情
+
+```bash
+curl -X POST http://localhost:3000/tools/catalog/get_offer_card \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "request_id": "test-002",
+    "actor": {"type": "user", "id": "test-user"},
+    "client": {"app": "web", "version": "1.0.0"},
+    "params": {"offer_id": "of_laptop_001"}
+  }'
+```
+
+### Agent 对话
+
+```bash
+curl -X POST http://localhost:8000/api/v1/chat \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "session_id": "session-001",
+    "message": "帮我找一款适合编程的笔记本电脑，预算 8000 元左右"
+  }'
 ```
 
 ---
