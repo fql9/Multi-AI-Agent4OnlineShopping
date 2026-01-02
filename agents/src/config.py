@@ -47,8 +47,13 @@ class Settings(BaseSettings):
     token_budget_total: int = Field(default=50000, alias="TOKEN_BUDGET_TOTAL")
     max_tokens_per_session: int = Field(default=100000, alias="MAX_TOKENS_PER_SESSION")
 
+    # Server Configuration
+    server_port: int = Field(default=8000, alias="PORT")
+    
     # Session Configuration
     session_timeout_minutes: int = Field(default=30, alias="SESSION_TIMEOUT_MINUTES")
+    session_storage_path: str = Field(default="/tmp/agent-sessions", alias="SESSION_STORAGE_PATH")
+    session_ttl_hours: int = Field(default=24, alias="SESSION_TTL_HOURS")
     max_retries: int = Field(default=3, alias="MAX_RETRIES")
     request_timeout: int = Field(default=30, alias="REQUEST_TIMEOUT")
 

@@ -284,6 +284,7 @@ services:
     environment:
       APP_ENV: production
       DEBUG: "false"
+      PORT: 8000
       # 数据库配置
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-agent}:${POSTGRES_PASSWORD:-agent_dev_password}@postgres:5432/${POSTGRES_DB:-agent_db}
       # Redis 配置
@@ -303,7 +304,7 @@ services:
       SESSION_TTL_HOURS: ${SESSION_TTL_HOURS:-24}
       # 功能开关
       MOCK_TOOLS: ${MOCK_TOOLS:-false}
-      ENABLE_RAG: ${ENABLE_RAG:-true}
+      RAG_ENABLED: ${ENABLE_RAG:-true}
       # 日志配置
       LOG_LEVEL: ${LOG_LEVEL:-info}
     volumes:
@@ -316,7 +317,7 @@ services:
       tool-gateway:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -399,6 +400,78 @@ services:
     depends_on:
       - redis
     restart: unless-stopped
+    networks:
+      - agent-network
+
+  # ========================================
+  # 🌱 种子数据导入 (一次性运行)
+  # ========================================
+  seed-data:
+    image: pgvector/pgvector:pg16
+    container_name: agent-seed-data
+    profiles:
+      - seed
+    volumes:
+      - ./infra/docker/seed-data.sql:/seed-data.sql:ro
+    environment:
+      PGHOST: postgres
+      PGPORT: 5432
+      PGUSER: ${POSTGRES_USER:-agent}
+      PGPASSWORD: ${POSTGRES_PASSWORD:-agent_dev_password}
+      PGDATABASE: ${POSTGRES_DB:-agent_db}
+    command: >
+      sh -c "
+        echo 'Waiting for PostgreSQL...' &&
+        until pg_isready -h postgres -p 5432 -U ${POSTGRES_USER:-agent}; do
+          sleep 2
+        done &&
+        echo 'Importing seed data...' &&
+        psql -f /seed-data.sql &&
+        echo 'Seed data imported successfully!'
+      "
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - agent-network
+
+  # ========================================
+  # 🔄 XOOBAY 产品同步 (一次性运行)
+  # ========================================
+  xoobay-sync:
+    build:
+      context: .
+      dockerfile: apps/tool-gateway/Dockerfile
+    container_name: agent-xoobay-sync
+    profiles:
+      - sync
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${POSTGRES_USER:-agent}:${POSTGRES_PASSWORD:-agent_dev_password}@postgres:5432/${POSTGRES_DB:-agent_db}
+      XOOBAY_ENABLED: "true"
+      XOOBAY_API_KEY: ${XOOBAY_API_KEY:-}
+      XOOBAY_BASE_URL: ${XOOBAY_BASE_URL:-https://www.xoobay.com}
+      XOOBAY_LANG: ${XOOBAY_LANG:-en}
+    command: >
+      sh -c "
+        echo 'Starting XOOBAY product sync...' &&
+        node -e \"
+          const { XOOBAYClient } = require('./dist/services/xoobay.js');
+          const client = new XOOBAYClient();
+          client.syncAllProducts().then(() => {
+            console.log('Sync completed!');
+            process.exit(0);
+          }).catch(err => {
+            console.error('Sync failed:', err);
+            process.exit(1);
+          });
+        \"
+      "
+    depends_on:
+      postgres:
+        condition: service_healthy
+      tool-gateway:
+        condition: service_healthy
     networks:
       - agent-network
 
