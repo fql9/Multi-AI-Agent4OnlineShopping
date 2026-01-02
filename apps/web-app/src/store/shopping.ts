@@ -62,9 +62,17 @@ export type Product = {
   id: string
   title: string
   price: number
-  image: string
+  image: string  // emoji fallback
+  imageUrl?: string  // 真实图片URL
+  galleryImages?: string[]  // 图库图片
   brand: string
   rating: number
+  description?: string  // 产品描述
+  shortDescription?: string  // 简短描述
+  storeName?: string  // 店铺名称
+  storeId?: string  // 店铺ID
+  productUrl?: string  // 产品链接
+  source?: 'xoobay' | 'database' | 'mock'  // 数据来源
   complianceRisks: ComplianceRisk[]
 }
 
@@ -183,8 +191,13 @@ const mockProducts: Product[] = [
     title: 'Anker MagSafe Wireless Charger 15W',
     price: 35.99,
     image: '📱',
+    imageUrl: 'https://m.media-amazon.com/images/I/61UzMDJDJsL._AC_SL1500_.jpg',
     brand: 'Anker',
     rating: 4.8,
+    description: 'Fast wireless charging with MagSafe compatibility for iPhone 12 and later.',
+    shortDescription: '15W Fast Wireless Charger',
+    storeName: 'Anker Official',
+    source: 'mock',
     complianceRisks: [
       { type: 'magnet', severity: 'low', message: 'Contains magnets (MagSafe)', mitigation: 'Safe for shipping' },
     ],
@@ -194,8 +207,13 @@ const mockProducts: Product[] = [
     title: 'Belkin BoostCharge Pro 3-in-1',
     price: 89.99,
     image: '🔌',
+    imageUrl: 'https://m.media-amazon.com/images/I/61UzMDJDJsL._AC_SL1500_.jpg',
     brand: 'Belkin',
     rating: 4.6,
+    description: '3-in-1 wireless charging station for iPhone, Apple Watch, and AirPods.',
+    shortDescription: '3-in-1 Charging Station',
+    storeName: 'Belkin Store',
+    source: 'mock',
     complianceRisks: [],
   },
   {
@@ -203,8 +221,13 @@ const mockProducts: Product[] = [
     title: 'Apple MagSafe Charger',
     price: 39.00,
     image: '🍎',
+    imageUrl: 'https://store.storeimages.cdn-apple.com/4982/as-images.apple.com/is/MHXH3?wid=1144&hei=1144&fmt=jpeg&qlt=90&.v=1603835871000',
     brand: 'Apple',
     rating: 4.5,
+    description: 'The MagSafe Charger makes wireless charging a snap.',
+    shortDescription: 'Apple MagSafe Charger',
+    storeName: 'Apple Store',
+    source: 'mock',
     complianceRisks: [
       { type: 'magnet', severity: 'low', message: 'Contains magnets (MagSafe)', mitigation: 'Safe for shipping' },
     ],
@@ -214,8 +237,13 @@ const mockProducts: Product[] = [
     title: 'Samsung 15W Wireless Charger Duo',
     price: 49.99,
     image: '📲',
+    imageUrl: 'https://images.samsung.com/is/image/samsung/p6pim/uk/ep-p5400tbegeu/gallery/uk-wireless-charger-duo-ep-p5400-ep-p5400tbegeu-530556339?$650_519_PNG$',
     brand: 'Samsung',
     rating: 4.4,
+    description: 'Charge two devices simultaneously with 15W fast charging.',
+    shortDescription: '15W Duo Wireless Charger',
+    storeName: 'Samsung Store',
+    source: 'mock',
     complianceRisks: [],
   },
   {
@@ -223,8 +251,13 @@ const mockProducts: Product[] = [
     title: 'Mophie Snap+ Wireless Charging Stand',
     price: 29.95,
     image: '⚡',
+    imageUrl: 'https://m.media-amazon.com/images/I/61LHGX+HQKL._AC_SL1500_.jpg',
     brand: 'Mophie',
     rating: 4.3,
+    description: 'Snap adapter technology for a secure magnetic hold and optimal charging.',
+    shortDescription: 'Magnetic Charging Stand',
+    storeName: 'Mophie Official',
+    source: 'mock',
     complianceRisks: [
       { type: 'magnet', severity: 'low', message: 'Contains magnets', mitigation: 'Safe for shipping' },
     ],
@@ -508,13 +541,64 @@ export const useShoppingStore = create<ShoppingState>((set, get) => ({
                     price = isNaN(priceValue) ? 0 : Math.round(priceValue * 100) / 100 // 保留2位小数
                   }
                   
+                  // 提取 XOOBAY 产品的属性
+                  const attributes = data.attributes as {
+                    image_url?: string
+                    gallery_images?: string[]
+                    description?: string
+                    short_description?: string
+                    store_name?: string
+                    source?: string
+                  } | null
+                  
+                  // 判断数据来源
+                  const isXoobay = offerId.startsWith('xoobay_') || attributes?.source === 'xoobay'
+                  const xoobayId = isXoobay ? offerId.replace('xoobay_', '') : null
+                  
+                  // 获取产品图片URL
+                  let imageUrl = attributes?.image_url
+                  // 如果是相对路径，添加 XOOBAY 域名
+                  if (imageUrl && !imageUrl.startsWith('http')) {
+                    imageUrl = `https://www.xoobay.com${imageUrl}`
+                  }
+                  
+                  // 获取图库图片
+                  const galleryImages = attributes?.gallery_images?.map(img => 
+                    img.startsWith('http') ? img : `https://www.xoobay.com${img}`
+                  )
+                  
+                  // 生成产品链接
+                  const productUrl = isXoobay && xoobayId
+                    ? `https://www.xoobay.com/product/${xoobayId}`
+                    : undefined
+                  
+                  // 选择合适的 emoji 作为后备
+                  const categoryEmojis: Record<string, string> = {
+                    'electronics': '📱',
+                    'clothing': '👕',
+                    'home': '🏠',
+                    'sports': '⚽',
+                    'beauty': '💄',
+                    'toys': '🧸',
+                    'food': '🍔',
+                    'default': '📦'
+                  }
+                  const fallbackEmoji = categoryEmojis.default
+                  
                   products.push({
                     id: offerId,
                     title: data.titles?.[0]?.text || data.titles?.[1]?.text || 'Product',
                     price: price,
-                    image: '📦',
+                    image: fallbackEmoji,
+                    imageUrl: imageUrl,
+                    galleryImages: galleryImages,
                     brand: data.brand?.name || 'Unknown',
                     rating: typeof data.rating === 'number' ? data.rating : (parseFloat(String(data.rating || 0)) || 4.0),
+                    description: attributes?.description,
+                    shortDescription: attributes?.short_description,
+                    storeName: attributes?.store_name,
+                    productUrl: productUrl,
+                    source: isXoobay ? 'xoobay' : 'database',
                     complianceRisks: [],
                   })
                 }
