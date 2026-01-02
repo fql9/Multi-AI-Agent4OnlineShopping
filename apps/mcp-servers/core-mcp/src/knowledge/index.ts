@@ -148,16 +148,23 @@ interface EvidenceChunk {
   offsets: { start: number; end: number } | null;
   created_at: Date;
   similarity?: number;
+  // Enhanced fields from 003 migration
+  chunk_type: string | null;
+  confidence: number;
+  citation_count: number;
 }
 
 interface SearchResult {
   chunk_id: string;
   text: string;
   source_type: string;
+  chunk_type: string | null;
   offer_id: string | null;
   score: number;
+  confidence: number;
   offsets: { start: number; end: number } | null;
   citation: string;
+  citation_count: number;
 }
 
 // ============================================================
@@ -359,13 +366,13 @@ async function searchKnowledge(params: Record<string, unknown>): Promise<unknown
 
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
-    // Query chunks with keyword matching
+    // Query chunks with keyword matching - using enhanced fields
     values.push(limit * 3); // Get more for re-ranking
     const keywordResults = await query<EvidenceChunk>(
-      `SELECT id, text, source_type, offer_id, sku_id, category_id, language, offsets, created_at
+      `SELECT id, text, source_type, chunk_type, offer_id, sku_id, category_id, language, offsets, created_at, confidence, citation_count
        FROM agent.evidence_chunks
        ${whereClause}
-       ORDER BY created_at DESC
+       ORDER BY confidence DESC, citation_count DESC, created_at DESC
        LIMIT $${paramIndex}`,
       values
     );
@@ -398,10 +405,13 @@ async function searchKnowledge(params: Record<string, unknown>): Promise<unknown
             chunk_id: chunk.id,
             text: chunk.text,
             source_type: chunk.source_type,
+            chunk_type: chunk.chunk_type,
             offer_id: chunk.offer_id,
             score: chunk.similarity,
+            confidence: parseFloat(String(chunk.confidence ?? 0.8)),
             offsets: chunk.offsets,
             citation: generateCitation(chunk),
+            citation_count: chunk.citation_count ?? 0,
           }));
 
         return {
@@ -415,7 +425,7 @@ async function searchKnowledge(params: Record<string, unknown>): Promise<unknown
       }
     }
 
-    // Re-rank keyword results using simple TF-IDF scoring
+    // Re-rank keyword results using simple TF-IDF scoring + enhanced fields
     const queryTokens = searchQuery.toLowerCase().split(/\s+/);
     const scoredResults = keywordResults.map(chunk => {
       let score = 0;
@@ -437,6 +447,15 @@ async function searchKnowledge(params: Record<string, unknown>): Promise<unknown
         }
       }
       
+      // Boost score by confidence and citation count
+      const chunkConfidence = parseFloat(String(chunk.confidence ?? 0.8));
+      score = score * (0.5 + chunkConfidence * 0.5);
+      
+      // Citation count bonus (popular chunks are more reliable)
+      if (chunk.citation_count > 0) {
+        score += Math.min(0.1, chunk.citation_count * 0.01);
+      }
+      
       // Normalize score
       score = Math.min(score, 1.0);
       
@@ -444,10 +463,13 @@ async function searchKnowledge(params: Record<string, unknown>): Promise<unknown
         chunk_id: chunk.id,
         text: chunk.text,
         source_type: chunk.source_type,
+        chunk_type: chunk.chunk_type,
         offer_id: chunk.offer_id,
         score,
+        confidence: chunkConfidence,
         offsets: chunk.offsets,
         citation: generateCitation(chunk),
+        citation_count: chunk.citation_count ?? 0,
       };
     });
 
