@@ -184,3 +184,4 @@ COMMENT ON TABLE agent.kg_entity_chunks IS 'Links between entities and their sou
 COMMENT ON TABLE agent.xoobay_sync_log IS 'Tracking log for XOOBAY product synchronization';
 COMMENT ON FUNCTION agent.search_chunks_hybrid IS 'Hybrid search combining full-text and semantic similarity';
 
+

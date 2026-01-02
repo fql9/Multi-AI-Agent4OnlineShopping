@@ -55,8 +55,8 @@ async def verifier_node(state: AgentState) -> AgentState:
         rejected_candidates = []
         tool_calls = state.get("tool_calls", [])
 
-        # 对每个候选进行核验（限制数量以控制成本）
-        for candidate in candidates[:10]:
+        # 对每个候选进行核验（增加到 15 个以便生成多个方案）
+        for candidate in candidates[:15]:
             offer_id = candidate.get("offer_id")
             sku_id = None
 

@@ -759,21 +759,46 @@ export const useShoppingStore = create<ShoppingState>()(
             
             if (apiPlans && apiPlans.length > 0) {
               const getProductFromCandidate = (offerId: string): Product => {
-                const candidate = response.candidates?.find((c) => c.offer_id === offerId)
-                const candidateWithTitles = candidate as unknown as { 
+                // 首先在 candidates 中查找
+                let rawCandidate: Record<string, unknown> | undefined = response.candidates?.find((c) => c.offer_id === offerId) as Record<string, unknown> | undefined
+                
+                // 如果没找到，在 verified_candidates 中查找
+                if (!rawCandidate) {
+                  const verifiedCandidates = response.verified_candidates as unknown as Array<{ 
+                    offer_id: string
+                    candidate?: Record<string, unknown>
+                  }>
+                  const verifiedCandidate = verifiedCandidates?.find((v) => v.offer_id === offerId)
+                  if (verifiedCandidate?.candidate) {
+                    rawCandidate = verifiedCandidate.candidate
+                  }
+                }
+                
+                const candidateWithTitles = rawCandidate as { 
+                  offer_id?: string
                   titles?: Array<{ text: string }>
                   title?: string
                   price?: { amount: number }
-                }
+                  rating?: number
+                  brand?: { name?: string } | string
+                  attributes?: {
+                    image_url?: string
+                    gallery_images?: string[]
+                    description?: string
+                    short_description?: string
+                    store_name?: string
+                    source?: string
+                  }
+                } | undefined
                 
                 let title = offerId
                 if (candidateWithTitles?.titles && Array.isArray(candidateWithTitles.titles)) {
                   title = candidateWithTitles.titles[0]?.text || offerId
-                } else if (candidateWithTitles?.title || candidate?.title) {
-                  title = candidateWithTitles?.title || candidate?.title || offerId
+                } else if (candidateWithTitles?.title) {
+                  title = candidateWithTitles.title
                 }
                 
-                const brandObj = candidate?.brand as { name?: string } | string | undefined
+                const brandObj = candidateWithTitles?.brand
                 let brand = ''
                 if (typeof brandObj === 'object' && brandObj?.name) {
                   brand = brandObj.name
@@ -781,13 +806,40 @@ export const useShoppingStore = create<ShoppingState>()(
                   brand = brandObj
                 }
                 
+                // 提取图片 URL
+                const attributes = candidateWithTitles?.attributes
+                let imageUrl = attributes?.image_url
+                if (imageUrl && !imageUrl.startsWith('http')) {
+                  imageUrl = `https://www.xoobay.com${imageUrl}`
+                }
+                
+                const galleryImages = attributes?.gallery_images?.map(img => 
+                  img.startsWith('http') ? img : `https://www.xoobay.com${img}`
+                )
+                
+                // 判断是否为 XOOBAY 产品
+                const isXoobay = offerId.startsWith('xoobay_') || attributes?.source === 'xoobay'
+                const xoobayId = isXoobay ? offerId.replace('xoobay_', '') : null
+                const productUrl = isXoobay && xoobayId
+                  ? `https://www.xoobay.com/product/${xoobayId}`
+                  : undefined
+                
+                console.log('[DEBUG] getProductFromCandidate:', offerId, 'imageUrl:', imageUrl, 'title:', title)
+                
                 return {
                   id: offerId,
                   title,
                   price: candidateWithTitles?.price?.amount || 0,
                   image: '📦',
+                  imageUrl,
+                  galleryImages,
                   brand,
-                  rating: 4.0,
+                  rating: candidateWithTitles?.rating || 4.0,
+                  description: attributes?.description,
+                  shortDescription: attributes?.short_description,
+                  storeName: attributes?.store_name,
+                  productUrl,
+                  source: isXoobay ? 'xoobay' : 'database',
                   complianceRisks: [],
                 }
               }

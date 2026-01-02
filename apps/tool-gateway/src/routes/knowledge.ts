@@ -545,3 +545,4 @@ export async function knowledgeRoutes(app: FastifyInstance): Promise<void> {
   });
 }
 
+

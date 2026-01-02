@@ -1,5 +1,5 @@
 /**
- * XOOBAY Product Database Sync Script
+ * XOOBAY Product Database Sync Script (Concurrent Version)
  * 
  * This script fetches all products from XOOBAY API and syncs them to:
  * 1. agent.offers - Main product catalog
@@ -8,7 +8,7 @@
  * 4. agent.categories - Product categories
  * 
  * Usage:
- *   npx tsx scripts/sync-xoobay-products.ts [--pages=N] [--lang=en|zh]
+ *   npx tsx scripts/sync-xoobay-products.ts [--pages=N] [--concurrency=N] [--start-page=N]
  */
 
 import { Pool } from 'pg';
@@ -27,6 +27,7 @@ const DB_CONFIG = {
   database: process.env.DB_NAME || 'shopping_agent',
   user: process.env.DB_USER || 'postgres',
   password: process.env.DB_PASSWORD || 'postgres',
+  max: 20, // 增加连接池大小以支持并发
 };
 
 // ============================================================
@@ -78,13 +79,20 @@ interface SyncStats {
   pages_processed: number;
   products_fetched: number;
   offers_inserted: number;
-  offers_updated: number;
   skus_inserted: number;
   categories_created: number;
   chunks_indexed: number;
   errors: string[];
   start_time: Date;
   end_time?: Date;
+}
+
+interface PageResult {
+  page: number;
+  success: number;
+  failed: number;
+  chunks: number;
+  error?: string;
 }
 
 // ============================================================
@@ -108,11 +116,6 @@ async function query<T>(sql: string, params?: unknown[]): Promise<T[]> {
   } finally {
     client.release();
   }
-}
-
-async function queryOne<T>(sql: string, params?: unknown[]): Promise<T | null> {
-  const rows = await query<T>(sql, params);
-  return rows[0] || null;
 }
 
 // ============================================================
@@ -151,12 +154,10 @@ async function getProductList(page: number, lang: string): Promise<XOOBAYProduct
   try {
     const response = await fetchWithRetry<XOOBAYResponse<XOOBAYProductListResponse>>(url);
     if (response.code !== 200) {
-      console.error(`[getProductList] Page ${page}: API error - ${response.msg}`);
       return null;
     }
     return response.data;
   } catch (error) {
-    console.error(`[getProductList] Page ${page}: ${error}`);
     return null;
   }
 }
@@ -171,7 +172,6 @@ async function getProductDetail(id: number, lang: string): Promise<XOOBAYProduct
     }
     return response.data;
   } catch (error) {
-    console.error(`[getProductDetail] ID ${id}: ${error}`);
     return null;
   }
 }
@@ -200,14 +200,12 @@ async function ensureCategory(categoryName: string): Promise<string> {
 async function upsertOffer(product: XOOBAYProductDetail, categoryId: string): Promise<boolean> {
   const offerId = `xoobay_${product.id}`;
   
-  // Parse price
   let price = 0;
   if (product.price) {
     const priceStr = String(product.price).replace(/[^\d.-]/g, '');
     price = parseFloat(priceStr) || 0;
   }
   
-  // Build attributes JSON
   const attributes = {
     image_url: product.image_url,
     gallery_images: product.gallery_images || [],
@@ -236,18 +234,10 @@ async function upsertOffer(product: XOOBAYProductDetail, categoryId: string): Pr
          base_price = EXCLUDED.base_price,
          attributes = EXCLUDED.attributes,
          updated_at = NOW()`,
-      [
-        offerId,
-        categoryId,
-        product.name,
-        product.brand_name || 'Unknown',
-        price,
-        JSON.stringify(attributes),
-      ]
+      [offerId, categoryId, product.name, product.brand_name || 'Unknown', price, JSON.stringify(attributes)]
     );
     return true;
   } catch (error) {
-    console.error(`[upsertOffer] ${offerId}: ${error}`);
     return false;
   }
 }
@@ -256,7 +246,6 @@ async function upsertSku(product: XOOBAYProductDetail): Promise<boolean> {
   const offerId = `xoobay_${product.id}`;
   const skuId = `sku_xoobay_${product.id}`;
   
-  // Parse price
   let price = 0;
   if (product.price) {
     const priceStr = String(product.price).replace(/[^\d.-]/g, '');
@@ -274,19 +263,16 @@ async function upsertSku(product: XOOBAYProductDetail): Promise<boolean> {
     );
     return true;
   } catch (error) {
-    console.error(`[upsertSku] ${skuId}: ${error}`);
     return false;
   }
 }
 
 function generateSimpleEmbedding(text: string): number[] {
-  // Normalize and tokenize
   const tokens = text.toLowerCase()
     .replace(/[^\w\s]/g, ' ')
     .split(/\s+/)
     .filter(t => t.length > 2);
   
-  // Create a simple 1536-dimensional vector
   const embedding = new Array(1536).fill(0);
   
   for (let i = 0; i < tokens.length; i++) {
@@ -303,7 +289,6 @@ function generateSimpleEmbedding(text: string): number[] {
     }
   }
   
-  // Normalize
   const magnitude = Math.sqrt(embedding.reduce((sum, val) => sum + val * val, 0));
   if (magnitude > 0) {
     for (let i = 0; i < embedding.length; i++) {
@@ -318,7 +303,6 @@ async function indexProductChunks(product: XOOBAYProductDetail): Promise<number>
   const offerId = `xoobay_${product.id}`;
   let chunksCreated = 0;
   
-  // Build full text content
   const fullText = [
     product.name,
     product.short_description,
@@ -331,7 +315,6 @@ async function indexProductChunks(product: XOOBAYProductDetail): Promise<number>
     return 0;
   }
   
-  // Chunk the text (max 500 chars per chunk)
   const chunks: Array<{ text: string; start: number; end: number }> = [];
   const sentences = fullText.split(/(?<=[.!?。！？])\s+/);
   let currentChunk = '';
@@ -354,7 +337,6 @@ async function indexProductChunks(product: XOOBAYProductDetail): Promise<number>
     chunks.push({ text: currentChunk.trim(), start: currentStart, end: position });
   }
   
-  // Insert chunks with embeddings
   for (const chunk of chunks) {
     try {
       const embedding = generateSimpleEmbedding(chunk.text);
@@ -382,21 +364,121 @@ async function indexProductChunks(product: XOOBAYProductDetail): Promise<number>
 }
 
 // ============================================================
-// Main Sync Function
+// Concurrent Processing
 // ============================================================
 
-async function syncXoobayProducts(options: {
+/**
+ * 处理单个页面的所有产品
+ */
+async function processPage(page: number, lang: string): Promise<PageResult> {
+  const result: PageResult = { page, success: 0, failed: 0, chunks: 0 };
+  
+  try {
+    const pageData = await getProductList(page, lang);
+    if (!pageData || !pageData.list) {
+      result.error = 'Failed to fetch page';
+      return result;
+    }
+    
+    // 并发处理页面内的产品（每页最多20个产品，使用4个并发）
+    const productConcurrency = 4;
+    const products = pageData.list;
+    
+    for (let i = 0; i < products.length; i += productConcurrency) {
+      const batch = products.slice(i, i + productConcurrency);
+      const promises = batch.map(async (product) => {
+        const detail = await getProductDetail(product.id, lang);
+        if (!detail) {
+          return { success: false, chunks: 0 };
+        }
+        
+        const categoryId = await ensureCategory(detail.category);
+        const offerOk = await upsertOffer(detail, categoryId);
+        const skuOk = await upsertSku(detail);
+        const chunks = await indexProductChunks(detail);
+        
+        return { success: offerOk && skuOk, chunks };
+      });
+      
+      const results = await Promise.all(promises);
+      for (const r of results) {
+        if (r.success) {
+          result.success++;
+        } else {
+          result.failed++;
+        }
+        result.chunks += r.chunks;
+      }
+      
+      // 批次间小延迟，避免API过载
+      await sleep(50);
+    }
+  } catch (error) {
+    result.error = String(error);
+  }
+  
+  return result;
+}
+
+/**
+ * 并发执行器 - 控制最大并发数
+ */
+async function runWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  fn: (item: T) => Promise<R>,
+  onProgress?: (completed: number, total: number, result: R) => void
+): Promise<R[]> {
+  const results: R[] = [];
+  let completed = 0;
+  let currentIndex = 0;
+  
+  async function worker(): Promise<void> {
+    while (currentIndex < items.length) {
+      const index = currentIndex++;
+      const item = items[index];
+      const result = await fn(item);
+      results[index] = result;
+      completed++;
+      if (onProgress) {
+        onProgress(completed, items.length, result);
+      }
+    }
+  }
+  
+  // 创建 workers
+  const workers: Promise<void>[] = [];
+  for (let i = 0; i < Math.min(concurrency, items.length); i++) {
+    workers.push(worker());
+  }
+  
+  await Promise.all(workers);
+  return results;
+}
+
+// ============================================================
+// Main Sync Function (Concurrent)
+// ============================================================
+
+async function syncXoobayProductsConcurrent(options: {
   maxPages?: number;
+  startPage?: number;
+  concurrency?: number;
   lang?: string;
   clearExisting?: boolean;
 }): Promise<SyncStats> {
-  const { maxPages = 100, lang = XOOBAY_LANG, clearExisting = false } = options;
+  const { 
+    maxPages = 100, 
+    startPage = 1, 
+    concurrency = 6,
+    lang = XOOBAY_LANG, 
+    clearExisting = false 
+  } = options;
   
   const stats: SyncStats = {
     pages_processed: 0,
     products_fetched: 0,
     offers_inserted: 0,
-    offers_updated: 0,
     skus_inserted: 0,
     categories_created: 0,
     chunks_indexed: 0,
@@ -404,122 +486,112 @@ async function syncXoobayProducts(options: {
     start_time: new Date(),
   };
   
-  console.log('======================================================');
-  console.log('XOOBAY Product Database Sync');
-  console.log('======================================================');
-  console.log(`API: ${XOOBAY_BASE_URL}`);
-  console.log(`Language: ${lang}`);
-  console.log(`Max Pages: ${maxPages}`);
-  console.log(`Database: ${DB_CONFIG.host}:${DB_CONFIG.port}/${DB_CONFIG.database}`);
-  console.log('------------------------------------------------------');
+  console.log('══════════════════════════════════════════════════════');
+  console.log('  🚀 XOOBAY Product Database Sync (CONCURRENT)');
+  console.log('══════════════════════════════════════════════════════');
+  console.log(`  API: ${XOOBAY_BASE_URL}`);
+  console.log(`  Language: ${lang}`);
+  console.log(`  Concurrency: ${concurrency} workers`);
+  console.log(`  Database: ${DB_CONFIG.host}:${DB_CONFIG.port}/${DB_CONFIG.database}`);
+  console.log('──────────────────────────────────────────────────────');
   
   // Clear existing XOOBAY data if requested
   if (clearExisting) {
-    console.log('\n[Step 0] Clearing existing XOOBAY data...');
+    console.log('\n[Step 0] 🗑️  Clearing existing XOOBAY data...');
     await query(`DELETE FROM agent.evidence_chunks WHERE offer_id LIKE 'xoobay_%'`);
     await query(`DELETE FROM agent.skus WHERE offer_id LIKE 'xoobay_%'`);
     await query(`DELETE FROM agent.offers WHERE id LIKE 'xoobay_%'`);
     console.log('  ✓ Cleared existing data');
   }
   
-  // First, get total page count
-  console.log('\n[Step 1] Fetching product list metadata...');
+  // Get total page count
+  console.log('\n[Step 1] 📊 Fetching product list metadata...');
   const firstPage = await getProductList(1, lang);
   if (!firstPage) {
+    console.error('  ❌ Failed to fetch first page');
     stats.errors.push('Failed to fetch first page');
     return stats;
   }
   
   const totalPages = Math.min(firstPage.pager.pageCount, maxPages);
-  const totalProducts = firstPage.pager.count;
-  console.log(`  ✓ Total products: ${totalProducts}`);
-  console.log(`  ✓ Total pages: ${firstPage.pager.pageCount}`);
-  console.log(`  ✓ Pages to process: ${totalPages}`);
+  const effectiveStartPage = Math.max(1, Math.min(startPage, totalPages));
+  const pagesToProcess = totalPages - effectiveStartPage + 1;
   
-  // Process pages
-  console.log('\n[Step 2] Syncing products...');
-  const categories = new Set<string>();
+  console.log(`  ✓ Total products available: ${firstPage.pager.count.toLocaleString()}`);
+  console.log(`  ✓ Total pages available: ${firstPage.pager.pageCount.toLocaleString()}`);
+  console.log(`  ✓ Start page: ${effectiveStartPage}`);
+  console.log(`  ✓ End page: ${totalPages}`);
+  console.log(`  ✓ Pages to process: ${pagesToProcess}`);
+  console.log(`  ✓ Estimated products: ~${(pagesToProcess * 20).toLocaleString()}`);
   
-  for (let page = 1; page <= totalPages; page++) {
-    process.stdout.write(`  Page ${page}/${totalPages}: `);
-    
-    const pageData = page === 1 ? firstPage : await getProductList(page, lang);
-    if (!pageData || !pageData.list) {
-      console.log('❌ Failed to fetch');
-      stats.errors.push(`Page ${page}: Failed to fetch`);
-      continue;
-    }
-    
-    let pageSuccess = 0;
-    let pageFailed = 0;
-    
-    for (const product of pageData.list) {
-      stats.products_fetched++;
-      
-      // Fetch product details
-      const detail = await getProductDetail(product.id, lang);
-      if (!detail) {
-        pageFailed++;
-        continue;
-      }
-      
-      // Ensure category exists
-      const categoryId = await ensureCategory(detail.category);
-      if (!categories.has(categoryId)) {
-        categories.add(categoryId);
-        stats.categories_created++;
-      }
-      
-      // Upsert offer
-      const offerOk = await upsertOffer(detail, categoryId);
-      if (offerOk) stats.offers_inserted++;
-      
-      // Upsert SKU
-      const skuOk = await upsertSku(detail);
-      if (skuOk) stats.skus_inserted++;
-      
-      // Index for RAG
-      const chunks = await indexProductChunks(detail);
-      stats.chunks_indexed += chunks;
-      
-      if (offerOk && skuOk) {
-        pageSuccess++;
-      } else {
-        pageFailed++;
-      }
-      
-      // Rate limiting
-      await sleep(100);
-    }
-    
-    stats.pages_processed++;
-    console.log(`✓ ${pageSuccess} synced, ${pageFailed} failed`);
-    
-    // Rate limiting between pages
-    await sleep(200);
+  // Generate page numbers to process
+  const pages: number[] = [];
+  for (let p = effectiveStartPage; p <= totalPages; p++) {
+    pages.push(p);
   }
+  
+  // Process pages concurrently
+  console.log(`\n[Step 2] 🔄 Syncing products with ${concurrency} concurrent workers...`);
+  console.log('──────────────────────────────────────────────────────');
+  
+  const startTime = Date.now();
+  let lastProgressTime = startTime;
+  
+  const pageResults = await runWithConcurrency(
+    pages,
+    concurrency,
+    (page) => processPage(page, lang),
+    (completed, total, result) => {
+      stats.pages_processed++;
+      stats.offers_inserted += result.success;
+      stats.products_fetched += result.success + result.failed;
+      stats.chunks_indexed += result.chunks;
+      
+      if (result.error) {
+        stats.errors.push(`Page ${result.page}: ${result.error}`);
+      }
+      
+      // 每2秒或每50页打印一次进度
+      const now = Date.now();
+      if (now - lastProgressTime > 2000 || completed % 50 === 0 || completed === total) {
+        const elapsed = (now - startTime) / 1000;
+        const rate = completed / elapsed;
+        const eta = Math.round((total - completed) / rate);
+        const percent = Math.round((completed / total) * 100);
+        
+        process.stdout.write(`\r  Progress: ${completed}/${total} pages (${percent}%) | ` +
+          `${stats.offers_inserted.toLocaleString()} products | ` +
+          `${rate.toFixed(1)} pages/s | ETA: ${eta}s    `);
+        lastProgressTime = now;
+      }
+    }
+  );
+  
+  console.log('\n');
   
   stats.end_time = new Date();
+  const duration = Math.round((stats.end_time.getTime() - stats.start_time.getTime()) / 1000);
   
   // Print summary
-  console.log('\n======================================================');
-  console.log('SYNC COMPLETE');
-  console.log('======================================================');
-  console.log(`Duration: ${Math.round((stats.end_time.getTime() - stats.start_time.getTime()) / 1000)}s`);
-  console.log(`Pages Processed: ${stats.pages_processed}`);
-  console.log(`Products Fetched: ${stats.products_fetched}`);
-  console.log(`Offers Inserted/Updated: ${stats.offers_inserted}`);
-  console.log(`SKUs Inserted/Updated: ${stats.skus_inserted}`);
-  console.log(`Categories Created: ${stats.categories_created}`);
-  console.log(`RAG Chunks Indexed: ${stats.chunks_indexed}`);
+  console.log('══════════════════════════════════════════════════════');
+  console.log('  ✅ SYNC COMPLETE');
+  console.log('══════════════════════════════════════════════════════');
+  console.log(`  ⏱️  Duration: ${duration}s (${(duration / 60).toFixed(1)} min)`);
+  console.log(`  📄 Pages Processed: ${stats.pages_processed.toLocaleString()}`);
+  console.log(`  📦 Products Synced: ${stats.offers_inserted.toLocaleString()}`);
+  console.log(`  🔍 RAG Chunks: ${stats.chunks_indexed.toLocaleString()}`);
+  console.log(`  ⚡ Speed: ${(stats.pages_processed / duration).toFixed(2)} pages/s`);
+  console.log(`  ⚡ Speed: ${(stats.offers_inserted / duration).toFixed(1)} products/s`);
   
   if (stats.errors.length > 0) {
-    console.log(`\nErrors (${stats.errors.length}):`);
-    stats.errors.slice(0, 10).forEach(e => console.log(`  - ${e}`));
-    if (stats.errors.length > 10) {
-      console.log(`  ... and ${stats.errors.length - 10} more`);
+    console.log(`\n  ⚠️  Errors (${stats.errors.length}):`);
+    stats.errors.slice(0, 5).forEach(e => console.log(`    - ${e}`));
+    if (stats.errors.length > 5) {
+      console.log(`    ... and ${stats.errors.length - 5} more`);
     }
   }
+  
+  console.log('══════════════════════════════════════════════════════\n');
   
   return stats;
 }
@@ -531,26 +603,34 @@ async function syncXoobayProducts(options: {
 async function main() {
   const args = process.argv.slice(2);
   
-  let maxPages = 50; // Default to 50 pages
+  let maxPages = 100;
+  let startPage = 1;
+  let concurrency = 6;
   let lang = XOOBAY_LANG;
-  let clearExisting = true; // Default to clear existing
+  let clearExisting = true;
   
   for (const arg of args) {
     if (arg.startsWith('--pages=')) {
-      maxPages = parseInt(arg.split('=')[1]) || 50;
+      maxPages = parseInt(arg.split('=')[1]) || 100;
+    } else if (arg.startsWith('--start-page=')) {
+      startPage = parseInt(arg.split('=')[1]) || 1;
+    } else if (arg.startsWith('--concurrency=')) {
+      concurrency = Math.min(12, Math.max(1, parseInt(arg.split('=')[1]) || 6));
     } else if (arg.startsWith('--lang=')) {
       lang = arg.split('=')[1] || 'en';
     } else if (arg === '--keep-existing') {
       clearExisting = false;
     } else if (arg === '--help') {
       console.log(`
-XOOBAY Product Database Sync
+🚀 XOOBAY Product Database Sync (Concurrent Version)
 
 Usage:
   npx tsx scripts/sync-xoobay-products.ts [options]
 
 Options:
-  --pages=N          Number of pages to sync (default: 50)
+  --pages=N          End page number (default: 100)
+  --start-page=N     Start from page N (default: 1)
+  --concurrency=N    Number of concurrent workers, max 12 (default: 6)
   --lang=LANG        Language (en or zh, default: en)
   --keep-existing    Don't clear existing XOOBAY data before sync
   --help             Show this help message
@@ -565,21 +645,21 @@ Environment Variables:
   DB_PASSWORD        Database password (default: postgres)
 
 Examples:
-  # Sync 50 pages of products
-  npx tsx scripts/sync-xoobay-products.ts --pages=50
+  # Sync pages 1-500 with 6 workers
+  npx tsx scripts/sync-xoobay-products.ts --pages=500 --concurrency=6
 
-  # Sync all products in Chinese
-  npx tsx scripts/sync-xoobay-products.ts --pages=500 --lang=zh
+  # Sync pages 501-1000 with 6 workers (continue from previous sync)
+  npx tsx scripts/sync-xoobay-products.ts --start-page=501 --pages=1000 --concurrency=6 --keep-existing
 
-  # Sync without clearing existing data
-  npx tsx scripts/sync-xoobay-products.ts --pages=10 --keep-existing
+  # Fast sync with max concurrency
+  npx tsx scripts/sync-xoobay-products.ts --pages=2000 --concurrency=12 --keep-existing
 `);
       process.exit(0);
     }
   }
   
   try {
-    await syncXoobayProducts({ maxPages, lang, clearExisting });
+    await syncXoobayProductsConcurrent({ maxPages, startPage, concurrency, lang, clearExisting });
   } catch (error) {
     console.error('Sync failed:', error);
     process.exit(1);
