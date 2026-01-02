@@ -34,11 +34,12 @@ export const catalogTools: Tool[] = [
   },
   {
     name: 'catalog.get_offer_card',
-    description: 'Get AI-Ready Offer Card (AROC) for a specific offer',
+    description: 'Get AI-Ready Offer Card (AROC) for a specific offer with full KG relationships',
     inputSchema: {
       type: 'object',
       properties: {
         offer_id: { type: 'string', description: 'Offer ID' },
+        include_kg_relations: { type: 'boolean', default: true, description: 'Include KG relationship data' },
       },
       required: ['offer_id'],
     },
@@ -64,6 +65,53 @@ export const catalogTools: Tool[] = [
         destination_country: { type: 'string' },
       },
       required: ['sku_id'],
+    },
+  },
+  {
+    name: 'catalog.get_brand',
+    description: 'Get brand details from KG',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        brand_id: { type: 'string', description: 'Brand ID' },
+      },
+      required: ['brand_id'],
+    },
+  },
+  {
+    name: 'catalog.get_merchant',
+    description: 'Get merchant details and risk assessment from KG',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        merchant_id: { type: 'string', description: 'Merchant ID' },
+      },
+      required: ['merchant_id'],
+    },
+  },
+  {
+    name: 'catalog.get_category_tree',
+    description: 'Get category hierarchy with product counts',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        parent_id: { type: 'string', description: 'Parent category ID (null for root)' },
+        depth: { type: 'integer', default: 2, description: 'How many levels deep to return' },
+      },
+    },
+  },
+  {
+    name: 'catalog.get_kg_relations',
+    description: 'Get KG relationships for an entity',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        entity_type: { type: 'string', enum: ['offer', 'sku', 'brand', 'category', 'merchant'], description: 'Entity type' },
+        entity_id: { type: 'string', description: 'Entity ID' },
+        relation_types: { type: 'array', items: { type: 'string' }, description: 'Filter by relation types' },
+        direction: { type: 'string', enum: ['outgoing', 'incoming', 'both'], default: 'both' },
+      },
+      required: ['entity_type', 'entity_id'],
     },
   },
 ];
@@ -92,6 +140,54 @@ interface OfferRow {
   warranty_months: number;
   rating: number;
   reviews_count: number;
+  // Enhanced fields from 003 migration
+  version_hash: string | null;
+  update_source: string | null;
+  risk_profile: Record<string, unknown> | null;
+  brand_id_ref: string | null;
+  merchant_id_ref: string | null;
+}
+
+interface BrandRow {
+  id: string;
+  name: string;
+  normalized_name: string | null;
+  logo_url: string | null;
+  country_of_origin: string | null;
+  confidence: string;
+}
+
+interface MerchantRow {
+  id: string;
+  name: string;
+  store_url: string | null;
+  rating: number;
+  total_products: number;
+  country: string | null;
+  verified: boolean;
+  risk_level: string;
+}
+
+interface CategoryRow {
+  id: string;
+  name_en: string;
+  name_zh: string | null;
+  path: string[];
+  full_path_en: string | null;
+  product_count: number;
+  level: number;
+  parent_id: string | null;
+}
+
+interface KgRelationRow {
+  id: string;
+  from_type: string;
+  from_id: string;
+  relation_type: string;
+  to_type: string;
+  to_id: string;
+  confidence: number;
+  metadata: Record<string, unknown>;
 }
 
 interface SkuRow {
@@ -474,7 +570,7 @@ async function getOfferCard(params: Record<string, unknown>): Promise<unknown> {
     }
   }
 
-  // Fallback to local database query
+  // Fallback to local database query - using enhanced v_aroc_full view when possible
   const offer = await queryOne<OfferRow>(
     `SELECT * FROM agent.offers WHERE id = $1`,
     [offerId]
@@ -491,21 +587,60 @@ async function getOfferCard(params: Record<string, unknown>): Promise<unknown> {
     [offerId]
   );
 
-  // Get category information
-  const category = await queryOne<{ id: string; name_en: string; path: string[] }>(
-    `SELECT id, name_en, path FROM agent.categories WHERE id = $1`,
+  // Get category information with enhanced fields
+  const category = await queryOne<CategoryRow>(
+    `SELECT id, name_en, name_zh, path, full_path_en, product_count, level, parent_id 
+     FROM agent.categories WHERE id = $1`,
     [offer.category_id]
   );
 
+  // Get brand details from KG if available
+  let brandInfo: BrandRow | null = null;
+  if (offer.brand_id_ref) {
+    brandInfo = await queryOne<BrandRow>(
+      `SELECT id, name, normalized_name, logo_url, country_of_origin, confidence 
+       FROM agent.brands WHERE id = $1`,
+      [offer.brand_id_ref]
+    );
+  }
+
+  // Get merchant details from KG if available
+  let merchantInfo: MerchantRow | null = null;
+  if (offer.merchant_id_ref) {
+    merchantInfo = await queryOne<MerchantRow>(
+      `SELECT id, name, store_url, rating, total_products, country, verified, risk_level 
+       FROM agent.merchants WHERE id = $1`,
+      [offer.merchant_id_ref]
+    );
+  }
+
+  // Get KG relations if requested
+  const includeKg = params.include_kg_relations !== false;
+  let kgRelations: KgRelationRow[] = [];
+  if (includeKg) {
+    kgRelations = await query<KgRelationRow>(
+      `SELECT id, from_type, from_id, relation_type, to_type, to_id, confidence, metadata
+       FROM agent.kg_relations 
+       WHERE (from_type = 'offer' AND from_id = $1) 
+          OR (to_type = 'offer' AND to_id = $1)
+       LIMIT 50`,
+      [offerId]
+    );
+  }
+
   return {
-    aroc_version: '0.1',
+    aroc_version: '0.2',
     offer_id: offer.id,
     spu_id: offer.spu_id,
     merchant_id: offer.merchant_id,
     category: {
       id: category?.id,
       name: category?.name_en,
+      name_zh: category?.name_zh,
       path: category?.path ?? [],
+      full_path: category?.full_path_en,
+      level: category?.level,
+      product_count: category?.product_count,
     },
     titles: [
       { lang: 'en', text: offer.title_en },
@@ -514,8 +649,18 @@ async function getOfferCard(params: Record<string, unknown>): Promise<unknown> {
     brand: {
       name: offer.brand_name,
       normalized_id: offer.brand_id,
-      confidence: 'high',
+      confidence: brandInfo?.confidence ?? 'medium',
+      logo_url: brandInfo?.logo_url,
+      country_of_origin: brandInfo?.country_of_origin,
     },
+    merchant: merchantInfo ? {
+      id: merchantInfo.id,
+      name: merchantInfo.name,
+      store_url: merchantInfo.store_url,
+      rating: parseFloat(String(merchantInfo.rating)),
+      verified: merchantInfo.verified,
+      risk_level: merchantInfo.risk_level,
+    } : null,
     price: {
       amount: parseFloat(String(offer.base_price)),
       currency: offer.currency,
@@ -536,6 +681,7 @@ async function getOfferCard(params: Record<string, unknown>): Promise<unknown> {
       dimensions_mm: offer.dimensions_mm,
     },
     risk_tags: offer.risk_tags ?? [],
+    risk_profile: offer.risk_profile ?? {},
     certifications: offer.certifications ?? [],
     policies: {
       return_policy: offer.return_policy,
@@ -545,6 +691,20 @@ async function getOfferCard(params: Record<string, unknown>): Promise<unknown> {
       rating: parseFloat(String(offer.rating)),
       reviews_count: offer.reviews_count,
     },
+    // Version tracking for AROC
+    version: {
+      hash: offer.version_hash,
+      source: offer.update_source,
+    },
+    // KG relationships
+    kg_relations: includeKg ? kgRelations.map(r => ({
+      id: r.id,
+      type: r.relation_type,
+      from: { type: r.from_type, id: r.from_id },
+      to: { type: r.to_type, id: r.to_id },
+      confidence: parseFloat(String(r.confidence)),
+      metadata: r.metadata,
+    })) : undefined,
   };
 }
 
@@ -624,6 +784,185 @@ async function getAvailability(params: Record<string, unknown>): Promise<unknown
   };
 }
 
+/**
+ * Get brand details
+ */
+async function getBrand(params: Record<string, unknown>): Promise<unknown> {
+  const brandId = String(params.brand_id || '').trim();
+  
+  if (!brandId) {
+    return { error: { code: 'INVALID_ARGUMENT', message: 'brand_id is required' } };
+  }
+
+  const brand = await queryOne<BrandRow>(
+    `SELECT * FROM agent.brands WHERE id = $1`,
+    [brandId]
+  );
+
+  if (!brand) {
+    return { error: { code: 'NOT_FOUND', message: `Brand ${brandId} not found` } };
+  }
+
+  // Get related offers count
+  const offerCount = await queryOne<{ count: string }>(
+    `SELECT COUNT(*) as count FROM agent.offers WHERE brand_id_ref = $1`,
+    [brandId]
+  );
+
+  return {
+    brand_id: brand.id,
+    name: brand.name,
+    normalized_name: brand.normalized_name,
+    logo_url: brand.logo_url,
+    country_of_origin: brand.country_of_origin,
+    confidence: brand.confidence,
+    offer_count: parseInt(offerCount?.count ?? '0'),
+  };
+}
+
+/**
+ * Get merchant details
+ */
+async function getMerchant(params: Record<string, unknown>): Promise<unknown> {
+  const merchantId = String(params.merchant_id || '').trim();
+  
+  if (!merchantId) {
+    return { error: { code: 'INVALID_ARGUMENT', message: 'merchant_id is required' } };
+  }
+
+  const merchant = await queryOne<MerchantRow>(
+    `SELECT * FROM agent.merchants WHERE id = $1`,
+    [merchantId]
+  );
+
+  if (!merchant) {
+    return { error: { code: 'NOT_FOUND', message: `Merchant ${merchantId} not found` } };
+  }
+
+  return {
+    merchant_id: merchant.id,
+    name: merchant.name,
+    store_url: merchant.store_url,
+    rating: parseFloat(String(merchant.rating)),
+    total_products: merchant.total_products,
+    country: merchant.country,
+    verified: merchant.verified,
+    risk_level: merchant.risk_level,
+  };
+}
+
+/**
+ * Get category tree
+ */
+async function getCategoryTree(params: Record<string, unknown>): Promise<unknown> {
+  const parentId = params.parent_id as string | null;
+  const maxDepth = Math.min((params.depth as number) ?? 2, 5);
+
+  let categories: CategoryRow[];
+  
+  if (parentId) {
+    // Get children of specific category up to specified depth
+    categories = await query<CategoryRow>(
+      `SELECT id, name_en, name_zh, path, full_path_en, product_count, level, parent_id
+       FROM agent.categories 
+       WHERE parent_id = $1 OR (level <= $2 AND path @> (SELECT path FROM agent.categories WHERE id = $1))
+       ORDER BY level, product_count DESC
+       LIMIT 200`,
+      [parentId, maxDepth]
+    );
+  } else {
+    // Get root categories (level = 1) and their children up to depth
+    categories = await query<CategoryRow>(
+      `SELECT id, name_en, name_zh, path, full_path_en, product_count, level, parent_id
+       FROM agent.categories 
+       WHERE level <= $1
+       ORDER BY level, product_count DESC
+       LIMIT 200`,
+      [maxDepth]
+    );
+  }
+
+  return {
+    parent_id: parentId,
+    max_depth: maxDepth,
+    categories: categories.map(c => ({
+      id: c.id,
+      name: c.name_en,
+      name_zh: c.name_zh,
+      path: c.full_path_en ?? c.path?.join(' > '),
+      product_count: c.product_count,
+      level: c.level,
+      has_children: true, // TODO: Check actual children
+    })),
+    total_count: categories.length,
+  };
+}
+
+/**
+ * Get KG relations for an entity
+ */
+async function getKgRelations(params: Record<string, unknown>): Promise<unknown> {
+  const entityType = String(params.entity_type || '').trim();
+  const entityId = String(params.entity_id || '').trim();
+  const relationTypes = params.relation_types as string[] | undefined;
+  const direction = (params.direction as string) ?? 'both';
+
+  if (!entityType || !entityId) {
+    return { error: { code: 'INVALID_ARGUMENT', message: 'entity_type and entity_id are required' } };
+  }
+
+  const conditions: string[] = [];
+  const values: unknown[] = [];
+  let paramIndex = 1;
+
+  // Direction filtering
+  if (direction === 'outgoing') {
+    conditions.push(`(from_type = $${paramIndex} AND from_id = $${paramIndex + 1})`);
+    values.push(entityType, entityId);
+    paramIndex += 2;
+  } else if (direction === 'incoming') {
+    conditions.push(`(to_type = $${paramIndex} AND to_id = $${paramIndex + 1})`);
+    values.push(entityType, entityId);
+    paramIndex += 2;
+  } else {
+    conditions.push(`((from_type = $${paramIndex} AND from_id = $${paramIndex + 1}) OR (to_type = $${paramIndex} AND to_id = $${paramIndex + 1}))`);
+    values.push(entityType, entityId);
+    paramIndex += 2;
+  }
+
+  // Relation type filter
+  if (relationTypes && relationTypes.length > 0) {
+    conditions.push(`relation_type = ANY($${paramIndex})`);
+    values.push(relationTypes);
+    paramIndex++;
+  }
+
+  const whereClause = conditions.join(' AND ');
+  
+  const relations = await query<KgRelationRow>(
+    `SELECT id, from_type, from_id, relation_type, to_type, to_id, confidence, metadata
+     FROM agent.kg_relations 
+     WHERE ${whereClause}
+     ORDER BY confidence DESC
+     LIMIT 100`,
+    values
+  );
+
+  return {
+    entity: { type: entityType, id: entityId },
+    direction,
+    relations: relations.map(r => ({
+      id: r.id,
+      type: r.relation_type,
+      from: { type: r.from_type, id: r.from_id },
+      to: { type: r.to_type, id: r.to_id },
+      confidence: parseFloat(String(r.confidence)),
+      metadata: r.metadata,
+    })),
+    total_count: relations.length,
+  };
+}
+
 // ============================================================
 // Main Handler
 // ============================================================
@@ -644,6 +983,18 @@ export function handleCatalogTool(tool: string) {
 
       case 'get_availability':
         return getAvailability(p);
+
+      case 'get_brand':
+        return getBrand(p);
+
+      case 'get_merchant':
+        return getMerchant(p);
+
+      case 'get_category_tree':
+        return getCategoryTree(p);
+
+      case 'get_kg_relations':
+        return getKgRelations(p);
 
       default:
         throw new Error(`Unknown catalog tool: ${tool}`);

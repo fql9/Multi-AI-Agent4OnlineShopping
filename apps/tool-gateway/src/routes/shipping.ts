@@ -73,6 +73,24 @@ interface ShippingItem {
   weight_g?: number;
 }
 
+// Enhanced with shipping_lanes from database
+interface ShippingLane {
+  id: string;
+  name: string;
+  origin_country: string;
+  dest_country: string;
+  carrier: string | null;
+  service_type: string | null;
+  min_days: number | null;
+  max_days: number | null;
+  allowed_risk_tags: string[];
+  blocked_risk_tags: string[];
+  max_weight_g: number | null;
+  max_dimension_cm: number | null;
+  base_rate: number | null;
+  active: boolean;
+}
+
 export async function shippingRoutes(app: FastifyInstance): Promise<void> {
   /**
    * shipping.validate_address
@@ -212,41 +230,88 @@ export async function shippingRoutes(app: FastifyInstance): Promise<void> {
 
       // 检查是否有受限商品（电池、液体等）
       const restrictedItems = await checkItemRestrictions(skuIds);
+      const riskTagsArray = restrictedItems.restrictions;
 
-      // 生成运输选项
-      const options = Object.values(SHIPPING_OPTIONS).map(option => {
-        // 计算价格
-        const baseCost = option.base_cost * adjustment.costMultiplier;
-        const weightCost = option.cost_per_kg * totalWeightKg * adjustment.costMultiplier;
-        const totalCost = Math.round((baseCost + weightCost) * 100) / 100;
+      // Try to get shipping lanes from database first
+      const dbLanes = await query<ShippingLane>(
+        `SELECT * FROM agent.shipping_lanes 
+         WHERE origin_country = 'CN' AND dest_country = $1 AND active = true
+         ORDER BY service_type, base_rate`,
+        [destinationCountry]
+      );
 
-        // 计算时间
-        const etaMin = option.eta_min_days + adjustment.etaAdjust;
-        const etaMax = option.eta_max_days + adjustment.etaAdjust;
+      let options;
+      let source: 'database' | 'fallback';
 
-        // 检查限制
-        const constraints: string[] = [];
-        if (restrictedItems.hasBattery && option.service_level === 'express') {
-          constraints.push('Battery items may have additional delays');
-        }
-        if (restrictedItems.hasLiquid) {
-          constraints.push('Liquid items have volume restrictions');
-        }
+      if (dbLanes.length > 0) {
+        // Use database lanes
+        source = 'database';
+        options = dbLanes
+          .filter(lane => {
+            // Check weight limit
+            if (lane.max_weight_g && totalWeightG > lane.max_weight_g) return false;
+            // Check blocked risk tags
+            const hasBlockedTag = riskTagsArray.some(tag => 
+              lane.blocked_risk_tags?.includes(tag)
+            );
+            return !hasBlockedTag;
+          })
+          .map(lane => {
+            const baseRate = parseFloat(String(lane.base_rate ?? 10));
+            const price = Math.round((baseRate + totalWeightKg * 2) * 100) / 100;
 
-        return {
-          shipping_option_id: option.id,
-          name: option.name,
-          carrier: option.carrier,
-          service_level: option.service_level,
-          price: totalCost,
-          currency: 'USD',
-          eta_min_days: Math.max(1, etaMin),
-          eta_max_days: Math.max(3, etaMax),
-          tracking_supported: option.tracking_supported,
-          constraints,
-          is_available: true,
-        };
-      });
+            return {
+              shipping_option_id: lane.id,
+              name: lane.name,
+              carrier: lane.carrier ?? 'Various',
+              service_level: lane.service_type ?? 'standard',
+              price,
+              currency: 'USD',
+              eta_min_days: lane.min_days ?? 7,
+              eta_max_days: lane.max_days ?? 14,
+              tracking_supported: true,
+              constraints: [],
+              is_available: true,
+              restrictions: {
+                max_weight_g: lane.max_weight_g,
+                blocked_risk_tags: lane.blocked_risk_tags,
+              },
+            };
+          });
+      } else {
+        // Fallback to hardcoded options
+        source = 'fallback';
+        options = Object.values(SHIPPING_OPTIONS).map(option => {
+          const baseCost = option.base_cost * adjustment.costMultiplier;
+          const weightCost = option.cost_per_kg * totalWeightKg * adjustment.costMultiplier;
+          const totalCost = Math.round((baseCost + weightCost) * 100) / 100;
+
+          const etaMin = option.eta_min_days + adjustment.etaAdjust;
+          const etaMax = option.eta_max_days + adjustment.etaAdjust;
+
+          const constraints: string[] = [];
+          if (restrictedItems.hasBattery && option.service_level === 'express') {
+            constraints.push('Battery items may have additional delays');
+          }
+          if (restrictedItems.hasLiquid) {
+            constraints.push('Liquid items have volume restrictions');
+          }
+
+          return {
+            shipping_option_id: option.id,
+            name: option.name,
+            carrier: option.carrier,
+            service_level: option.service_level,
+            price: totalCost,
+            currency: 'USD',
+            eta_min_days: Math.max(1, etaMin),
+            eta_max_days: Math.max(3, etaMax),
+            tracking_supported: option.tracking_supported,
+            constraints,
+            is_available: true,
+          };
+        });
+      }
 
       // 按价格排序
       options.sort((a, b) => a.price - b.price);
@@ -256,9 +321,11 @@ export async function shippingRoutes(app: FastifyInstance): Promise<void> {
           destination_country: destinationCountry,
           total_weight_g: totalWeightG,
           items_count: items.length,
+          item_risk_tags: riskTagsArray,
           options,
           restrictions: restrictedItems,
           quote_expire_at: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
+          source,
         }, {
           ttl_seconds: 300,
         })

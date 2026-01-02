@@ -78,28 +78,37 @@ const ALL_TOOLS = [
 
 // 工具处理器映射
 const toolHandlers: Record<string, (params: unknown) => Promise<unknown>> = {
-  // Catalog
+  // Catalog (enhanced with KG support)
   'catalog.search_offers': handleCatalogTool('search_offers'),
   'catalog.get_offer_card': handleCatalogTool('get_offer_card'),
   'catalog.get_offer_variants': handleCatalogTool('get_offer_variants'),
   'catalog.get_availability': handleCatalogTool('get_availability'),
+  'catalog.get_brand': handleCatalogTool('get_brand'),
+  'catalog.get_merchant': handleCatalogTool('get_merchant'),
+  'catalog.get_category_tree': handleCatalogTool('get_category_tree'),
+  'catalog.get_kg_relations': handleCatalogTool('get_kg_relations'),
 
   // Pricing
   'pricing.get_realtime_quote': handlePricingTool('get_realtime_quote'),
 
-  // Shipping
+  // Shipping (enhanced with shipping_lanes)
   'shipping.validate_address': handleShippingTool('validate_address'),
   'shipping.quote_options': handleShippingTool('quote_options'),
+  'shipping.get_available_lanes': handleShippingTool('get_available_lanes'),
+  'shipping.check_weight_limit': handleShippingTool('check_weight_limit'),
 
   // Tax
   'tax.estimate_duties_and_taxes': handleTaxTool('estimate_duties_and_taxes'),
   'tax.get_hs_code_suggestion': handleTaxTool('get_hs_code_suggestion'),
 
-  // Compliance
+  // Compliance (enhanced with risk_tag_definitions)
   'compliance.check_item': handleComplianceTool('check_item'),
   'compliance.policy_ruleset_version': handleComplianceTool('policy_ruleset_version'),
+  'compliance.get_risk_tags': handleComplianceTool('get_risk_tags'),
+  'compliance.analyze_product_risks': handleComplianceTool('analyze_product_risks'),
+  'compliance.get_shipping_lanes': handleComplianceTool('get_shipping_lanes'),
 
-  // Knowledge (RAG)
+  // Knowledge (RAG with enhanced evidence_chunks)
   'knowledge.search': handleKnowledgeTool('search'),
   'knowledge.get_chunk': handleKnowledgeTool('get_chunk'),
   'knowledge.index_product': handleKnowledgeTool('index_product'),

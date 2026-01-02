@@ -1335,15 +1335,15 @@ export default function Home() {
                 <div className="space-y-3 text-sm">
                   <div className="flex justify-between">
                     <span className="text-surface-500">VAT/GST</span>
-                    <span className="text-surface-700 font-medium">${store.draftOrder.plan.tax.breakdown.vat}</span>
+                    <span className="text-surface-700 font-medium">${store.draftOrder.plan.tax.breakdown.vat.toFixed(2)}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-surface-500">Import Duty</span>
-                    <span className="text-surface-700 font-medium">${store.draftOrder.plan.tax.breakdown.duty}</span>
+                    <span className="text-surface-700 font-medium">${store.draftOrder.plan.tax.breakdown.duty.toFixed(2)}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-surface-500">Handling Fee</span>
-                    <span className="text-surface-700 font-medium">${store.draftOrder.plan.tax.breakdown.handling}</span>
+                    <span className="text-surface-700 font-medium">${store.draftOrder.plan.tax.breakdown.handling.toFixed(2)}</span>
                   </div>
                   <div className="flex justify-between pt-3 border-t border-surface-100">
                     <span className="text-surface-700 font-medium">Total Tax Estimate</span>

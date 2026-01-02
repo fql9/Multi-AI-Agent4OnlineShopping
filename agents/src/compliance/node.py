@@ -1,8 +1,9 @@
 """
 Compliance Agent Node implementation.
 
-专门处理跨境合规检查：
-- 检查目的国禁限运规则
+专门处理跨境合规检查（增强版）：
+- 使用 risk_tag_definitions 进行风险检测
+- 检查 shipping_lanes 物流线路兼容性
 - 验证所需证书和材料
 - 提供合规建议和替代方案
 - 评估合规风险等级
@@ -17,7 +18,12 @@ from ..graph.state import AgentState
 from ..llm.client import call_llm_and_parse
 from ..llm.prompts import COMPLIANCE_PROMPT
 from ..llm.schemas import ComplianceAnalysis
-from ..tools.compliance import check_compliance, get_compliance_rules
+from ..tools.compliance import (
+    check_compliance,
+    get_compliance_rules,
+    get_risk_tags,
+    get_shipping_lanes,
+)
 
 logger = structlog.get_logger()
 
@@ -69,7 +75,40 @@ async def compliance_node(state: AgentState) -> AgentState:
                 "called_at": _now_iso(),
             })
 
-        logger.info("compliance_node.rules_loaded", rules_count=len(country_rules))
+        # 获取风险标签定义（用于更精确的风险评估）
+        risk_tag_defs = {}
+        risk_tags_result = await get_risk_tags()
+        if risk_tags_result.get("ok"):
+            for tag in risk_tags_result.get("data", {}).get("risk_tags", []):
+                risk_tag_defs[tag.get("id")] = tag
+            tool_calls.append({
+                "tool_name": "compliance.get_risk_tags",
+                "request": {},
+                "response_summary": {"tags_count": len(risk_tag_defs)},
+                "called_at": _now_iso(),
+            })
+
+        # 获取可用物流线路
+        shipping_lanes_result = await get_shipping_lanes(
+            origin_country="CN",
+            dest_country=destination_country,
+        )
+        available_lanes = []
+        if shipping_lanes_result.get("ok"):
+            available_lanes = shipping_lanes_result.get("data", {}).get("lanes", [])
+            tool_calls.append({
+                "tool_name": "compliance.get_shipping_lanes",
+                "request": {"origin_country": "CN", "dest_country": destination_country},
+                "response_summary": {"lanes_count": len(available_lanes)},
+                "called_at": _now_iso(),
+            })
+
+        logger.info(
+            "compliance_node.rules_loaded",
+            rules_count=len(country_rules),
+            risk_tags_count=len(risk_tag_defs),
+            lanes_count=len(available_lanes),
+        )
 
         # 对每个候选进行合规检查
         compliance_results = []
@@ -113,6 +152,9 @@ async def compliance_node(state: AgentState) -> AgentState:
                 "warnings": [],
                 "required_docs": [],
                 "suggested_alternatives": [],
+                "compatible_lanes": [],
+                "blocked_lanes": [],
+                "detected_risk_tags": risk_tags,
             }
 
             if compliance_result.get("ok"):
@@ -121,21 +163,34 @@ async def compliance_node(state: AgentState) -> AgentState:
                 result["issues"] = data.get("issues", [])
                 result["warnings"] = data.get("warnings", [])
                 result["required_docs"] = data.get("required_docs", [])
+                # Enhanced: get available/blocked lanes from compliance check
+                result["compatible_lanes"] = [
+                    lane.get("lane_id") for lane in data.get("available_lanes", [])
+                ]
+                result["blocked_lanes"] = [
+                    lane.get("lane_id") for lane in data.get("incompatible_lanes", [])
+                ]
+                result["detected_risk_tags"] = data.get("item_risk_tags", risk_tags)
 
                 tool_calls.append({
                     "tool_name": "compliance.check_item",
                     "request": {"offer_id": offer_id, "destination_country": destination_country},
-                    "response_summary": {"allowed": result["allowed"]},
+                    "response_summary": {
+                        "allowed": result["allowed"],
+                        "compatible_lanes": len(result["compatible_lanes"]),
+                        "risk_tags": result["detected_risk_tags"],
+                    },
                     "called_at": _now_iso(),
                 })
 
-            # 评估风险等级
+            # 评估风险等级（增强版：使用风险标签定义）
             result["risk_level"] = _assess_risk_level(
                 allowed=result["allowed"],
                 issues=result["issues"],
                 warnings=result["warnings"],
                 required_docs=result["required_docs"],
-                risk_tags=risk_tags,
+                risk_tags=result["detected_risk_tags"],
+                risk_tag_defs=risk_tag_defs,
             )
 
             # 分类结果
@@ -210,15 +265,35 @@ def _assess_risk_level(
     warnings: list,
     required_docs: list,
     risk_tags: list,
+    risk_tag_defs: dict | None = None,
 ) -> str:
-    """评估合规风险等级"""
+    """评估合规风险等级（增强版：使用风险标签定义）"""
     if not allowed:
         return "blocked"
 
-    # 高风险标签
-    high_risk_tags = {"battery_included", "contains_liquid", "hazardous", "flammable"}
-    if any(tag in high_risk_tags for tag in risk_tags):
-        return "high"
+    # 使用风险标签定义中的 severity 来评估
+    if risk_tag_defs:
+        has_critical = False
+        has_warning = False
+        for tag in risk_tags:
+            tag_def = risk_tag_defs.get(tag, {})
+            severity = tag_def.get("severity", "info")
+            if severity == "critical":
+                has_critical = True
+            elif severity == "warning":
+                has_warning = True
+
+        if has_critical:
+            return "high"
+        if has_warning and len(risk_tags) > 1:
+            return "high"
+        if has_warning:
+            return "medium"
+    else:
+        # Fallback: 使用旧的硬编码逻辑
+        high_risk_tags = {"battery_included", "liquid", "food", "medical"}
+        if any(tag in high_risk_tags for tag in risk_tags):
+            return "high"
 
     # 中等风险：有警告或需要额外文件
     if len(issues) > 0 or len(required_docs) > 2:
