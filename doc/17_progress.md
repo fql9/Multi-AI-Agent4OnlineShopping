@@ -6,14 +6,14 @@
 
 ## 当前版本
 
-**v0.3.0** (2026-01-02) - RAG 检索 + XOOBAY 集成 + 错误处理增强
+**v0.4.0** (2026-01-02) - Docker 完整打包 + 部署文档
 
 ---
 
 ## 进度总览
 
 ```
-████████████████████████████████████████ 96%
+██████████████████████████████████████████ 98%
 ```
 
 | 模块 | 进度 | 状态 |
@@ -22,6 +22,7 @@
 | 工具层 | 100% | ✅ 完成 |
 | Agent 层 | 100% | ✅ 完成 |
 | RAG 检索 | 100% | ✅ 完成 |
+| Docker 部署 | 100% | ✅ 完成 |
 | 前端 | 80% | ✅ Demo 可用 |
 | 支付集成 | 80% | ✅ Agent 完成 |
 
@@ -33,11 +34,28 @@
 
 | 功能 | 描述 | 文件 |
 |------|------|------|
-| Docker 环境 | PostgreSQL 16 + pgvector | `docker-compose.yml` |
-| 数据库表结构 | 11 张表（users, missions, offers, skus, carts, draft_orders, evidence_snapshots 等） | `infra/docker/init-db.sql` |
+| Docker 完整环境 | 8 服务一键部署 | `docker-compose.full.yml` |
+| PostgreSQL 16 + pgvector | 向量数据库 + 全文搜索 | `infra/docker/init-db.sql` |
+| Redis 7 | 缓存 + 会话 + 幂等性 | `docker-compose.full.yml` |
+| 数据库表结构 | 11 张表 + RAG 增强 | `infra/docker/migrations/` |
 | 数据库连接池 | pg 连接管理 + 事务支持 | `packages/common/src/db.ts` |
 | 种子数据 | 12 类目 + 6 规则 + 14 商品 + 22 SKU | `infra/docker/seed-data.sql` |
 | CI/CD | GitHub Actions 自动构建测试 | `.github/workflows/ci.yml` |
+| 环境配置 | 完整环境变量模板 | `.env.example` |
+| 部署文档 | 完整部署指南 | `doc/18_deployment.md` |
+
+### 🐳 Docker 服务
+
+| 服务 | 端口 | 功能 | Dockerfile |
+|------|------|------|------------|
+| PostgreSQL | 5433 | 向量数据库 | 官方镜像 |
+| Redis | 6379 | 缓存服务 | 官方镜像 |
+| Tool Gateway | 3000 | API 网关 | ✅ 完整 |
+| Core MCP | 3010 | 核心工具 | ✅ 完整 |
+| Checkout MCP | 3011 | 结算工具 | ✅ 完整 |
+| Web App | 3001 | 前端界面 | ✅ 完整 |
+| Python Agent | 8000 | LangGraph 编排 | ✅ 完整 |
+| DB Migrate | - | 数据库迁移 | 官方镜像 |
 
 ### 🔧 工具层（23 个端点）
 
@@ -117,6 +135,17 @@
 |------|------|------|
 | Knowledge 工具 | search_knowledge, get_chunk | `agents/src/tools/knowledge.py` |
 | 综合搜索 | search_with_context | `agents/src/tools/knowledge.py` |
+| 混合检索 | BM25 + 向量语义搜索 | `apps/mcp-servers/core-mcp/src/knowledge/` |
+| XOOBAY 同步 | 批量产品索引 | `apps/tool-gateway/src/services/xoobay.ts` |
+
+### 🛡️ 错误处理
+
+| 组件 | 描述 | 文件 |
+|------|------|------|
+| Circuit Breaker | 熔断器模式 | `packages/common/src/retry.ts` |
+| Retry | 指数退避重试 | `packages/common/src/retry.ts` |
+| Timeout | 请求超时处理 | `packages/common/src/retry.ts` |
+| Fallback | 降级缓存策略 | `packages/common/src/retry.ts` |
 
 ### 📄 Contract 定义
 
@@ -132,11 +161,12 @@
 
 | 测试类型 | 状态 | 覆盖率 |
 |----------|------|--------|
-| TypeScript Build | ✅ 4/4 packages | - |
+| TypeScript Build | ✅ 5/5 packages | - |
 | Python Unit Tests | ✅ 10/10 passed | 58% |
 | Python Lint (ruff) | ✅ 0 errors | - |
-| API 手动测试 | ✅ 19/19 endpoints | - |
-| Agent 集成测试 | ✅ 6/6 passed | - |
+| API 手动测试 | ✅ 23/23 endpoints | - |
+| Agent 集成测试 | ✅ 10/10 passed | - |
+| Docker Build | ✅ 6/6 images | - |
 
 ---
 
@@ -149,19 +179,21 @@
 - [x] ~~**前端 Web App** - Next.js 用户界面~~
 - [x] ~~**真实 LLM 测试** - 使用 Poe API 进行端到端测试~~
 - [x] ~~**错误处理增强** - 超时、重试、降级策略~~
+- [x] ~~**Docker 完整打包** - 所有服务容器化~~
 
 ### 中优先级 (P1)
 
 - [x] ~~**RAG 检索** - 实现 evidence_chunks 向量检索~~
 - [x] ~~**XOOBAY 产品同步** - 批量索引真实产品~~
+- [x] ~~**部署文档** - 完整部署指南~~
 - [ ] **TypeScript 测试** - 添加 API 端点测试
 - [ ] **日志增强** - 结构化日志 + OpenTelemetry trace
 
 ### 低优先级 (P2)
 
-- [ ] **支付集成** - Stripe/PayPal
+- [ ] **支付集成** - Stripe/PayPal 真实对接
 - [ ] **知识图谱** - 兼容性/替代品推理（GraphRAG）
-- [ ] **生产部署** - Docker Compose → K8s
+- [ ] **K8s 部署** - Helm Chart + 自动扩缩容
 
 ---
 
@@ -174,11 +206,34 @@
 | **M2** | Agent 编排 + LLM 集成 | ✅ 完成 |
 | **M3** | 端到端流程 + 测试覆盖 | ✅ 完成 |
 | **M4** | 前端 Demo | ✅ 完成 |
-| **M5** | 支付集成 + 生产部署 | ⏳ 待开始 |
+| **M5** | Docker 部署 + 文档 | ✅ 完成 |
+| **M6** | 生产部署 + 监控 | ⏳ 待开始 |
 
 ---
 
 ## 变更日志
+
+### 2026-01-02 (v0.4.0) - Docker 完整打包
+
+- ✅ **Docker Compose 增强**:
+  - 添加 Redis 缓存服务
+  - 完善所有服务健康检查
+  - 支持多种部署模式（开发/工具/迁移）
+  - 统一日志配置
+- ✅ **环境配置**:
+  - 创建 `.env.example` 完整模板
+  - 支持所有服务端口配置
+  - LLM/XOOBAY API 配置
+- ✅ **部署文档**:
+  - 创建 `doc/18_deployment.md` 完整指南
+  - 系统要求说明
+  - 快速启动指南
+  - 故障排除手册
+  - 生产部署建议
+- ✅ **服务完整性**:
+  - 8 个 Docker 服务全部就绪
+  - 网络/存储卷配置完善
+  - 服务依赖顺序正确
 
 ### 2026-01-02 (v0.3.1) - Agent 层 100% 完成
 
@@ -251,13 +306,32 @@
 
 ## 快速启动
 
+### 方式一：Docker 一键部署（推荐）
+
+```bash
+# 1. 克隆项目
+git clone https://github.com/fql9/Multi-AI-Agent4OnlineShopping.git
+cd Multi-AI-Agent4OnlineShopping
+
+# 2. 配置环境变量
+cp .env.example .env
+# 编辑 .env，设置 OPENAI_API_KEY
+
+# 3. 启动所有服务
+docker compose -f docker-compose.full.yml up -d
+
+# 4. 访问前端
+open http://localhost:3001
+```
+
+### 方式二：本地开发
+
 ```bash
 # 1. 启动数据库
-docker-compose up -d
+docker compose up -d
 
 # 2. 导入种子数据
-docker cp infra/docker/seed-data.sql agent-postgres:/tmp/
-docker exec agent-postgres psql -U agent -d agent_db -f /tmp/seed-data.sql
+docker exec agent-postgres psql -U agent -d agent_db -f /docker-entrypoint-initdb.d/02-seed-data.sql
 
 # 3. 安装依赖
 pnpm install
@@ -265,9 +339,37 @@ pnpm install
 # 4. 启动 Tool Gateway
 pnpm --filter @shopping-agent/tool-gateway dev
 
-# 5. 测试 API
+# 5. 启动前端
+pnpm --filter @shopping-agent/web-app dev
+
+# 6. 测试 API
 curl -X POST http://localhost:3000/tools/catalog/search_offers \
   -H 'Content-Type: application/json' \
-  -d '{"request_id": "...", "actor": {...}, "client": {...}, "params": {"query": "iPhone"}}'
+  -d '{"request_id": "test", "actor": {"type": "user", "id": "test"}, "client": {"app": "test", "version": "1.0"}, "params": {"query": "iPhone"}}'
 ```
 
+---
+
+## 文档索引
+
+| 文档 | 描述 |
+|------|------|
+| [00_overview.md](00_overview.md) | 项目概述 |
+| [01_repo_structure.md](01_repo_structure.md) | 仓库结构 |
+| [02_tech_stack.md](02_tech_stack.md) | 技术栈 |
+| [03_dev_process.md](03_dev_process.md) | 开发流程 |
+| [04_tooling_spec.md](04_tooling_spec.md) | 工具规范 |
+| [05_tool_catalog.md](05_tool_catalog.md) | 工具目录 |
+| [06_evidence_audit.md](06_evidence_audit.md) | 证据审计 |
+| [07_draft_order.md](07_draft_order.md) | 草稿订单 |
+| [08_aroc_schema.md](08_aroc_schema.md) | AROC Schema |
+| [09_kg_design.md](09_kg_design.md) | 知识图谱设计 |
+| [10_rag_graphrag.md](10_rag_graphrag.md) | RAG/GraphRAG |
+| [11_multi_agent.md](11_multi_agent.md) | 多 Agent 设计 |
+| [12_mcp_design.md](12_mcp_design.md) | MCP 设计 |
+| [13_security_risk.md](13_security_risk.md) | 安全风险 |
+| [14_cold_start.md](14_cold_start.md) | 冷启动 |
+| [15_llm_selection.md](15_llm_selection.md) | LLM 选型 |
+| [16_cost_estimation.md](16_cost_estimation.md) | 成本估算 |
+| [17_progress.md](17_progress.md) | 开发进度（本文档） |
+| [18_deployment.md](18_deployment.md) | 部署指南 |
