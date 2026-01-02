@@ -209,6 +209,26 @@ const mockProducts: Product[] = [
       { type: 'magnet', severity: 'low', message: 'Contains magnets (MagSafe)', mitigation: 'Safe for shipping' },
     ],
   },
+  {
+    id: 'of_004',
+    title: 'Samsung 15W Wireless Charger Duo',
+    price: 49.99,
+    image: '📲',
+    brand: 'Samsung',
+    rating: 4.4,
+    complianceRisks: [],
+  },
+  {
+    id: 'of_005',
+    title: 'Mophie Snap+ Wireless Charging Stand',
+    price: 29.95,
+    image: '⚡',
+    brand: 'Mophie',
+    rating: 4.3,
+    complianceRisks: [
+      { type: 'magnet', severity: 'low', message: 'Contains magnets', mitigation: 'Safe for shipping' },
+    ],
+  },
 ]
 
 const defaultConfirmationItems: ConfirmationItem[] = [
@@ -582,36 +602,51 @@ export const useShoppingStore = create<ShoppingState>((set, get) => ({
     // 使用真实产品或 mock 产品生成方案
     const productsToUse = realProducts.length > 0 ? realProducts : mockProducts
     
-    // 生成方案
-    const plans: Plan[] = productsToUse.slice(0, 3).map((product, idx) => ({
-      name: idx === 0 ? 'Budget Saver' : idx === 1 ? 'Express Delivery' : 'Best Value',
-      type: idx === 0 ? 'cheapest' as const : idx === 1 ? 'fastest' as const : 'best_value' as const,
-      product,
-      shipping: idx === 0 ? 5.99 : idx === 1 ? 12.99 : 0,
-      shippingOption: idx === 0 ? 'Standard International (7-14 days)' : 
-                     idx === 1 ? 'DHL Express (3-5 days)' : 
-                     'Free Premium Shipping (5-7 days)',
-      tax: { 
-        amount: Math.round(product.price * 0.1 * 100) / 100, 
-        currency: 'USD', 
-        confidence: idx === 0 ? 'medium' as const : idx === 1 ? 'high' as const : 'low' as const, 
-        method: 'rule_based', 
-        breakdown: { 
-          vat: Math.round(product.price * 0.07 * 100) / 100, 
-          duty: Math.round(product.price * 0.02 * 100) / 100, 
-          handling: Math.round(product.price * 0.01 * 100) / 100 
-        } 
-      },
-      total: Math.round((product.price + (idx === 0 ? 5.99 : idx === 1 ? 12.99 : 0) + Math.round(product.price * 0.1 * 100) / 100) * 100) / 100,
-      deliveryDays: idx === 0 ? '7-14' : idx === 1 ? '3-5' : '5-7',
-      emoji: idx === 0 ? '💰' : idx === 1 ? '⚡' : '⭐',
-      recommended: idx === 0,
-      reason: idx === 0 ? `Best match for your budget: ${product.title}` :
-              idx === 1 ? `Fastest delivery: ${product.title}` :
-              `Best value: ${product.title}`,
-      risks: [],
-      confidence: idx === 0 ? 0.92 : idx === 1 ? 0.85 : 0.78,
-    }))
+    // 方案模板配置
+    const planTemplates = [
+      { name: 'Budget Saver', type: 'cheapest' as const, shipping: 5.99, shippingOption: 'Standard International (7-14 days)', deliveryDays: '7-14', emoji: '💰', taxConfidence: 'medium' as const, confidence: 0.92 },
+      { name: 'Express Delivery', type: 'fastest' as const, shipping: 12.99, shippingOption: 'DHL Express (3-5 days)', deliveryDays: '3-5', emoji: '⚡', taxConfidence: 'high' as const, confidence: 0.85 },
+      { name: 'Best Value', type: 'best_value' as const, shipping: 0, shippingOption: 'Free Premium Shipping (5-7 days)', deliveryDays: '5-7', emoji: '⭐', taxConfidence: 'medium' as const, confidence: 0.88 },
+      { name: 'Prime Choice', type: 'best_value' as const, shipping: 8.99, shippingOption: 'Prime Shipping (4-6 days)', deliveryDays: '4-6', emoji: '🏆', taxConfidence: 'high' as const, confidence: 0.82 },
+      { name: 'Economy Option', type: 'cheapest' as const, shipping: 3.99, shippingOption: 'Economy Shipping (10-20 days)', deliveryDays: '10-20', emoji: '📦', taxConfidence: 'low' as const, confidence: 0.75 },
+    ]
+    
+    // 生成方案 - 最多5个
+    const plans: Plan[] = productsToUse.slice(0, 5).map((product, idx) => {
+      const template = planTemplates[idx % planTemplates.length]
+      const taxAmount = Math.round(product.price * 0.1 * 100) / 100
+      const shippingCost = template.shipping
+      
+      return {
+        name: template.name,
+        type: template.type,
+        product,
+        shipping: shippingCost,
+        shippingOption: template.shippingOption,
+        tax: { 
+          amount: taxAmount, 
+          currency: 'USD', 
+          confidence: template.taxConfidence, 
+          method: 'rule_based', 
+          breakdown: { 
+            vat: Math.round(product.price * 0.07 * 100) / 100, 
+            duty: Math.round(product.price * 0.02 * 100) / 100, 
+            handling: Math.round(product.price * 0.01 * 100) / 100 
+          } 
+        },
+        total: Math.round((product.price + shippingCost + taxAmount) * 100) / 100,
+        deliveryDays: template.deliveryDays,
+        emoji: template.emoji,
+        recommended: idx === 0,
+        reason: idx === 0 ? `Best match for your budget: ${product.title}` :
+                idx === 1 ? `Fastest delivery option: ${product.title}` :
+                idx === 2 ? `Best overall value: ${product.title}` :
+                idx === 3 ? `Premium quality choice: ${product.title}` :
+                `Most economical: ${product.title}`,
+        risks: product.complianceRisks.length > 0 ? ['Compliance check required'] : [],
+        confidence: template.confidence,
+      }
+    })
     
     set({
       plans,
