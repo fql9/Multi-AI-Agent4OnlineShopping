@@ -6,8 +6,10 @@ import {
   Sparkles, AlertTriangle, Info, Shield, Truck, Receipt,
   ChevronRight, Clock, Zap, Terminal, Brain, Wrench,
   ChevronDown, ChevronUp, Code, Activity, Cpu, Layers,
-  LayoutGrid, Table2, ArrowUpDown, Star, DollarSign
+  LayoutGrid, Table2, ArrowUpDown, Star, DollarSign,
+  ExternalLink, Store, ImageIcon
 } from 'lucide-react'
+import Image from 'next/image'
 import { useShoppingStore, type OrderState, type TaxEstimate, type ComplianceRisk, type ThinkingStep, type ToolCall, type AgentStep } from '@/store/shopping'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Progress } from '@/components/ui/progress'
@@ -57,6 +59,85 @@ function getComplianceIcon(type: ComplianceRisk['type']) {
     case 'trademark': return '™️'
     default: return '⚠️'
   }
+}
+
+// 产品图片组件 - 支持真实图片和 emoji 后备
+function ProductImage({ 
+  imageUrl, 
+  fallbackEmoji, 
+  alt, 
+  size = 'md',
+  className = ''
+}: { 
+  imageUrl?: string
+  fallbackEmoji: string
+  alt: string
+  size?: 'sm' | 'md' | 'lg' | 'xl'
+  className?: string
+}) {
+  const [imgError, setImgError] = useState(false)
+  
+  const sizeClasses = {
+    sm: 'w-10 h-10',
+    md: 'w-16 h-16',
+    lg: 'w-20 h-20',
+    xl: 'w-24 h-24'
+  }
+  
+  const emojiSizes = {
+    sm: 'text-2xl',
+    md: 'text-4xl',
+    lg: 'text-5xl',
+    xl: 'text-6xl'
+  }
+  
+  if (!imageUrl || imgError) {
+    return (
+      <div className={cn(
+        "flex items-center justify-center rounded-xl bg-surface-100",
+        sizeClasses[size],
+        className
+      )}>
+        <span className={emojiSizes[size]}>{fallbackEmoji}</span>
+      </div>
+    )
+  }
+  
+  return (
+    <div className={cn(
+      "relative rounded-xl overflow-hidden bg-white border border-surface-200",
+      sizeClasses[size],
+      className
+    )}>
+      <Image
+        src={imageUrl}
+        alt={alt}
+        fill
+        className="object-cover"
+        onError={() => setImgError(true)}
+        unoptimized // 允许外部图片
+      />
+    </div>
+  )
+}
+
+// 产品链接按钮
+function ProductLink({ url, storeName }: { url?: string; storeName?: string }) {
+  if (!url) return null
+  
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noopener noreferrer"
+      onClick={(e) => e.stopPropagation()}
+      className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-primary-50 hover:bg-primary-100 text-primary-700 rounded-lg text-xs font-medium transition-colors border border-primary-200"
+    >
+      <Store className="w-3.5 h-3.5" />
+      <span>{storeName || 'View Product'}</span>
+      <ExternalLink className="w-3 h-3" />
+    </a>
+  )
 }
 
 // 思考步骤组件 - Light theme
@@ -359,7 +440,12 @@ function ComparisonTable({ plans, onSelectPlan }: { plans: Plan[]; onSelectPlan:
           >
             {/* Product Info */}
             <div className="col-span-4 flex items-center gap-3">
-              <div className="text-2xl">{plan.emoji}</div>
+              <ProductImage 
+                imageUrl={plan.product.imageUrl}
+                fallbackEmoji={plan.emoji}
+                alt={plan.product.title}
+                size="sm"
+              />
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
                   <span className="font-semibold text-surface-800 truncate">{plan.name}</span>
@@ -376,6 +462,17 @@ function ComparisonTable({ plans, onSelectPlan }: { plans: Plan[]; onSelectPlan:
                     {plan.type.replace('_', ' ')}
                   </Badge>
                   <span className="text-xs text-surface-400">★ {plan.product.rating}</span>
+                  {plan.product.productUrl && (
+                    <a
+                      href={plan.product.productUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={(e) => e.stopPropagation()}
+                      className="text-primary-500 hover:text-primary-600"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5" />
+                    </a>
+                  )}
                 </div>
               </div>
             </div>
@@ -474,9 +571,11 @@ export default function Home() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!store.query.trim()) return
+    // 先重置部分状态，确保从干净状态开始
+    store.setOrderState('MISSION_READY')
     setCurrentView('processing')
     await store.startAgentProcess()
-    setCurrentView('plans')
+    // 处理完成后，状态会是 TOTAL_COMPUTED，useEffect 会自动切换到 plans 视图
   }
 
   const handleSelectPlan = (plan: typeof store.plans[0]) => {
@@ -808,7 +907,12 @@ export default function Home() {
                   )}
                   
                   <div className="flex items-start gap-5">
-                    <div className="text-4xl">{plan.emoji}</div>
+                    <ProductImage 
+                      imageUrl={plan.product.imageUrl}
+                      fallbackEmoji={plan.emoji}
+                      alt={plan.product.title}
+                      size="lg"
+                    />
                     <div className="flex-1">
                       <div className="flex items-center gap-2 mb-1.5">
                         <h3 className="text-xl font-bold text-surface-800">{plan.name}</h3>
@@ -818,9 +922,22 @@ export default function Home() {
                         }>
                           {plan.type.replace('_', ' ')}
                         </Badge>
+                        {plan.product.source === 'xoobay' && (
+                          <Badge variant="accent" className="text-[10px]">XOOBAY</Badge>
+                        )}
                       </div>
-                      <p className="text-surface-700 font-medium mb-2">{plan.product.title}</p>
+                      <p className="text-surface-700 font-medium mb-1">{plan.product.title}</p>
+                      {plan.product.shortDescription && (
+                        <p className="text-surface-500 text-xs mb-2">{plan.product.shortDescription}</p>
+                      )}
                       <p className="text-surface-500 text-sm mb-3">{plan.reason}</p>
+                      
+                      {/* Product Link */}
+                      {plan.product.productUrl && (
+                        <div className="mb-3">
+                          <ProductLink url={plan.product.productUrl} storeName={plan.product.storeName} />
+                        </div>
+                      )}
                       
                       {/* Tax Confidence */}
                       <div className="flex items-center gap-4 mb-3">
@@ -921,12 +1038,28 @@ export default function Home() {
               {/* Order Items */}
               <div className="p-6 border-b border-surface-100">
                 <div className="flex items-center gap-5">
-                  <div className="text-5xl">{store.draftOrder.plan.product.image}</div>
+                  <ProductImage 
+                    imageUrl={store.draftOrder.plan.product.imageUrl}
+                    fallbackEmoji={store.draftOrder.plan.product.image}
+                    alt={store.draftOrder.plan.product.title}
+                    size="xl"
+                  />
                   <div className="flex-1">
                     <h3 className="text-surface-800 font-semibold text-lg">{store.draftOrder.plan.product.title}</h3>
                     <p className="text-surface-500 text-sm">
                       {store.draftOrder.plan.product.brand} · ★ {store.draftOrder.plan.product.rating}
                     </p>
+                    {store.draftOrder.plan.product.shortDescription && (
+                      <p className="text-surface-400 text-xs mt-1">{store.draftOrder.plan.product.shortDescription}</p>
+                    )}
+                    {store.draftOrder.plan.product.productUrl && (
+                      <div className="mt-2">
+                        <ProductLink 
+                          url={store.draftOrder.plan.product.productUrl} 
+                          storeName={store.draftOrder.plan.product.storeName} 
+                        />
+                      </div>
+                    )}
                   </div>
                   <div className="text-surface-800 font-bold text-xl">${store.draftOrder.plan.product.price}</div>
                 </div>
