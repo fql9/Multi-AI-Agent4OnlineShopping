@@ -48,21 +48,28 @@ async def search_offers(
             "has_more": True,
         })
 
+    # 构建 filters，只包含非 None 的值
+    filters: dict[str, Any] = {
+        "destination_country": destination_country,
+        "must_in_stock": must_in_stock,
+    }
+    if category_id is not None:
+        filters["category_id"] = category_id
+    if brand is not None:
+        filters["brand"] = brand
+    if price_min is not None or price_max is not None:
+        filters["price_range"] = {}
+        if price_min is not None:
+            filters["price_range"]["min"] = price_min
+        if price_max is not None:
+            filters["price_range"]["max"] = price_max
+
     return await call_tool(
         mcp_server="core",
         tool_name="catalog.search_offers",
         params={
             "query": query,
-            "filters": {
-                "destination_country": destination_country,
-                "category_id": category_id,
-                "price_range": {
-                    "min": price_min,
-                    "max": price_max,
-                } if price_min or price_max else None,
-                "brand": brand,
-                "must_in_stock": must_in_stock,
-            },
+            "filters": filters,
             "sort": sort,
             "limit": limit,
         },
