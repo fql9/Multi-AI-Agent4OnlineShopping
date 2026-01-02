@@ -240,6 +240,38 @@ html {
   animation: glow-pulse 2s ease-in-out infinite;
 }
 
+/* Gradient animation - horizontal */
+@keyframes gradient-x {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+.animate-gradient-x {
+  background-size: 200% 100%;
+  animation: gradient-x 1.5s ease infinite;
+}
+
+/* Progress bar animation */
+@keyframes progress-indeterminate {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.animate-progress {
+  animation: progress-indeterminate 1.5s ease-in-out infinite;
+}
+
 /* Scrollbar thin */
 .scrollbar-thin::-webkit-scrollbar {
   width: 4px;

@@ -249,6 +249,9 @@ services:
       NODE_ENV: production
       PORT: 3001
       # API 配置 - 客户端使用外部地址，服务端使用内部地址
+      # Agent API (Python backend)
+      NEXT_PUBLIC_AGENT_API_URL: ${NEXT_PUBLIC_AGENT_API_URL:-http://localhost:8000}
+      # Tool Gateway API
       NEXT_PUBLIC_TOOL_GATEWAY_URL: ${NEXT_PUBLIC_TOOL_GATEWAY_URL:-http://localhost:3000}
       TOOL_GATEWAY_URL: http://tool-gateway:3000
     depends_on:
@@ -437,40 +440,38 @@ services:
 
   # ========================================
   # 🔄 XOOBAY 产品同步 (一次性运行)
+  # docker compose -f docker-compose.full.yml --profile sync run xoobay-sync
   # ========================================
   xoobay-sync:
-    build:
-      context: .
-      dockerfile: apps/tool-gateway/Dockerfile
+    image: node:20-alpine
     container_name: agent-xoobay-sync
     profiles:
       - sync
+    working_dir: /app
+    volumes:
+      - ./scripts:/app/scripts:ro
+      - ./package.json:/app/package.json:ro
+      - ./pnpm-lock.yaml:/app/pnpm-lock.yaml:ro
     environment:
       NODE_ENV: production
-      DATABASE_URL: postgresql://${POSTGRES_USER:-agent}:${POSTGRES_PASSWORD:-agent_dev_password}@postgres:5432/${POSTGRES_DB:-agent_db}
-      XOOBAY_ENABLED: "true"
-      XOOBAY_API_KEY: ${XOOBAY_API_KEY:-}
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_NAME: ${POSTGRES_DB:-agent_db}
+      DB_USER: ${POSTGRES_USER:-agent}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-agent_dev_password}
+      XOOBAY_API_KEY: ${XOOBAY_API_KEY:-xoobay_api_ai_geo}
       XOOBAY_BASE_URL: ${XOOBAY_BASE_URL:-https://www.xoobay.com}
       XOOBAY_LANG: ${XOOBAY_LANG:-en}
     command: >
       sh -c "
-        echo 'Starting XOOBAY product sync...' &&
-        node -e \"
-          const { XOOBAYClient } = require('./dist/services/xoobay.js');
-          const client = new XOOBAYClient();
-          client.syncAllProducts().then(() => {
-            console.log('Sync completed!');
-            process.exit(0);
-          }).catch(err => {
-            console.error('Sync failed:', err);
-            process.exit(1);
-          });
-        \"
+        echo '📦 Installing dependencies...' &&
+        npm install -g pnpm tsx pg &&
+        echo '🔄 Starting XOOBAY product sync (100 pages = 2000 products)...' &&
+        npx tsx /app/scripts/sync-xoobay-products.ts --pages=100 &&
+        echo '✅ Sync completed!'
       "
     depends_on:
       postgres:
-        condition: service_healthy
-      tool-gateway:
         condition: service_healthy
     networks:
       - agent-network

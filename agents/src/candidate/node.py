@@ -32,19 +32,30 @@ async def candidate_node(state: AgentState) -> AgentState:
                 "current_step": "candidate",
             }
 
-        # 构建搜索查询
-        search_query = mission.get("search_query", "")
-
-        # 从硬性约束中提取类目和关键词
+        # 构建搜索查询 - 从硬性约束中提取主要关键词
+        keywords = []
         for constraint in mission.get("hard_constraints", []):
-            if constraint.get("type") == "category":
-                search_query += f" {constraint.get('value', '')}"
-            elif constraint.get("type") == "compatibility":
-                search_query += f" {constraint.get('value', '')}"
-            elif constraint.get("type") == "feature":
-                search_query += f" {constraint.get('value', '')}"
+            value = constraint.get("value", "")
+            constraint_type = constraint.get("type", "")
+            # 跳过布尔值、操作符和太短的值
+            if value and value.lower() not in ("true", "false", "eq", "gt", "lt") and len(value) > 2:
+                # 优先添加产品类别和关键特征
+                if constraint_type in ("category", "product_type"):
+                    keywords.insert(0, value)  # 类别放最前面
+                elif constraint_type in ("feature", "rugged"):
+                    keywords.append(value)
+        
+        # 如果没有从约束中提取到关键词，尝试从 search_query 提取
+        if not keywords:
+            original_query = mission.get("search_query", "")
+            # 提取前几个有意义的词
+            stop_words = {"i", "need", "want", "a", "an", "the", "to", "for", "with", "budget", "ship", "within", "days"}
+            words = original_query.lower().replace(",", "").split()
+            keywords = [w for w in words if w not in stop_words and len(w) > 2][:4]
+        
+        search_query = " ".join(keywords[:4]) if keywords else "product"  # 最多4个关键词
 
-        logger.info("candidate_node.search", query=search_query)
+        print(f"[DEBUG] candidate_node.search: query='{search_query}', keywords={keywords}")
 
         # 调用搜索工具
         search_result = await search_offers(

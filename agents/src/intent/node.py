@@ -24,7 +24,18 @@ async def intent_node(state: AgentState) -> AgentState:
     解析用户意图并生成结构化 MissionSpec
     """
     settings = get_settings()
-    logger.info("intent_node.start", messages_count=len(state.get("messages", [])))
+    
+    # 调试：检查当前 mission 状态
+    current_mission = state.get("mission")
+    print(f"[DEBUG] intent_node.start: has_mission={current_mission is not None}, step={state.get('current_step')}")
+    
+    # 如果已有 mission，直接返回（避免重复解析）
+    if current_mission is not None:
+        print("[DEBUG] intent_node.skip: mission already exists")
+        return {
+            **state,
+            "current_step": "intent_complete",
+        }
 
     try:
         # 获取最新的用户消息
@@ -148,6 +159,7 @@ def _mock_intent_response(state: AgentState, user_message: str) -> AgentState:
     """
     Mock 响应用于测试（无 API Key 时使用）
     """
+    print(f"[DEBUG] _mock_intent_response called with: {user_message[:50]}")
     # 简单的关键词提取
     message_lower = user_message.lower()
 
@@ -190,11 +202,7 @@ def _mock_intent_response(state: AgentState, user_message: str) -> AgentState:
         "search_query": user_message,
     }
 
-    logger.info(
-        "intent_node.mock_complete",
-        destination_country=destination_country,
-        budget=budget_amount,
-    )
+    print(f"[DEBUG] mock returning mission: {mission_dict.get('destination_country')}, budget={mission_dict.get('budget_amount')}")
 
     return {
         **state,
