@@ -92,6 +92,9 @@ async def plan_node(state: AgentState) -> AgentState:
 
         by_score = sorted(verified_candidates, key=compute_score, reverse=True)
 
+        # 生成多个 Plan，确保使用不同的产品
+        used_offer_ids = set()
+
         # 生成 Plan 1: 最便宜
         if by_price:
             cheapest = by_price[0]
@@ -102,31 +105,73 @@ async def plan_node(state: AgentState) -> AgentState:
                 quantity=quantity,
                 destination_country=destination_country,
             ))
+            used_offer_ids.add(cheapest.get("offer_id"))
 
         # 生成 Plan 2: 最快
-        if by_speed and (not by_price or by_speed[0].get("offer_id") != by_price[0].get("offer_id")):
-            fastest = by_speed[0]
+        # 如果最快的和最便宜的是同一个，就用第二快的（不同产品）
+        fastest_candidate = None
+        for candidate in by_speed:
+            if candidate.get("offer_id") not in used_offer_ids:
+                fastest_candidate = candidate
+                break
+        # 如果所有候选都已使用，仍然使用最快的（即使是同一个产品，但用不同的 plan 类型）
+        if not fastest_candidate and by_speed:
+            # 寻找速度排序中的第二个产品
+            fastest_candidate = by_speed[1] if len(by_speed) > 1 else by_speed[0]
+        
+        if fastest_candidate:
             plans.append(_create_plan(
-                candidate=fastest,
+                candidate=fastest_candidate,
                 plan_name="Express Delivery",
                 plan_type="fastest",
                 quantity=quantity,
                 destination_country=destination_country,
             ))
+            used_offer_ids.add(fastest_candidate.get("offer_id"))
 
         # 生成 Plan 3: 最佳价值
-        if by_score:
-            best = by_score[0]
-            # 确保不重复
-            existing_offer_ids = [p.items[0].offer_id for p in plans if p.items]
-            if best.get("offer_id") not in existing_offer_ids:
+        # 如果综合评分最高的都已使用，就用第二/三个
+        best_value_candidate = None
+        for candidate in by_score:
+            if candidate.get("offer_id") not in used_offer_ids:
+                best_value_candidate = candidate
+                break
+        # 如果所有候选都已使用，仍然选择综合评分中的另一个
+        if not best_value_candidate and len(by_score) > 2:
+            best_value_candidate = by_score[2]
+        elif not best_value_candidate and len(by_score) > 1:
+            best_value_candidate = by_score[1]
+        
+        if best_value_candidate:
+            plans.append(_create_plan(
+                candidate=best_value_candidate,
+                plan_name="Best Value",
+                plan_type="best_value",
+                quantity=quantity,
+                destination_country=destination_country,
+            ))
+            used_offer_ids.add(best_value_candidate.get("offer_id"))
+
+        # 如果还有更多候选，可以生成额外的方案（最多 5 个）
+        extra_plan_names = [
+            ("Premium Choice", "best_value"),
+            ("Economy Option", "cheapest"),
+        ]
+        extra_idx = 0
+        for candidate in verified_candidates:
+            if len(plans) >= 5:
+                break
+            if candidate.get("offer_id") not in used_offer_ids:
+                name, ptype = extra_plan_names[extra_idx % len(extra_plan_names)]
                 plans.append(_create_plan(
-                    candidate=best,
-                    plan_name="Best Value",
-                    plan_type="best_value",
+                    candidate=candidate,
+                    plan_name=name,
+                    plan_type=ptype,
                     quantity=quantity,
                     destination_country=destination_country,
                 ))
+                used_offer_ids.add(candidate.get("offer_id"))
+                extra_idx += 1
 
         # 如果只有一个商品，只生成一个方案
         if len(plans) == 0 and verified_candidates:
