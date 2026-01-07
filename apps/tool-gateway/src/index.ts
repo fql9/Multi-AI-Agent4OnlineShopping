@@ -36,10 +36,12 @@ async function main() {
   });
 
   // Rate limiting
-  await app.register(rateLimit, {
-    max: config.rateLimit.max,
-    timeWindow: config.rateLimit.timeWindow,
-  });
+  if (config.rateLimit.enabled) {
+    await app.register(rateLimit, {
+      max: config.rateLimit.max,
+      timeWindow: config.rateLimit.timeWindow,
+    });
+  }
 
   // Custom plugins
   await app.register(envelopePlugin);

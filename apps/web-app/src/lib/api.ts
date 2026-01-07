@@ -58,7 +58,7 @@ export interface ProductCandidate {
   image_url?: string
   product_url?: string
   store_name?: string
-  source?: 'xoobay' | 'database' | 'mock'
+  source?: 'xoobay' | 'database'
 }
 
 export interface VerifiedCandidate extends ProductCandidate {
@@ -406,5 +406,7 @@ export function formatDeliveryRange(minDays: number, maxDays: number): string {
   }
   return `${minDays}-${maxDays} days`
 }
+
+
 
 

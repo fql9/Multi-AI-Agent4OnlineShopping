@@ -39,6 +39,7 @@ build/
 out/
 .turbo/
 .next/
+*.tsbuildinfo
 
 # Env files
 .env
