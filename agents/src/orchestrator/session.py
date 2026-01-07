@@ -505,3 +505,4 @@ def get_session_manager() -> SessionManager:
         _session_manager = SessionManager()
     return _session_manager
 
+

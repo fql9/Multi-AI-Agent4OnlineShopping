@@ -57,12 +57,12 @@ async def candidate_node(state: AgentState) -> AgentState:
 
         print(f"[DEBUG] candidate_node.search: query='{search_query}', keywords={keywords}")
 
-        # 调用搜索工具
+        # 调用搜索工具 - 增加召回数量以便生成更多方案
         search_result = await search_offers(
             query=search_query.strip(),
             category_id=None,
             price_max=mission.get("budget_amount"),
-            limit=20,  # 召回 20 个候选
+            limit=50,  # 召回 50 个候选，以便有更多选择生成多个 plan
         )
 
         if not search_result.get("ok"):
@@ -88,9 +88,9 @@ async def candidate_node(state: AgentState) -> AgentState:
                 "error_code": "NOT_FOUND",
             }
 
-        # 获取每个 offer 的详细信息（限制前 10 个以控制成本）
+        # 获取每个 offer 的详细信息（限制前 20 个以便生成多个方案）
         candidates = []
-        for offer_id in offer_ids[:10]:
+        for offer_id in offer_ids[:20]:
             try:
                 aroc = await get_offer_card(offer_id=offer_id)
                 if aroc.get("ok"):
