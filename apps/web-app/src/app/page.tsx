@@ -1,25 +1,26 @@
 'use client'
 
-import { useEffect, useState, useRef, useCallback } from 'react'
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
 import { 
   ShoppingCart, Bot, Package, CheckCircle, Loader2, Send, 
   Sparkles, AlertTriangle, Info, Shield, Truck, Receipt,
   ChevronRight, Clock, Zap, Terminal, Brain, Wrench,
-  ChevronDown, ChevronUp, Activity, Cpu, Layers,
+  ChevronDown, ChevronUp, Activity, Layers,
   LayoutGrid, Table2, ArrowUpDown, Star, DollarSign,
-  ExternalLink, Store, Settings, RefreshCw
+  ExternalLink, Store
 } from 'lucide-react'
 import Image from 'next/image'
-import { useShoppingStore, type OrderState, type TaxEstimate, type ComplianceRisk, type ThinkingStep, type ToolCall, type AgentStep, type ApiMode } from '@/store/shopping'
+import * as api from '@/lib/api'
+import { useShoppingStore, type OrderState, type TaxEstimate, type ComplianceRisk, type ThinkingStep, type ToolCall, type AgentStep } from '@/store/shopping'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Progress } from '@/components/ui/progress'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Textarea } from '@/components/ui/textarea'
+import { Input } from '@/components/ui/input'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Skeleton, SkeletonCard, SkeletonAgentStep } from '@/components/ui/skeleton'
-import { ConnectionStatus } from '@/components/ConnectionStatus'
 import { cn } from '@/lib/utils'
 
 // 状态机步骤映射
@@ -147,28 +148,6 @@ function ProductLink({ url, storeName }: { url?: string; storeName?: string }) {
   )
 }
 
-// API 模式选择器
-function ApiModeSelector({ value, onChange }: { value: ApiMode; onChange: (mode: ApiMode) => void }) {
-  return (
-    <div className="flex items-center gap-2 p-1 bg-surface-100 rounded-xl">
-      {(['mock', 'real'] as ApiMode[]).map((mode) => (
-        <button
-          key={mode}
-          onClick={() => onChange(mode)}
-          className={cn(
-            "px-3 py-1.5 rounded-lg text-xs font-medium transition-all",
-            value === mode 
-              ? "bg-white text-primary-600 shadow-sm" 
-              : "text-surface-500 hover:text-surface-700"
-          )}
-        >
-          {mode === 'real' ? '🌐 Real API' : '🎭 Mock'}
-        </button>
-      ))}
-    </div>
-  )
-}
-
 // 思考步骤组件 - Light theme
 function ThinkingStepItem({ step, isLatest }: { step: ThinkingStep; isLatest: boolean }) {
   const config = thinkingTypeConfig[step.type]
@@ -252,78 +231,195 @@ function ToolCallItem({ tool }: { tool: ToolCall }) {
   )
 }
 
+function getInitials(name?: string) {
+  if (!name) return 'U'
+  const parts = name.trim().split(/\s+/).slice(0, 2)
+  return parts.map(p => p[0]?.toUpperCase() || '').join('') || 'U'
+}
+
+function UserAvatar({ name, avatarUrl }: { name?: string; avatarUrl?: string }) {
+  if (avatarUrl) {
+    return (
+      <div className="relative w-9 h-9 rounded-full overflow-hidden border border-surface-200 bg-white">
+        <Image
+          src={avatarUrl}
+          alt={name ? `${name} avatar` : 'User avatar'}
+          fill
+          className="object-cover"
+          unoptimized
+        />
+      </div>
+    )
+  }
+
+  return (
+    <div className="w-9 h-9 rounded-full bg-surface-100 border border-surface-200 flex items-center justify-center">
+      <span className="text-xs font-semibold text-surface-600">{getInitials(name)}</span>
+    </div>
+  )
+}
+
+type FeaturedProduct = {
+  id: string
+  title: string
+  imageUrl: string
+}
+
+function clamp(n: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, n))
+}
+
+function DockProductShowcase() {
+  const [items, setItems] = useState<FeaturedProduct[]>([])
+  const [activeIndex, setActiveIndex] = useState(0)
+  const [mouseX, setMouseX] = useState<number | null>(null)
+  const [hovering, setHovering] = useState(false)
+  const itemRefs = useRef<Array<HTMLButtonElement | null>>([])
+
+  // Fetch a small set of real product images from Tool Gateway
+  useEffect(() => {
+    let cancelled = false
+    const run = async () => {
+      try {
+        const search = await api.searchOffers({ query: 'jacket', limit: 10 })
+        const offerIds = search.ok && search.data?.offer_ids ? search.data.offer_ids.slice(0, 10) : []
+        if (!offerIds.length) return
+
+        const collected: FeaturedProduct[] = []
+        for (const id of offerIds) {
+          try {
+            const card = await api.getOfferCard(id)
+            const data = card.ok ? card.data : undefined
+            const title = data?.titles?.[0]?.text || data?.titles?.[1]?.text || id
+            const attrs = data?.attributes as { image_url?: string } | undefined
+            const imageUrl = attrs?.image_url
+            if (imageUrl) collected.push({ id, title, imageUrl })
+          } catch (e) {
+          }
+          if (collected.length >= 8) break
+        }
+
+        if (!cancelled) {
+          setItems(collected)
+          setActiveIndex(0)
+        }
+      } catch (e) {
+      }
+    }
+    run()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  // Autoplay focus like a looping slideshow
+  useEffect(() => {
+    if (items.length <= 1) return
+    const t = setInterval(() => {
+      setActiveIndex((i) => (i + 1) % items.length)
+    }, 1200)
+    return () => clearInterval(t)
+  }, [items.length])
+
+  const scales = useMemo(() => {
+    if (!items.length) return []
+    return items.map((_, idx) => {
+      if (!hovering || mouseX === null) {
+        return idx === activeIndex ? 1.35 : 1.0
+      }
+      const el = itemRefs.current[idx]
+      if (!el) return 1.0
+      const rect = el.getBoundingClientRect()
+      const center = rect.left + rect.width / 2
+      const dist = Math.abs(mouseX - center)
+      const influence = clamp(1 - dist / 140, 0, 1)
+      return 1 + influence * 0.85
+    })
+  }, [items, hovering, mouseX, activeIndex])
+
+  const lifts = useMemo(() => {
+    if (!items.length) return []
+    return items.map((_, idx) => {
+      if (!hovering || mouseX === null) {
+        return idx === activeIndex ? 6 : 0
+      }
+      const el = itemRefs.current[idx]
+      if (!el) return 0
+      const rect = el.getBoundingClientRect()
+      const center = rect.left + rect.width / 2
+      const dist = Math.abs(mouseX - center)
+      const influence = clamp(1 - dist / 140, 0, 1)
+      return influence * 12
+    })
+  }, [items, hovering, mouseX, activeIndex])
+
+  if (!items.length) {
+    return (
+      <div className="w-[260px] h-20 rounded-2xl bg-gradient-to-br from-primary-500 to-accent-500 shadow-tech animate-float flex items-center justify-center">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-white/20 shimmer" />
+          <div className="w-10 h-10 rounded-xl bg-white/20 shimmer" />
+          <div className="w-10 h-10 rounded-xl bg-white/20 shimmer" />
+          <div className="w-10 h-10 rounded-xl bg-white/20 shimmer" />
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div
+      className="w-[260px] h-20 rounded-2xl bg-gradient-to-br from-primary-500 to-accent-500 shadow-tech animate-float flex items-center justify-center px-4"
+      onMouseEnter={() => setHovering(true)}
+      onMouseLeave={() => {
+        setHovering(false)
+        setMouseX(null)
+      }}
+      onMouseMove={(e) => setMouseX(e.clientX)}
+    >
+      <div className="flex items-end justify-center gap-3">
+        {items.map((p, idx) => {
+          const s = scales[idx] ?? 1
+          const lift = lifts[idx] ?? 0
+          return (
+            <button
+              key={p.id}
+              ref={(el) => {
+                itemRefs.current[idx] = el
+              }}
+              type="button"
+              className="relative w-10 h-10 rounded-xl overflow-hidden bg-white/10 border border-white/20 shadow-sm focus:outline-none focus:ring-2 focus:ring-white/50"
+              style={{
+                transform: `translateY(${-lift}px) scale(${s})`,
+                transition: 'transform 120ms ease-out',
+              }}
+              title={p.title}
+            >
+              <Image
+                src={p.imageUrl}
+                alt={p.title}
+                fill
+                className="object-cover"
+                unoptimized
+              />
+              {/* subtle gloss */}
+              <div className="absolute inset-0 bg-gradient-to-b from-white/10 to-transparent" />
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 // Agent 步骤详情组件 - Light theme
 function AgentStepDetail({ step, isActive }: { step: AgentStep; isActive: boolean }) {
-  const scrollRef = useRef<HTMLDivElement>(null)
-  
-  useEffect(() => {
-    if (scrollRef.current && isActive) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight
-    }
-  }, [step.thinkingSteps.length, isActive])
-  
   if (step.status === 'pending') return null
+  // 给用户一个干净的界面：不展示 LLM 逐步思考与工具调用细节
+  if (!step.output) return null
   
   return (
-    <div className="mt-4 space-y-4 animate-fade-in">
-      {/* 思考过程 */}
-      {step.thinkingSteps.length > 0 && (
-        <div className="space-y-2">
-          <div className="flex items-center gap-2 text-sm text-surface-500 font-medium">
-            <Brain className="w-4 h-4" />
-            <span>LLM Reasoning ({step.thinkingSteps.length} steps)</span>
-          </div>
-          <div 
-            ref={scrollRef}
-            className="space-y-2 max-h-48 overflow-y-auto pr-2 scrollbar-thin"
-          >
-            {step.thinkingSteps.map((thinking, idx) => (
-              <ThinkingStepItem 
-                key={thinking.id} 
-                step={thinking} 
-                isLatest={idx === step.thinkingSteps.length - 1 && isActive}
-              />
-            ))}
-          </div>
-        </div>
-      )}
-      
-      {/* 工具调用 */}
-      {step.toolCalls.length > 0 && (
-        <div className="space-y-2">
-          <div className="flex items-center gap-2 text-sm text-surface-500 font-medium">
-            <Wrench className="w-4 h-4" />
-            <span>Tool Calls ({step.toolCalls.length})</span>
-          </div>
-          <div className="space-y-2">
-            {step.toolCalls.map((tool) => (
-              <ToolCallItem key={tool.id} tool={tool} />
-            ))}
-          </div>
-        </div>
-      )}
-      
-      {/* 步骤统计 */}
-      {step.status === 'completed' && (
-        <div className="flex items-center gap-4 text-xs text-surface-400 pt-3 border-t border-surface-100">
-          {step.tokenUsed && (
-            <span className="flex items-center gap-1.5">
-              <Activity className="w-3 h-3" />
-              ~{step.tokenUsed} tokens
-            </span>
-          )}
-          {step.duration && (
-            <span className="flex items-center gap-1.5">
-              <Clock className="w-3 h-3" />
-              {(step.duration / 1000).toFixed(1)}s
-            </span>
-          )}
-          <span className="flex items-center gap-1.5">
-            <Terminal className="w-3 h-3" />
-            {step.toolCalls.length} tool calls
-          </span>
-        </div>
-      )}
+    <div className="mt-4 animate-fade-in text-sm text-surface-600 whitespace-pre-wrap">
+      {step.output}
     </div>
   )
 }
@@ -352,41 +448,6 @@ function StateMachineProgress({ currentState }: { currentState: OrderState }) {
           <span>IDLE</span>
           <span>DRAFT_ORDER</span>
           <span>PAID</span>
-        </div>
-      </CardContent>
-    </Card>
-  )
-}
-
-// 实时统计面板 - Light theme
-function LiveStats({ tokens, toolCalls, isProcessing }: { tokens: number; toolCalls: number; isProcessing: boolean }) {
-  return (
-    <Card className="mb-6">
-      <CardContent className="flex items-center gap-4 p-4">
-        <div className="flex items-center gap-2">
-          <div className={cn(
-            "w-2.5 h-2.5 rounded-full",
-            isProcessing ? "bg-success-500 animate-pulse" : "bg-surface-300"
-          )} />
-          <span className="text-sm font-medium text-surface-600">
-            {isProcessing ? 'Processing...' : 'Idle'}
-          </span>
-        </div>
-        <div className="h-5 w-px bg-surface-200" />
-        <div className="flex items-center gap-2 text-sm">
-          <div className="w-7 h-7 rounded-lg bg-primary-100 flex items-center justify-center">
-            <Activity className="w-3.5 h-3.5 text-primary-600" />
-          </div>
-          <span className="text-surface-700 font-semibold">{tokens}</span>
-          <span className="text-surface-400">tokens</span>
-        </div>
-        <div className="h-5 w-px bg-surface-200" />
-        <div className="flex items-center gap-2 text-sm">
-          <div className="w-7 h-7 rounded-lg bg-accent-100 flex items-center justify-center">
-            <Terminal className="w-3.5 h-3.5 text-accent-600" />
-          </div>
-          <span className="text-surface-700 font-semibold">{toolCalls}</span>
-          <span className="text-surface-400">tool calls</span>
         </div>
       </CardContent>
     </Card>
@@ -587,13 +648,12 @@ export default function Home() {
   const [currentView, setCurrentView] = useState<'input' | 'processing' | 'plans' | 'confirmation'>('input')
   const [expandedStep, setExpandedStep] = useState<number | null>(null)
   const [viewMode, setViewMode] = useState<'cards' | 'table'>('cards')
-  const [showSettings, setShowSettings] = useState(false)
   const [followUpQuery, setFollowUpQuery] = useState('')
 
   // 检查连接状态
   useEffect(() => {
     store.checkConnection()
-  }, [])
+  }, [store])
 
   // 根据状态切换视图
   useEffect(() => {
@@ -620,9 +680,7 @@ export default function Home() {
 
   const handleSubmit = useCallback(async (e: React.FormEvent) => {
     e.preventDefault()
-    console.log('[DEBUG] Submitting query:', store.query)
     if (!store.query.trim()) {
-      console.log('[DEBUG] Query is empty, aborting')
       return
     }
     store.setOrderState('MISSION_READY')
@@ -675,45 +733,10 @@ export default function Home() {
               <p className="text-xs text-surface-500 font-medium">Shopping like prompting!</p>
             </div>
           </div>
-          <div className="flex items-center gap-4">
-            <ConnectionStatus />
-            <button
-              onClick={() => setShowSettings(!showSettings)}
-              className={cn(
-                "p-2 rounded-lg transition-colors",
-                showSettings ? "bg-primary-100 text-primary-600" : "hover:bg-surface-100 text-surface-500"
-              )}
-            >
-              <Settings className="w-5 h-5" />
-            </button>
-            <div className="hidden md:flex items-center gap-2 px-3 py-2 bg-surface-100 rounded-xl text-sm border border-surface-200">
-              <Cpu className="w-4 h-4 text-surface-500" />
-              <span className="text-primary-600 font-mono font-medium">GPT-4o-mini</span>
-            </div>
+          <div className="flex items-center gap-3">
+            <UserAvatar name={store.user?.name} avatarUrl={store.user?.avatarUrl} />
           </div>
         </div>
-        
-        {/* Settings Panel */}
-        {showSettings && (
-          <div className="border-t border-surface-200 bg-white/95 backdrop-blur-lg">
-            <div className="max-w-6xl mx-auto px-4 py-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-4">
-                  <span className="text-sm font-medium text-surface-600">API Mode:</span>
-                  <ApiModeSelector value={store.apiMode} onChange={store.setApiMode} />
-                </div>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => store.checkConnection()}
-                  leftIcon={<RefreshCw className="w-4 h-4" />}
-                >
-                  Refresh Status
-                </Button>
-              </div>
-            </div>
-          </div>
-        )}
       </header>
 
       <div className="relative max-w-4xl mx-auto px-4 py-8 pb-28">
@@ -729,15 +752,6 @@ export default function Home() {
         {/* State Machine Progress */}
         {currentView !== 'input' && (
           <StateMachineProgress currentState={store.orderState} />
-        )}
-
-        {/* Live Stats */}
-        {currentView === 'processing' && (
-          <LiveStats 
-            tokens={store.totalTokens} 
-            toolCalls={store.totalToolCalls}
-            isProcessing={store.isStreaming}
-          />
         )}
 
         {/* Input View - Light theme */}
@@ -775,8 +789,8 @@ export default function Home() {
                 </div>
               ) : (
                 <>
-                  <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-br from-primary-500 to-accent-500 mb-6 shadow-tech animate-float">
-                    <ShoppingCart className="w-8 h-8 text-white" />
+                  <div className="flex justify-center mb-6">
+                    <DockProductShowcase />
                   </div>
                   <h2 className="text-4xl font-bold text-surface-800 mb-4">
                     What would you like to buy?
@@ -789,6 +803,144 @@ export default function Home() {
             </div>
 
             <form onSubmit={handleSubmit} className="relative">
+              <Card className="mb-4">
+                <CardContent className="p-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div>
+                      <div className="text-xs font-medium text-surface-500 mb-1">Ship to (Country/Region)</div>
+                      <Input
+                        value={store.destinationCountry}
+                        onChange={(e) => store.setDestinationCountry(e.target.value)}
+                        placeholder="e.g., US / DE / China"
+                        leftIcon={<Truck className="w-4 h-4" />}
+                      />
+                    </div>
+                    <div>
+                      <div className="text-xs font-medium text-surface-500 mb-1">Currency</div>
+                      <div className="relative">
+                        <select
+                          value={store.currency}
+                          onChange={(e) => store.setCurrency(e.target.value)}
+                          className={cn(
+                            "flex h-11 w-full rounded-xl border bg-white px-4 py-2.5 text-sm ring-offset-white transition-all duration-200",
+                            "border-surface-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2"
+                          )}
+                        >
+                          {['USD', 'EUR', 'CNY', 'GBP', 'JPY', 'CAD', 'AUD', 'HKD', 'SGD'].map((c) => (
+                            <option key={c} value={c}>{c}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                    <div className="md:col-span-2">
+                      <div className="text-xs font-medium text-surface-500 mb-1">Desired price range</div>
+                    <div className="space-y-3">
+                      {/* Dual range slider (supports mouse drag + arrow keys) */}
+                      {(() => {
+                        const SLIDER_MAX = 1000
+                        const minVal = store.priceMin ?? 0
+                        const maxVal = store.priceMax ?? SLIDER_MAX
+                        const clampedMin = Math.max(0, Math.min(minVal, SLIDER_MAX))
+                        const clampedMax = Math.max(0, Math.min(Math.max(maxVal, clampedMin), SLIDER_MAX))
+                        const minPct = (clampedMin / SLIDER_MAX) * 100
+                        const maxPct = (clampedMax / SLIDER_MAX) * 100
+
+                        return (
+                          <div className="space-y-2">
+                            <div className="flex items-center justify-between text-xs text-surface-500">
+                              <span>0</span>
+                              <span>{SLIDER_MAX}</span>
+                            </div>
+                            <div className="relative h-10">
+                              {/* Track */}
+                              <div className="absolute left-0 right-0 top-1/2 -translate-y-1/2 h-2 rounded-full bg-surface-100 border border-surface-200" />
+                              {/* Selected range */}
+                              <div
+                                className="absolute top-1/2 -translate-y-1/2 h-2 rounded-full bg-primary-500"
+                                style={{ left: `${minPct}%`, width: `${Math.max(0, maxPct - minPct)}%` }}
+                              />
+                              {/* Min slider */}
+                              <input
+                                type="range"
+                                min={0}
+                                max={SLIDER_MAX}
+                                step={1}
+                                value={clampedMin}
+                                onChange={(e) => store.setPriceMin(Number(e.target.value))}
+                                className="absolute inset-0 w-full bg-transparent appearance-none focus:outline-none"
+                                aria-label="Minimum price"
+                              />
+                              {/* Max slider */}
+                              <input
+                                type="range"
+                                min={0}
+                                max={SLIDER_MAX}
+                                step={1}
+                                value={clampedMax}
+                                onChange={(e) => store.setPriceMax(Number(e.target.value))}
+                                className="absolute inset-0 w-full bg-transparent appearance-none focus:outline-none"
+                                aria-label="Maximum price"
+                              />
+                            </div>
+
+                            <div className="flex items-center justify-between text-xs text-surface-500">
+                              <span>
+                                Selected: <span className="font-semibold text-surface-700">{clampedMin}-{clampedMax}</span> {store.currency}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  store.setPriceMin(null)
+                                  store.setPriceMax(null)
+                                }}
+                                className="text-primary-600 hover:text-primary-700 font-medium"
+                              >
+                                Clear
+                              </button>
+                            </div>
+                          </div>
+                        )
+                      })()}
+
+                      {/* Numeric inputs (supports typing + up/down arrows) */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <Input
+                          type="number"
+                          min={0}
+                          step={1}
+                          inputMode="numeric"
+                          value={store.priceMin ?? ''}
+                          onChange={(e) => store.setPriceMin(e.target.value === '' ? null : Number(e.target.value))}
+                          placeholder="Min"
+                          leftIcon={<DollarSign className="w-4 h-4" />}
+                        />
+                        <Input
+                          type="number"
+                          min={0}
+                          step={1}
+                          inputMode="numeric"
+                          value={store.priceMax ?? ''}
+                          onChange={(e) => store.setPriceMax(e.target.value === '' ? null : Number(e.target.value))}
+                          placeholder="Max"
+                          leftIcon={<DollarSign className="w-4 h-4" />}
+                        />
+                      </div>
+                    </div>
+                    </div>
+                    <div>
+                      <div className="text-xs font-medium text-surface-500 mb-1">Quantity</div>
+                      <Input
+                        type="number"
+                        min={1}
+                        step={1}
+                        value={store.quantity}
+                        onChange={(e) => store.setQuantity(Number(e.target.value))}
+                        leftIcon={<Package className="w-4 h-4" />}
+                      />
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
               <Card variant="elevated" className="p-2">
                 <Textarea
                   value={store.query}
@@ -798,10 +950,6 @@ export default function Home() {
                 />
                 <div className="flex items-center justify-between px-2 py-2 border-t border-surface-100">
                   <div className="flex items-center gap-2 text-xs text-surface-400">
-                    <Badge variant={store.apiMode === 'real' ? 'success' : 'default'}>
-                      {store.apiMode === 'real' ? '🌐 Real API' : '🎭 Mock'}
-                    </Badge>
-                    <span>•</span>
                     <span>Press Enter to search</span>
                   </div>
                   <Button
@@ -855,6 +1003,12 @@ export default function Home() {
                 ) : (
                   <Bot className="w-8 h-8 text-white" />
                 )}
+              </div>
+              {/* Extra "system is running" motion: animated progress bar */}
+              <div className="max-w-xl mx-auto mb-4">
+                <div className="h-2 rounded-full bg-surface-100 border border-surface-200 overflow-hidden">
+                  <div className="h-full w-1/2 bg-gradient-to-r from-primary-500 via-accent-500 to-primary-500 animate-gradient-x animate-progress" />
+                </div>
               </div>
               <h2 className="text-2xl font-bold text-surface-800 mb-2">
                 {store.isStreaming ? 'AI Agents are working...' : 'Processing your request...'}
@@ -981,9 +1135,6 @@ export default function Home() {
                           {step.status === 'running' && (
                             <Badge variant="info" className="animate-pulse">Running</Badge>
                           )}
-                          {step.status === 'completed' && step.tokenUsed && (
-                            <span className="text-xs text-surface-400 font-medium">~{step.tokenUsed} tokens</span>
-                          )}
                           {step.status === 'completed' && step.duration && (
                             <span className="text-xs text-surface-400">
                               {(step.duration / 1000).toFixed(1)}s
@@ -1068,7 +1219,6 @@ export default function Home() {
                     <div className="flex-1">
                       <div className="flex items-center gap-2 mb-1.5">
                         <span className="text-primary-700 font-bold">AI Recommendation</span>
-                        <Badge variant="default">{store.aiRecommendation.model}</Badge>
                         <Badge variant="success">
                           {Math.round(store.aiRecommendation.confidence * 100)}% confidence
                         </Badge>
@@ -1083,30 +1233,12 @@ export default function Home() {
             {/* Stats & View Toggle */}
             <Card className="mb-6">
               <CardContent className="flex items-center justify-between p-4">
-                <div className="flex items-center gap-6 text-sm">
-                  <div className="flex items-center gap-2">
-                    <div className="w-7 h-7 rounded-lg bg-primary-100 flex items-center justify-center">
-                      <Activity className="w-3.5 h-3.5 text-primary-600" />
-                    </div>
-                    <span className="text-surface-700 font-semibold">{store.totalTokens}</span>
-                    <span className="text-surface-400">tokens</span>
+                <div className="flex items-center gap-2 text-sm">
+                  <div className="w-7 h-7 rounded-lg bg-success-100 flex items-center justify-center">
+                    <DollarSign className="w-3.5 h-3.5 text-success-600" />
                   </div>
-                  <div className="h-5 w-px bg-surface-200" />
-                  <div className="flex items-center gap-2">
-                    <div className="w-7 h-7 rounded-lg bg-accent-100 flex items-center justify-center">
-                      <Terminal className="w-3.5 h-3.5 text-accent-600" />
-                    </div>
-                    <span className="text-surface-700 font-semibold">{store.totalToolCalls}</span>
-                    <span className="text-surface-400">tools</span>
-                  </div>
-                  <div className="h-5 w-px bg-surface-200" />
-                  <div className="flex items-center gap-2">
-                    <div className="w-7 h-7 rounded-lg bg-success-100 flex items-center justify-center">
-                      <DollarSign className="w-3.5 h-3.5 text-success-600" />
-                    </div>
-                    <span className="text-surface-700 font-semibold">{store.plans.length}</span>
-                    <span className="text-surface-400">plans</span>
-                  </div>
+                  <span className="text-surface-700 font-semibold">{store.plans.length}</span>
+                  <span className="text-surface-400">plans</span>
                 </div>
                 
                 {/* View Mode Toggle */}
@@ -1485,18 +1617,7 @@ export default function Home() {
       <footer className="fixed bottom-0 left-0 right-0 py-4 border-t border-surface-200 bg-white/90 backdrop-blur-xl">
         <div className="max-w-6xl mx-auto px-4 flex items-center justify-between text-surface-400 text-sm">
           <span className="font-medium">Multi-AI-Agent4OnlineShopping © 2024</span>
-          <div className="flex items-center gap-6">
-            <span className="flex items-center gap-2">
-              <div className="w-6 h-6 rounded-md bg-primary-100 flex items-center justify-center">
-                <Zap className="w-3 h-3 text-primary-600" />
-              </div>
-              <span className="text-surface-500 font-medium">GPT-4o-mini via Poe</span>
-            </span>
-            <span className="flex items-center gap-2">
-              <span className="w-2.5 h-2.5 rounded-full bg-success-500 animate-pulse" />
-              <span className="font-medium">All agents operational</span>
-            </span>
-          </div>
+          <span className="text-surface-500 font-medium">Powered by Multi-Agent Shopping</span>
         </div>
       </footer>
     </main>
