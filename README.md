@@ -13,6 +13,7 @@ Build an auditable, tool-driven multi-agent system that turns a user's *purchase
 ## Contents
 
 - [Why this repo](#why-this-repo)
+- [New Features](#new-features-v06)
 - [Tech Stack](#tech-stack)
 - [Architecture](#architecture)
 - [Quick Start](#quick-start)
@@ -32,13 +33,23 @@ Build an auditable, tool-driven multi-agent system that turns a user's *purchase
 
 ---
 
+## New Features (v0.6)
+
+- **Real-time API Only**: Mock mode removed; strictly relies on live tool execution.
+- **Dock-like Product Showcase**: Animated looping product carousel on the home page.
+- **User Preferences**: Global settings for shipping country, currency, price range (slider), and quantity.
+- **Enhanced UI**: Clean interface, processing animations, and direct XOOBAY product integration with correct URLs.
+- **Dev-Friendly**: Configurable Rate Limiting for local development.
+
+---
+
 ## Tech Stack
 
 | Layer | Technology | Notes |
 |-------|------------|-------|
 | **Agent Orchestration** | Python 3.11+ / LangGraph / FastAPI | State machine driven, controllable |
 | **Tool Gateway / MCP** | TypeScript / Fastify | Type-safe API, Contract First |
-| **Frontend** | Next.js 14 / Tailwind / shadcn/ui | Modern UI |
+| **Frontend** | Next.js 14 / Tailwind / shadcn/ui | Modern UI with Real-time Updates |
 | **Database** | PostgreSQL 16 + pgvector | Vector search + Full-text search |
 | **Cache** | Redis 7 | Session + Idempotency + Rate Limit |
 | **LLM** | GPT-4o-mini (routing) + GPT-4o (verification) | Tiered usage |
@@ -51,6 +62,7 @@ Build an auditable, tool-driven multi-agent system that turns a user's *purchase
 ┌─────────────────────────────────────────────────────────────────────┐
 │                           Frontend                                   │
 │  Next.js 14 + TypeScript + Tailwind + shadcn/ui      :3001          │
+│  (Dock Showcase / Real-time Processing View / User Prefs)           │
 └─────────────────────────────────────────────────────────────────────┘
                                 │
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -188,6 +200,11 @@ OPENAI_API_KEY=sk-your-api-key
 XOOBAY_ENABLED=true
 XOOBAY_API_KEY=your-key
 
+# Rate Limiting (New in v0.6)
+RATE_LIMIT_ENABLED=true  # Set to false for dev/demo
+RATE_LIMIT_MAX=1000
+RATE_LIMIT_WINDOW="1 minute"
+
 # Ports (if conflicts)
 POSTGRES_PORT=5433
 TOOL_GATEWAY_PORT=3000
@@ -251,7 +268,7 @@ WEB_APP_PORT=3001
 | **Agent 编排** | Python + LangGraph + FastAPI | 7 节点状态机 + HTTP API |
 | **Tool Gateway** | TypeScript + Fastify | 23 个工具端点 |
 | **MCP 服务** | TypeScript + SSE | Core MCP + Checkout MCP |
-| **前端** | Next.js + Tailwind | 现代 UI |
+| **前端** | Next.js + Tailwind | 现代 UI + 实时交互 |
 | **数据库** | PostgreSQL + pgvector | 向量 + 全文搜索 |
 | **缓存** | Redis | 会话 + 幂等性 |
 | **LLM** | GPT-4o-mini + GPT-4o | 分层使用 |
@@ -286,7 +303,7 @@ open http://localhost:3001
 | Agent 层 | 100% | ✅ |
 | RAG 检索 | 100% | ✅ |
 | Docker 部署 | 100% | ✅ |
-| 前端 | 85% | ✅ Demo |
+| 前端 | 100% | ✅ Complete |
 | 支付集成 | 80% | ✅ Agent 完成 |
 
 ### MVP 检查清单
@@ -304,7 +321,7 @@ open http://localhost:3001
 - [x] XOOBAY 产品集成
 - [x] LLM 集成 *(GPT-4o-mini + GPT-4o)*
 - [x] 端到端测试 *(10 tests)*
-- [x] 前端 Web App
+- [x] 前端 Web App *(Dock UI, User Prefs, Animations)*
 - [x] Docker 完整打包 *(10 服务)*
 - [x] 部署文档
 - [ ] 支付集成 *(Stripe/PayPal)*
