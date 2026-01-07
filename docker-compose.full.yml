@@ -89,6 +89,10 @@ services:
     environment:
       NODE_ENV: production
       PORT: 3000
+      # Rate limit（开发/演示时避免前端 Dock/搜索被 429 限流）
+      RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-false}
+      RATE_LIMIT_MAX: ${RATE_LIMIT_MAX:-1000}
+      RATE_LIMIT_WINDOW: ${RATE_LIMIT_WINDOW:-1 minute}
       # 数据库配置
       DB_HOST: postgres
       DB_PORT: 5432
