@@ -79,7 +79,7 @@ export type Product = {
   storeName?: string  // 店铺名称
   storeId?: string  // 店铺ID
   productUrl?: string  // 产品链接
-  source?: 'xoobay' | 'database' | 'mock'  // 数据来源
+  source?: 'xoobay' | 'database'  // 数据来源
   complianceRisks: ComplianceRisk[]
 }
 
@@ -143,13 +143,64 @@ export type AgentStep = {
   result?: Record<string, unknown>
 }
 
-// API 模式
-export type ApiMode = 'real' | 'mock'
+export type UserProfile = {
+  id: string
+  name?: string
+  avatarUrl?: string
+  defaults?: {
+    destinationCountry?: string
+    currency?: string
+    priceMin?: number
+    priceMax?: number
+    quantity?: number
+  }
+}
+
+function sanitizeNonNegativeNumber(value: number, fallback: number): number {
+  if (!Number.isFinite(value)) return fallback
+  return Math.max(0, value)
+}
+
+function sanitizeNonNegativeInt(value: number, fallback: number): number {
+  if (!Number.isFinite(value)) return fallback
+  return Math.max(0, Math.floor(value))
+}
+
+function slugifyForXoobay(title: string): string {
+  // XOOBAY 示例 URL: https://www.xoobay.com/products/<slug>
+  // 这里用 title 生成 slug（尽量贴近网站习惯）：小写、非字母数字转为 -、压缩重复 -
+  const raw = (title || '').toLowerCase()
+  const slug = raw
+    .normalize('NFKD')
+    .replace(/['"]/g, '')
+    .replace(/&/g, ' and ')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+  // 避免超长 URL
+  return slug.slice(0, 180).replace(/-$/g, '')
+}
+
+function normalizeUrlMaybe(url: string): string {
+  const trimmed = url.trim()
+  if (!trimmed) return ''
+  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) return trimmed
+  if (trimmed.startsWith('/')) return `https://www.xoobay.com${trimmed}`
+  return `https://www.xoobay.com/${trimmed}`
+}
 
 // Store 状态
 interface ShoppingState {
-  // 模式设置
-  apiMode: ApiMode
+  // 用户
+  user: UserProfile | null
+
+  // 首页可调参数（用户偏好 / 订单约束）
+  destinationCountry: string
+  currency: string
+  priceMin: number | null
+  priceMax: number | null
+  quantity: number
+
   sessionId: string | null
   
   // 连接状态
@@ -188,7 +239,13 @@ interface ShoppingState {
   errorCode: string | null
   
   // Actions
-  setApiMode: (mode: ApiMode) => void
+  setUser: (user: UserProfile | null) => void
+  setDestinationCountry: (value: string) => void
+  setCurrency: (value: string) => void
+  setPriceMin: (value: number | null) => void
+  setPriceMax: (value: number | null) => void
+  setQuantity: (value: number) => void
+
   setQuery: (query: string) => void
   setMission: (mission: Mission) => void
   setOrderState: (state: OrderState) => void
@@ -226,138 +283,6 @@ const defaultConfirmationItems: ConfirmationItem[] = [
   { id: 'return_ack', type: 'return', title: 'Return Policy Acknowledgment', description: 'I understand returns within 30 days, buyer pays return shipping.', required: true, checked: false },
   { id: 'shipping_ack', type: 'shipping', title: 'Shipping Restrictions', description: 'I confirm my address is accessible for delivery.', required: false, checked: false },
 ]
-
-// 模拟数据
-const mockProducts: Product[] = [
-  {
-    id: 'of_001',
-    title: 'Anker MagSafe Wireless Charger 15W',
-    price: 35.99,
-    image: '📱',
-    imageUrl: 'https://m.media-amazon.com/images/I/61UzMDJDJsL._AC_SL1500_.jpg',
-    brand: 'Anker',
-    rating: 4.8,
-    description: 'Fast wireless charging with MagSafe compatibility for iPhone 12 and later.',
-    shortDescription: '15W Fast Wireless Charger',
-    storeName: 'Anker Official',
-    source: 'mock',
-    complianceRisks: [
-      { type: 'magnet', severity: 'low', message: 'Contains magnets (MagSafe)', mitigation: 'Safe for shipping' },
-    ],
-  },
-  {
-    id: 'of_002',
-    title: 'Belkin BoostCharge Pro 3-in-1',
-    price: 89.99,
-    image: '🔌',
-    imageUrl: 'https://m.media-amazon.com/images/I/61UzMDJDJsL._AC_SL1500_.jpg',
-    brand: 'Belkin',
-    rating: 4.6,
-    description: '3-in-1 wireless charging station for iPhone, Apple Watch, and AirPods.',
-    shortDescription: '3-in-1 Charging Station',
-    storeName: 'Belkin Store',
-    source: 'mock',
-    complianceRisks: [],
-  },
-  {
-    id: 'of_003',
-    title: 'Apple MagSafe Charger',
-    price: 39.00,
-    image: '🍎',
-    imageUrl: 'https://store.storeimages.cdn-apple.com/4982/as-images.apple.com/is/MHXH3?wid=1144&hei=1144&fmt=jpeg&qlt=90&.v=1603835871000',
-    brand: 'Apple',
-    rating: 4.5,
-    description: 'The MagSafe Charger makes wireless charging a snap.',
-    shortDescription: 'Apple MagSafe Charger',
-    storeName: 'Apple Store',
-    source: 'mock',
-    complianceRisks: [
-      { type: 'magnet', severity: 'low', message: 'Contains magnets (MagSafe)', mitigation: 'Safe for shipping' },
-    ],
-  },
-]
-
-// 模拟各 Agent 的详细处理过程
-const agentProcesses = {
-  intent: {
-    thinking: [
-      { type: 'thinking' as const, text: 'Analyzing user query structure and intent...' },
-      { type: 'thinking' as const, text: 'Extracting key entities: product type, budget, destination...' },
-      { type: 'decision' as const, text: 'Identified: wireless charger, iPhone compatible, $50 budget, Germany' },
-      { type: 'action' as const, text: 'Building structured MissionSpec with constraints...' },
-      { type: 'result' as const, text: 'Mission created with 2 hard constraints, 1 soft preference' },
-    ],
-    tools: [
-      { name: 'mission.create', input: '{ user_id: "u_123", query: "..." }', output: '{ mission_id: "m_abc123" }' },
-    ],
-  },
-  candidate: {
-    thinking: [
-      { type: 'thinking' as const, text: 'Constructing search query from mission constraints...' },
-      { type: 'action' as const, text: 'Executing search: BM25 + vector similarity...' },
-      { type: 'thinking' as const, text: 'Filtering by destination country availability...' },
-      { type: 'decision' as const, text: 'Found 47 initial candidates, filtering to top 20...' },
-      { type: 'result' as const, text: 'Selected 10 candidates for verification' },
-    ],
-    tools: [
-      { name: 'catalog.search_offers', input: '{ query: "wireless charger iPhone", filters: {...} }', output: '{ count: 47, offers: [...] }' },
-      { name: 'catalog.get_offer_card', input: '{ offer_ids: ["of_001", "of_002", ...] }', output: '{ cards: [...] }' },
-      { name: 'catalog.get_availability', input: '{ offer_ids: [...], country: "DE" }', output: '{ available: 10 }' },
-    ],
-  },
-  verifier: {
-    thinking: [
-      { type: 'thinking' as const, text: 'Starting real-time verification for 10 candidates...' },
-      { type: 'action' as const, text: 'Fetching live pricing from pricing service...' },
-      { type: 'action' as const, text: 'Checking shipping options to Germany...' },
-      { type: 'action' as const, text: 'Running compliance checks for EU regulations...' },
-      { type: 'decision' as const, text: 'of_001: ✓ price OK, ✓ shipping OK, ⚠️ magnet warning' },
-      { type: 'decision' as const, text: 'of_002: ✓ price OK (over budget), ✓ compliant' },
-      { type: 'decision' as const, text: 'of_003: ✓ price OK, ✓ Apple certified, ⚠️ magnet' },
-      { type: 'thinking' as const, text: 'Estimating duties and taxes for DE destination...' },
-      { type: 'result' as const, text: '3 candidates verified, 0 rejected' },
-    ],
-    tools: [
-      { name: 'pricing.get_realtime_quote', input: '{ sku_ids: [...], qty: 1, country: "DE" }', output: '{ quotes: [...] }' },
-      { name: 'shipping.quote_options', input: '{ items: [...], destination: "DE" }', output: '{ options: 4 }' },
-      { name: 'compliance.check_item', input: '{ sku_id: "of_001", country: "DE" }', output: '{ allowed: true, warnings: [...] }' },
-      { name: 'tax.estimate_duties_and_taxes', input: '{ items: [...], country: "DE" }', output: '{ total: 3.36, confidence: "medium" }' },
-    ],
-  },
-  plan: {
-    thinking: [
-      { type: 'thinking' as const, text: 'Analyzing verified candidates for plan generation...' },
-      { type: 'thinking' as const, text: 'Calculating total landed cost for each option...' },
-      { type: 'action' as const, text: 'Generating Plan 1: Budget Saver (lowest cost)...' },
-      { type: 'action' as const, text: 'Generating Plan 2: Express Delivery (fastest)...' },
-      { type: 'action' as const, text: 'Generating Plan 3: Best Value (balanced)...' },
-      { type: 'decision' as const, text: 'Recommending "Budget Saver" based on objective weights' },
-      { type: 'result' as const, text: 'Generated 3 executable plans with confidence scores' },
-    ],
-    tools: [
-      { name: 'promotion.list_applicable', input: '{ offer_ids: [...], user_id: "..." }', output: '{ promotions: 2 }' },
-    ],
-  },
-  execution: {
-    thinking: [
-      { type: 'thinking' as const, text: 'Preparing to create draft order from selected plan...' },
-      { type: 'action' as const, text: 'Creating shopping cart with selected items...' },
-      { type: 'action' as const, text: 'Applying shipping option: Standard International...' },
-      { type: 'action' as const, text: 'Computing final total with all fees...' },
-      { type: 'action' as const, text: 'Creating evidence snapshot for audit trail...' },
-      { type: 'decision' as const, text: 'Draft order ready, awaiting user confirmation' },
-      { type: 'result' as const, text: 'Draft Order do_xxx created, expires in 24h' },
-    ],
-    tools: [
-      { name: 'cart.create', input: '{ user_id: "u_123" }', output: '{ cart_id: "cart_abc" }' },
-      { name: 'cart.add_item', input: '{ cart_id: "...", sku_id: "of_001", qty: 1 }', output: '{ success: true }' },
-      { name: 'checkout.select_shipping', input: '{ cart_id: "...", option_id: "ship_std" }', output: '{ updated: true }' },
-      { name: 'checkout.compute_total', input: '{ cart_id: "..." }', output: '{ total: 45.34, breakdown: {...} }' },
-      { name: 'evidence.create_snapshot', input: '{ context: {...} }', output: '{ snapshot_id: "ev_xxx" }' },
-      { name: 'checkout.create_draft_order', input: '{ cart_id: "...", consents: {...} }', output: '{ draft_order_id: "do_xxx" }' },
-    ],
-  },
-}
 
 // Helper: 延迟函数
 const delay = (ms: number) => new Promise(r => setTimeout(r, ms))
@@ -478,27 +403,6 @@ async function simulateAgentProgress(
   }
 }
 
-// Helper: 提取搜索关键词
-function extractSearchKeywords(query: string): string {
-  const stopWords = ['i', 'need', 'want', 'buy', 'looking', 'for', 'a', 'an', 'the', 'to', 'my', 'me', 'is', 'are', 'was', 'were', 'be', 'been', 'being', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'should', 'could', 'may', 'might', 'can', 'must', 'shall', 'of', 'in', 'on', 'at', 'by', 'for', 'with', 'about', 'into', 'through', 'during', 'including', 'against', 'among', 'throughout', 'despite', 'towards', 'upon', 'concerning', 'from', 'up', 'out', 'off', 'over', 'under', 'again', 'further', 'then', 'once', 'some', 'keeping', 'budget', 'within', 'three', 'days', 'prioritizing', 'avoiding', 'small', 'parts', 'that', 'easy', 'swallow', 'delivery', 'stem']
-  const words = query.toLowerCase()
-    .replace(/[^\w\s]/g, ' ')
-    .split(/\s+/)
-    .filter(word => word.length > 1 && !stopWords.includes(word))
-    .slice(0, 5)
-  
-  let searchQuery = words.length > 0 ? words.join(' ') : ''
-  if (searchQuery.length < 3 || words.length < 2) {
-    const allWords = query.toLowerCase()
-      .replace(/[^\w\s]/g, ' ')
-      .split(/\s+/)
-      .filter(word => word.length > 1)
-    const importantWords = allWords.filter(w => !stopWords.includes(w)).slice(0, 3)
-    searchQuery = importantWords.length > 0 ? importantWords.join(' ') : query.trim().slice(0, 50)
-  }
-  return searchQuery
-}
-
 // Helper: 解析 Mission
 function parseMission(query: string): Mission {
   const mission: Mission = {
@@ -532,8 +436,13 @@ function parseMission(query: string): Mission {
 export const useShoppingStore = create<ShoppingState>()(
   persist(
     (set, get) => ({
-      // 模式设置
-      apiMode: 'mock' as ApiMode,
+      user: null,
+      destinationCountry: '',
+      currency: 'USD',
+      priceMin: null,
+      priceMax: null,
+      quantity: 1,
+
       sessionId: null,
       
       // 连接状态
@@ -565,7 +474,38 @@ export const useShoppingStore = create<ShoppingState>()(
       error: null,
       errorCode: null,
 
-      setApiMode: (mode) => set({ apiMode: mode }),
+      setUser: (user) => set((state) => {
+        // 如果用户 profile 里带 defaults，且当前字段未设置，则自动填充（不覆盖用户已手填的）
+        const defaults = user?.defaults
+        return {
+          user,
+          destinationCountry: state.destinationCountry || defaults?.destinationCountry || state.destinationCountry,
+          currency: state.currency || defaults?.currency || state.currency,
+          priceMin: state.priceMin ?? (defaults?.priceMin ?? state.priceMin),
+          priceMax: state.priceMax ?? (defaults?.priceMax ?? state.priceMax),
+          quantity: state.quantity || defaults?.quantity || state.quantity,
+        }
+      }),
+      setDestinationCountry: (destinationCountry) => set({ destinationCountry }),
+      setCurrency: (currency) => set({ currency }),
+      setPriceMin: (priceMin) => set((state) => {
+        if (priceMin === null) return { priceMin: null }
+        const nextMin = sanitizeNonNegativeNumber(priceMin, 0)
+        const nextMax = state.priceMax !== null ? sanitizeNonNegativeNumber(state.priceMax, nextMin) : null
+        // 保证 min <= max：若当前 max 小于新的 min，则把 max 跟随到 min
+        const fixedMax = nextMax !== null && nextMax < nextMin ? nextMin : nextMax
+        return { priceMin: nextMin, priceMax: fixedMax }
+      }),
+      setPriceMax: (priceMax) => set((state) => {
+        if (priceMax === null) return { priceMax: null }
+        const nextMax = sanitizeNonNegativeNumber(priceMax, 0)
+        const nextMin = state.priceMin !== null ? sanitizeNonNegativeNumber(state.priceMin, 0) : null
+        // 保证 min <= max：若当前 min 大于新的 max，则把 min 跟随到 max
+        const fixedMin = nextMin !== null && nextMin > nextMax ? nextMax : nextMin
+        return { priceMin: fixedMin, priceMax: nextMax }
+      }),
+      setQuantity: (quantity) => set({ quantity: Math.max(1, sanitizeNonNegativeInt(quantity, 1)) }),
+
       setQuery: (query) => set({ query }),
       setMission: (mission) => set({ mission, orderState: 'MISSION_READY' }),
       setOrderState: (orderState) => set({ orderState }),
@@ -612,13 +552,13 @@ export const useShoppingStore = create<ShoppingState>()(
       },
 
       startAgentProcess: async () => {
-        const { query, apiMode, addThinkingStep, addToolCall, updateToolCall, isAgentConnected, isToolGatewayConnected, updateAgentStep } = get()
+        const { query, addThinkingStep, addToolCall, updateToolCall, isAgentConnected } = get()
         
         // 清除之前的错误
         set({ error: null, errorCode: null })
         
         // 检查连接状态
-        if (apiMode === 'real' && !isAgentConnected) {
+        if (!isAgentConnected) {
           await get().checkConnection()
           if (!get().isAgentConnected) {
             set({ 
@@ -630,46 +570,70 @@ export const useShoppingStore = create<ShoppingState>()(
         }
         
         // 解析意图
-        const mission = parseMission(query)
+        const state = get()
+        const mission = (() => {
+          const base = parseMission(query)
+          const budgetCurrency = state.currency || base.budget_currency
+          return {
+            ...base,
+            destination_country: state.destinationCountry || base.destination_country,
+            budget_currency: budgetCurrency,
+            budget_amount: sanitizeNonNegativeNumber(state.priceMax ?? state.priceMin ?? base.budget_amount, base.budget_amount),
+            quantity: Math.max(1, sanitizeNonNegativeInt(state.quantity || base.quantity, 1)),
+          }
+        })()
         set({ mission, orderState: 'MISSION_READY' })
         
-        // 如果使用真实 API 模式，尝试调用后端
-        if (apiMode === 'real' && isAgentConnected) {
-          // 启动进度模拟 - 在后台运行 API 调用的同时展示进度
-          const progressPromise = simulateAgentProgress(get, set, addThinkingStep, addToolCall, updateToolCall)
+        // 调用后端 Agent（Real API）
+        // 启动进度模拟 - 在后台运行 API 调用的同时展示进度
+        const progressPromise = simulateAgentProgress(get, set, addThinkingStep, addToolCall, updateToolCall)
           
+        try {
+          let response: api.ChatResponse
+            
           try {
-            let response: api.ChatResponse
-            
-            try {
-              response = await api.sendChatMessage({
-                message: query,
-                session_id: get().sessionId || undefined,
-              })
-            } catch (err) {
-              // 如果是 404 错误（Session not found），清除 session 并重试
-              if (err instanceof api.ApiError && err.status === 404) {
-                set({ sessionId: null })
-                response = await api.sendChatMessage({
-                  message: query,
-                })
-              } else {
-                throw err
-              }
+            const preferenceLines: string[] = []
+            if (get().destinationCountry) preferenceLines.push(`Ship to: ${get().destinationCountry}`)
+            if (get().currency) preferenceLines.push(`Currency: ${get().currency}`)
+            if (get().priceMin !== null || get().priceMax !== null) {
+              const min = get().priceMin !== null ? String(get().priceMin) : ''
+              const max = get().priceMax !== null ? String(get().priceMax) : ''
+              preferenceLines.push(`Desired price range: ${min}-${max} ${get().currency || 'USD'}`.trim())
             }
-            
-            // 等待进度模拟完成或至少完成前两步
-            await progressPromise
-            
-            // 如果响应中包含 session 错误，也处理
-            if (response.error?.includes('Session not found') || response.error_code === 'SESSION_NOT_FOUND') {
+            if (get().quantity) preferenceLines.push(`Quantity: ${get().quantity}`)
+
+            const composedMessage = preferenceLines.length
+              ? `${query}\n\nPreferences:\n${preferenceLines.map((l) => `- ${l}`).join('\n')}`
+              : query
+
+            response = await api.sendChatMessage({
+              message: composedMessage,
+              session_id: get().sessionId || undefined,
+            })
+          } catch (err) {
+            // 如果是 404 错误（Session not found），清除 session 并重试
+            if (err instanceof api.ApiError && err.status === 404) {
               set({ sessionId: null })
               response = await api.sendChatMessage({
                 message: query,
               })
+            } else {
+              throw err
             }
+          }
             
-            set({ sessionId: response.session_id })
+          // 等待进度模拟完成或至少完成前两步
+          await progressPromise
+            
+          // 如果响应中包含 session 错误，也处理
+          if (response.error?.includes('Session not found') || response.error_code === 'SESSION_NOT_FOUND') {
+            set({ sessionId: null })
+            response = await api.sendChatMessage({
+              message: query,
+            })
+          }
+            
+          set({ sessionId: response.session_id })
             
             // 处理响应错误
             if (response.error) {
@@ -781,6 +745,7 @@ export const useShoppingStore = create<ShoppingState>()(
                   price?: { amount: number }
                   rating?: number
                   brand?: { name?: string } | string
+                  product_url?: string
                   attributes?: {
                     image_url?: string
                     gallery_images?: string[]
@@ -819,10 +784,22 @@ export const useShoppingStore = create<ShoppingState>()(
                 
                 // 判断是否为 XOOBAY 产品
                 const isXoobay = offerId.startsWith('xoobay_') || attributes?.source === 'xoobay'
-                const xoobayId = isXoobay ? offerId.replace('xoobay_', '') : null
-                const productUrl = isXoobay && xoobayId
-                  ? `https://www.xoobay.com/product/${xoobayId}`
-                  : undefined
+                const candidateProductUrl = candidateWithTitles?.product_url
+                  ? normalizeUrlMaybe(candidateWithTitles.product_url)
+                  : ''
+
+                const productUrl = (() => {
+                  // 1) 优先使用后端给出的真实链接（如果有）
+                  if (candidateProductUrl) return candidateProductUrl
+
+                  // 2) XOOBAY：按真实页面格式拼 /products/<slug>
+                  if (isXoobay) {
+                    const slug = slugifyForXoobay(title)
+                    if (slug) return `https://www.xoobay.com/products/${encodeURIComponent(slug)}`
+                  }
+
+                  return undefined
+                })()
                 
                 console.log('[DEBUG] getProductFromCandidate:', offerId, 'imageUrl:', imageUrl, 'title:', title)
                 
@@ -924,255 +901,6 @@ export const useShoppingStore = create<ShoppingState>()(
             set({ error: `Failed to call agent: ${errorMsg}`, errorCode: 'API_ERROR' })
             return
           }
-        }
-        
-        // 使用模拟模式
-        const agentIds = ['intent', 'candidate', 'verifier', 'plan', 'execution'] as const
-        let totalTokens = 0
-        let realProducts: Product[] = []
-        
-        for (let i = 0; i < agentIds.length; i++) {
-          const agentId = agentIds[i]
-          const process = agentProcesses[agentId]
-          const startTime = Date.now()
-          
-          set({ currentStepIndex: i })
-          
-          // 设置为运行中
-          set((state) => ({
-            agentSteps: state.agentSteps.map((s, idx) => 
-              idx === i ? { ...s, status: 'running' as const } : s
-            ),
-          }))
-          
-          // 模拟思考过程
-          set({ isStreaming: true })
-          for (const thinking of process.thinking) {
-            const thinkingStep: ThinkingStep = {
-              id: `t_${Date.now()}`,
-              text: thinking.text,
-              type: thinking.type,
-              timestamp: Date.now(),
-            }
-            addThinkingStep(i, thinkingStep)
-            set({ currentThinkingStep: thinking.text })
-            await delay(400 + Math.random() * 300)
-          }
-          
-          // 工具调用 - 如果是 candidate agent 且 Tool Gateway 连接，尝试获取真实产品
-          if (agentId === 'candidate' && isToolGatewayConnected) {
-            const searchQuery = extractSearchKeywords(query)
-            
-            const toolCall: ToolCall = {
-              id: `tc_${Date.now()}_search`,
-              name: 'catalog.search_offers',
-              input: JSON.stringify({ query: searchQuery, limit: 10 }),
-              output: '',
-              duration: 0,
-              status: 'running',
-            }
-            addToolCall(i, toolCall)
-            
-            try {
-              const searchResult = await api.searchOffers({ query: searchQuery, limit: 10 })
-              const duration = Date.now() - startTime
-              
-              if (searchResult.ok && searchResult.data?.offer_ids && searchResult.data.offer_ids.length > 0) {
-                const offerIds = searchResult.data.offer_ids.slice(0, 3)
-                const products: Product[] = []
-                
-                for (const offerId of offerIds) {
-                  try {
-                    const detailResult = await api.getOfferCard(offerId)
-                    if (detailResult.ok && detailResult.data) {
-                      const data = detailResult.data
-                      let price = 0
-                      if (data.price?.amount !== undefined) {
-                        const priceValue = Number(data.price.amount)
-                        price = isNaN(priceValue) ? 0 : Math.round(priceValue * 100) / 100
-                      }
-                      
-                      const attributes = data.attributes as {
-                        image_url?: string
-                        gallery_images?: string[]
-                        description?: string
-                        short_description?: string
-                        store_name?: string
-                        source?: string
-                      } | null
-                      
-                      const isXoobay = offerId.startsWith('xoobay_') || attributes?.source === 'xoobay'
-                      const xoobayId = isXoobay ? offerId.replace('xoobay_', '') : null
-                      
-                      let imageUrl = attributes?.image_url
-                      if (imageUrl && !imageUrl.startsWith('http')) {
-                        imageUrl = `https://www.xoobay.com${imageUrl}`
-                      }
-                      
-                      const galleryImages = attributes?.gallery_images?.map(img => 
-                        img.startsWith('http') ? img : `https://www.xoobay.com${img}`
-                      )
-                      
-                      const productUrl = isXoobay && xoobayId
-                        ? `https://www.xoobay.com/product/${xoobayId}`
-                        : undefined
-                      
-                      products.push({
-                        id: offerId,
-                        title: data.titles?.[0]?.text || data.titles?.[1]?.text || 'Product',
-                        price: price,
-                        image: '📦',
-                        imageUrl: imageUrl,
-                        galleryImages: galleryImages,
-                        brand: data.brand?.name || 'Unknown',
-                        rating: typeof data.rating === 'number' ? data.rating : (parseFloat(String(data.rating || 0)) || 4.0),
-                        description: attributes?.description,
-                        shortDescription: attributes?.short_description,
-                        storeName: attributes?.store_name,
-                        productUrl: productUrl,
-                        source: isXoobay ? 'xoobay' : 'database',
-                        complianceRisks: [],
-                      })
-                    }
-                  } catch (err) {
-                    console.error('Failed to fetch product detail:', err)
-                  }
-                }
-                
-                realProducts = products.length > 0 ? products : mockProducts
-                
-                updateToolCall(i, toolCall.id, {
-                  output: JSON.stringify({ count: searchResult.data.offer_ids.length, products: realProducts.length, query: searchQuery }),
-                  duration,
-                  status: 'success',
-                })
-              } else {
-                updateToolCall(i, toolCall.id, {
-                  output: JSON.stringify({ error: 'No results found', fallback: 'using mock data', query: searchQuery }),
-                  duration,
-                  status: 'success',
-                })
-                realProducts = mockProducts
-              }
-            } catch (error) {
-              console.error('API call failed:', error)
-              updateToolCall(i, toolCall.id, {
-                output: JSON.stringify({ error: String(error), fallback: 'using mock data' }),
-                duration: Date.now() - startTime,
-                status: 'success',
-              })
-              realProducts = mockProducts
-            }
-          } else {
-            // 其他工具调用保持模拟
-            for (const tool of process.tools) {
-              const toolCall: ToolCall = {
-                id: `tc_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
-                name: tool.name,
-                input: tool.input,
-                output: '',
-                duration: 0,
-                status: 'running',
-              }
-              addToolCall(i, toolCall)
-              await delay(200)
-              
-              const duration = 50 + Math.floor(Math.random() * 150)
-              await delay(duration)
-              
-              updateToolCall(i, toolCall.id, {
-                output: tool.output,
-                duration,
-                status: 'success',
-              })
-            }
-          }
-          
-          set({ isStreaming: false, currentThinkingStep: '' })
-          
-          // 更新状态机
-          if (i === 0) set({ orderState: 'MISSION_READY' })
-          if (i === 1) set({ orderState: 'CANDIDATES_READY', candidates: realProducts.length > 0 ? realProducts : mockProducts })
-          if (i === 2) set({ orderState: 'VERIFIED_TOPN_READY' })
-          if (i === 3) set({ orderState: 'TOTAL_COMPUTED' })
-          
-          const stepTokens = 100 + Math.floor(Math.random() * 200)
-          totalTokens += stepTokens
-          
-          // 完成当前步骤
-          set((state) => ({
-            agentSteps: state.agentSteps.map((s, idx) => 
-              idx === i ? { 
-                ...s, 
-                status: 'completed' as const, 
-                tokenUsed: stepTokens,
-                duration: Date.now() - startTime,
-              } : s
-            ),
-            totalTokens,
-          }))
-          
-          await delay(200)
-        }
-        
-        // 使用真实产品或 mock 产品生成方案
-        const productsToUse = realProducts.length > 0 ? realProducts : mockProducts
-        
-        // 方案模板配置
-        const planTemplates = [
-          { name: 'Budget Saver', type: 'cheapest' as const, shipping: 5.99, shippingOption: 'Standard International (7-14 days)', deliveryDays: '7-14', emoji: '💰', taxConfidence: 'medium' as const, confidence: 0.92 },
-          { name: 'Express Delivery', type: 'fastest' as const, shipping: 12.99, shippingOption: 'DHL Express (3-5 days)', deliveryDays: '3-5', emoji: '⚡', taxConfidence: 'high' as const, confidence: 0.85 },
-          { name: 'Best Value', type: 'best_value' as const, shipping: 0, shippingOption: 'Free Premium Shipping (5-7 days)', deliveryDays: '5-7', emoji: '⭐', taxConfidence: 'medium' as const, confidence: 0.88 },
-          { name: 'Prime Choice', type: 'best_value' as const, shipping: 8.99, shippingOption: 'Prime Shipping (4-6 days)', deliveryDays: '4-6', emoji: '🏆', taxConfidence: 'high' as const, confidence: 0.82 },
-          { name: 'Economy Option', type: 'cheapest' as const, shipping: 3.99, shippingOption: 'Economy Shipping (10-20 days)', deliveryDays: '10-20', emoji: '📦', taxConfidence: 'low' as const, confidence: 0.75 },
-        ]
-        
-        // 生成方案 - 最多5个
-        const plans: Plan[] = productsToUse.slice(0, 5).map((product, idx) => {
-          const template = planTemplates[idx % planTemplates.length]
-          const taxAmount = Math.round(product.price * 0.1 * 100) / 100
-          const shippingCost = template.shipping
-          
-          return {
-            name: template.name,
-            type: template.type,
-            product,
-            shipping: shippingCost,
-            shippingOption: template.shippingOption,
-            tax: { 
-              amount: taxAmount, 
-              currency: 'USD', 
-              confidence: template.taxConfidence, 
-              method: 'rule_based', 
-              breakdown: { 
-                vat: Math.round(product.price * 0.07 * 100) / 100, 
-                duty: Math.round(product.price * 0.02 * 100) / 100, 
-                handling: Math.round(product.price * 0.01 * 100) / 100 
-              } 
-            },
-            total: Math.round((product.price + shippingCost + taxAmount) * 100) / 100,
-            deliveryDays: template.deliveryDays,
-            emoji: template.emoji,
-            recommended: idx === 0,
-            reason: idx === 0 ? `Best match for your budget: ${product.title}` :
-                    idx === 1 ? `Fastest delivery option: ${product.title}` :
-                    idx === 2 ? `Best overall value: ${product.title}` :
-                    idx === 3 ? `Premium quality choice: ${product.title}` :
-                    `Most economical: ${product.title}`,
-            risks: product.complianceRisks.length > 0 ? ['Compliance check required'] : [],
-            confidence: template.confidence,
-          }
-        })
-        
-        set({
-          plans,
-          aiRecommendation: {
-            plan: plans[0]?.name || 'Budget Saver',
-            reason: `Based on your query "${query}", we found ${productsToUse.length} products. ${plans[0]?.reason || ''}`,
-            model: 'GPT-4o-mini',
-            confidence: plans[0]?.confidence || 0.92,
-          },
-        })
       },
 
       updateAgentStep: (index, updates) => set((state) => ({
@@ -1240,8 +968,12 @@ export const useShoppingStore = create<ShoppingState>()(
     {
       name: 'shopping-store',
       partialize: (state) => ({
-        apiMode: state.apiMode,
-        // 不持久化 sessionId，因为后端重启后会失效
+        user: state.user,
+        destinationCountry: state.destinationCountry,
+        currency: state.currency,
+        priceMin: state.priceMin,
+        priceMax: state.priceMax,
+        quantity: state.quantity,
       }),
     }
   )
