@@ -47,6 +47,35 @@ interface OfferRow {
   attributes: Array<{ attr_id: string; value: unknown }>;
 }
 
+// Enhanced types from 003 migration
+interface RiskTagDefinition {
+  id: string;
+  name_en: string;
+  name_zh: string | null;
+  description: string | null;
+  severity: string;
+  affected_shipping: boolean;
+  affected_customs: boolean;
+  keywords: string[];
+}
+
+interface ShippingLane {
+  id: string;
+  name: string;
+  origin_country: string;
+  dest_country: string;
+  carrier: string | null;
+  service_type: string | null;
+  min_days: number | null;
+  max_days: number | null;
+  allowed_risk_tags: string[];
+  blocked_risk_tags: string[];
+  max_weight_g: number | null;
+  max_dimension_cm: number | null;
+  base_rate: number | null;
+  active: boolean;
+}
+
 export async function complianceRoutes(app: FastifyInstance): Promise<void> {
   /**
    * compliance.check_item
@@ -319,6 +348,214 @@ export async function complianceRoutes(app: FastifyInstance): Promise<void> {
       );
     }
   });
+
+  /**
+   * compliance.get_risk_tags
+   * 
+   * Get all risk tag definitions for compliance checking
+   */
+  app.post('/get_risk_tags', async (request: FastifyRequest, reply: FastifyReply) => {
+    const body = request.body as { params?: { severity?: string } };
+    const severity = body.params?.severity;
+
+    try {
+      let sql = `SELECT * FROM agent.risk_tag_definitions`;
+      const sqlParams: unknown[] = [];
+
+      if (severity) {
+        sql += ` WHERE severity = $1`;
+        sqlParams.push(severity);
+      }
+
+      sql += ` ORDER BY severity DESC, name_en`;
+
+      const tags = await query<RiskTagDefinition>(sql, sqlParams);
+
+      return reply.send(
+        createSuccessResponse({
+          risk_tags: tags.map(t => ({
+            id: t.id,
+            name: t.name_en,
+            name_zh: t.name_zh,
+            description: t.description,
+            severity: t.severity,
+            affects_shipping: t.affected_shipping,
+            affects_customs: t.affected_customs,
+            detection_keywords: t.keywords,
+          })),
+          total_count: tags.length,
+        })
+      );
+    } catch (error) {
+      logger.error({ error }, 'Failed to get risk tags');
+      return reply.status(500).send(
+        createErrorResponse('INTERNAL_ERROR', 'Failed to get risk tags')
+      );
+    }
+  });
+
+  /**
+   * compliance.analyze_product_risks
+   * 
+   * Analyze a product description to detect potential risk tags
+   */
+  app.post('/analyze_product_risks', async (request: FastifyRequest, reply: FastifyReply) => {
+    const body = request.body as { params?: { description?: string; title?: string } };
+    const description = (body.params?.description ?? '').toLowerCase();
+    const title = (body.params?.title ?? '').toLowerCase();
+    const combinedText = `${title} ${description}`;
+
+    try {
+      const tags = await query<RiskTagDefinition>(
+        `SELECT * FROM agent.risk_tag_definitions WHERE array_length(keywords, 1) > 0`
+      );
+
+      const detectedRisks: Array<{
+        tag_id: string;
+        name: string;
+        severity: string;
+        matched_keywords: string[];
+        confidence: number;
+      }> = [];
+
+      for (const tag of tags) {
+        const matchedKeywords: string[] = [];
+        for (const keyword of tag.keywords ?? []) {
+          if (combinedText.includes(keyword.toLowerCase())) {
+            matchedKeywords.push(keyword);
+          }
+        }
+
+        if (matchedKeywords.length > 0) {
+          const confidence = Math.min(0.95, 0.5 + matchedKeywords.length * 0.15);
+          detectedRisks.push({
+            tag_id: tag.id,
+            name: tag.name_en,
+            severity: tag.severity,
+            matched_keywords: matchedKeywords,
+            confidence,
+          });
+        }
+      }
+
+      // Sort by severity
+      const severityOrder: Record<string, number> = { critical: 3, warning: 2, info: 1 };
+      detectedRisks.sort((a, b) => {
+        const sevDiff = (severityOrder[b.severity] ?? 0) - (severityOrder[a.severity] ?? 0);
+        return sevDiff !== 0 ? sevDiff : b.confidence - a.confidence;
+      });
+
+      return reply.send(
+        createSuccessResponse({
+          detected_risks: detectedRisks,
+          has_critical: detectedRisks.some(r => r.severity === 'critical'),
+          has_warnings: detectedRisks.some(r => r.severity === 'warning'),
+          risk_summary: {
+            critical_count: detectedRisks.filter(r => r.severity === 'critical').length,
+            warning_count: detectedRisks.filter(r => r.severity === 'warning').length,
+            info_count: detectedRisks.filter(r => r.severity === 'info').length,
+          },
+        })
+      );
+    } catch (error) {
+      logger.error({ error }, 'Failed to analyze product risks');
+      return reply.status(500).send(
+        createErrorResponse('INTERNAL_ERROR', 'Failed to analyze product risks')
+      );
+    }
+  });
+
+  /**
+   * compliance.get_shipping_lanes
+   * 
+   * Get available shipping lanes between countries
+   */
+  app.post('/get_shipping_lanes', async (request: FastifyRequest, reply: FastifyReply) => {
+    const body = request.body as { 
+      params?: { 
+        origin_country?: string; 
+        dest_country?: string;
+        service_type?: string;
+        risk_tags?: string[];
+      } 
+    };
+    const originCountry = (body.params?.origin_country ?? 'CN').toUpperCase();
+    const destCountry = body.params?.dest_country?.toUpperCase();
+    const serviceType = body.params?.service_type;
+    const riskTags = body.params?.risk_tags;
+
+    try {
+      const conditions: string[] = ['active = true'];
+      const sqlParams: unknown[] = [];
+      let paramIndex = 1;
+
+      if (originCountry) {
+        conditions.push(`origin_country = $${paramIndex}`);
+        sqlParams.push(originCountry);
+        paramIndex++;
+      }
+
+      if (destCountry) {
+        conditions.push(`dest_country = $${paramIndex}`);
+        sqlParams.push(destCountry);
+        paramIndex++;
+      }
+
+      if (serviceType) {
+        conditions.push(`service_type = $${paramIndex}`);
+        sqlParams.push(serviceType);
+        paramIndex++;
+      }
+
+      const lanes = await query<ShippingLane>(
+        `SELECT * FROM agent.shipping_lanes 
+         WHERE ${conditions.join(' AND ')}
+         ORDER BY service_type, base_rate`,
+        sqlParams
+      );
+
+      // Filter by risk tag compatibility
+      let filteredLanes = lanes;
+      if (riskTags && riskTags.length > 0) {
+        filteredLanes = lanes.filter(lane => {
+          const hasBlockedTag = riskTags.some(tag => 
+            lane.blocked_risk_tags?.includes(tag)
+          );
+          return !hasBlockedTag;
+        });
+      }
+
+      return reply.send(
+        createSuccessResponse({
+          lanes: filteredLanes.map(lane => ({
+            id: lane.id,
+            name: lane.name,
+            origin: lane.origin_country,
+            destination: lane.dest_country,
+            carrier: lane.carrier,
+            service_type: lane.service_type,
+            delivery_days: {
+              min: lane.min_days,
+              max: lane.max_days,
+            },
+            restrictions: {
+              blocked_risk_tags: lane.blocked_risk_tags ?? [],
+              max_weight_g: lane.max_weight_g,
+              max_dimension_cm: lane.max_dimension_cm,
+            },
+            base_rate: lane.base_rate,
+          })),
+          total_count: filteredLanes.length,
+          filtered_out: lanes.length - filteredLanes.length,
+        })
+      );
+    } catch (error) {
+      logger.error({ error }, 'Failed to get shipping lanes');
+      return reply.status(500).send(
+        createErrorResponse('INTERNAL_ERROR', 'Failed to get shipping lanes')
+      );
+    }
+  });
 }
 
 /**
@@ -340,7 +577,7 @@ function evaluateCondition(
     const attr = offer.attributes?.find(a => a.attr_id === condition.attribute);
     const attrValue = attr?.value;
 
-    // 检查 risk_tags
+    // 检查 risk_tags (enhanced with more tags)
     if (condition.attribute === 'attr_battery_type') {
       const hasBattery = offer.risk_tags?.includes('battery_included');
       if (condition.operator === 'in' && Array.isArray(condition.value)) {
@@ -349,15 +586,15 @@ function evaluateCondition(
     }
 
     if (condition.attribute === 'attr_contains_liquid') {
-      return offer.risk_tags?.includes('contains_liquid') ?? false;
+      return offer.risk_tags?.includes('liquid') ?? false;
     }
 
     if (condition.attribute === 'attr_contains_magnet') {
-      return offer.risk_tags?.includes('contains_magnet') ?? false;
+      return offer.risk_tags?.includes('magnetic') ?? false;
     }
 
     if (condition.attribute === 'attr_small_parts') {
-      return offer.risk_tags?.includes('small_parts') ?? false;
+      return offer.risk_tags?.includes('children') ?? false;
     }
 
     // 通用属性检查

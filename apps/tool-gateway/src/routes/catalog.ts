@@ -13,7 +13,7 @@ import { getXOOBAYClient } from '../services/xoobay.js';
 
 const logger = createLogger('catalog');
 
-// Product type definitions
+// Product type definitions (Enhanced for AROC v0.2)
 interface OfferRow {
   id: string;
   spu_id: string;
@@ -34,6 +34,12 @@ interface OfferRow {
   warranty_months: number;
   rating: number;
   reviews_count: number;
+  // Enhanced fields from 003 migration
+  version_hash: string | null;
+  update_source: string | null;
+  risk_profile: unknown;
+  brand_id_ref: string | null;
+  merchant_id_ref: string | null;
 }
 
 interface SkuRow {
@@ -43,6 +49,48 @@ interface SkuRow {
   price: number;
   currency: string;
   stock: number;
+}
+
+interface BrandRow {
+  id: string;
+  name: string;
+  normalized_name: string | null;
+  logo_url: string | null;
+  country_of_origin: string | null;
+  confidence: string;
+}
+
+interface MerchantRow {
+  id: string;
+  name: string;
+  store_url: string | null;
+  rating: number;
+  total_products: number;
+  country: string | null;
+  verified: boolean;
+  risk_level: string;
+}
+
+interface CategoryRow {
+  id: string;
+  name_en: string;
+  name_zh: string | null;
+  path: string[];
+  full_path_en: string | null;
+  product_count: number;
+  level: number;
+  parent_id: string | null;
+}
+
+interface KgRelationRow {
+  id: string;
+  from_type: string;
+  from_id: string;
+  relation_type: string;
+  to_type: string;
+  to_id: string;
+  confidence: number;
+  metadata: unknown;
 }
 
 export async function catalogRoutes(app: FastifyInstance): Promise<void> {
@@ -283,6 +331,12 @@ export async function catalogRoutes(app: FastifyInstance): Promise<void> {
             warranty_months: 0,
             rating: 0,
             reviews_count: 0,
+            // Enhanced fields (defaults for XOOBAY products)
+            version_hash: null,
+            update_source: 'xoobay_api',
+            risk_profile: {},
+            brand_id_ref: null,
+            merchant_id_ref: null,
           } as OfferRow;
 
           logger.info({ offer_id: offerId }, 'Fetched from XOOBAY API');
@@ -325,21 +379,57 @@ export async function catalogRoutes(app: FastifyInstance): Promise<void> {
         }];
       }
 
-      // Query category path
-      const category = await queryOne<{ path: string[] }>(
-        `SELECT path FROM agent.categories WHERE id = $1`,
+      // Query category with enhanced fields
+      const category = await queryOne<CategoryRow>(
+        `SELECT id, name_en, name_zh, path, full_path_en, product_count, level, parent_id 
+         FROM agent.categories WHERE id = $1`,
         [offer.category_id]
       );
 
-      // Build AROC response
+      // Get brand details from KG if available
+      let brandInfo: BrandRow | null = null;
+      if (offer.brand_id_ref) {
+        brandInfo = await queryOne<BrandRow>(
+          `SELECT id, name, normalized_name, logo_url, country_of_origin, confidence 
+           FROM agent.brands WHERE id = $1`,
+          [offer.brand_id_ref]
+        );
+      }
+
+      // Get merchant details from KG if available  
+      let merchantInfo: MerchantRow | null = null;
+      if (offer.merchant_id_ref) {
+        merchantInfo = await queryOne<MerchantRow>(
+          `SELECT id, name, store_url, rating, total_products, country, verified, risk_level 
+           FROM agent.merchants WHERE id = $1`,
+          [offer.merchant_id_ref]
+        );
+      }
+
+      // Get KG relations
+      const kgRelations = await query<KgRelationRow>(
+        `SELECT id, from_type, from_id, relation_type, to_type, to_id, confidence, metadata
+         FROM agent.kg_relations 
+         WHERE (from_type = 'offer' AND from_id = $1) 
+            OR (to_type = 'offer' AND to_id = $1)
+         LIMIT 20`,
+        [offerId]
+      );
+
+      // Build AROC v0.2 response
       const aroc = {
-        aroc_version: '0.1',
+        aroc_version: '0.2',
         offer_id: offer.id,
         spu_id: offer.spu_id,
         merchant_id: offer.merchant_id,
         category: {
           cat_id: offer.category_id,
+          name: category?.name_en,
+          name_zh: category?.name_zh,
           path: category?.path ?? [],
+          full_path: category?.full_path_en,
+          level: category?.level,
+          product_count: category?.product_count,
         },
         titles: [
           { lang: 'en', text: offer.title_en },
@@ -348,8 +438,18 @@ export async function catalogRoutes(app: FastifyInstance): Promise<void> {
         brand: {
           name: offer.brand_name,
           normalized_id: offer.brand_id,
-          confidence: 'high',
+          confidence: brandInfo?.confidence ?? 'medium',
+          logo_url: brandInfo?.logo_url,
+          country_of_origin: brandInfo?.country_of_origin,
         },
+        merchant: merchantInfo ? {
+          id: merchantInfo.id,
+          name: merchantInfo.name,
+          store_url: merchantInfo.store_url,
+          rating: parseFloat(String(merchantInfo.rating)),
+          verified: merchantInfo.verified,
+          risk_level: merchantInfo.risk_level,
+        } : null,
         price: {
           amount: typeof offer.base_price === 'number' ? Math.round(offer.base_price * 100) / 100 : parseFloat(String(offer.base_price || 0)),
           currency: offer.currency,
@@ -369,17 +469,31 @@ export async function catalogRoutes(app: FastifyInstance): Promise<void> {
           return_policy: offer.return_policy,
           warranty_months: offer.warranty_months,
         },
-        risk_profile: {
+        risk_tags: offer.risk_tags ?? [],
+        risk_profile: offer.risk_profile ?? {
           fragile: false,
           sizing_uncertainty: 'low',
           has_battery: offer.risk_tags?.includes('battery_included') ?? false,
-          has_liquid: offer.risk_tags?.includes('contains_liquid') ?? false,
+          has_liquid: offer.risk_tags?.includes('liquid') ?? false,
         },
         weight_g: offer.weight_g,
         dimensions_mm: offer.dimensions_mm,
         certifications: offer.certifications ?? [],
         rating: parseFloat(String(offer.rating)),
         reviews_count: offer.reviews_count,
+        // Version tracking for AROC
+        version: {
+          hash: offer.version_hash,
+          source: offer.update_source,
+        },
+        // KG relationships
+        kg_relations: kgRelations.map(r => ({
+          id: r.id,
+          type: r.relation_type,
+          from: { type: r.from_type, id: r.from_id },
+          to: { type: r.to_type, id: r.to_id },
+          confidence: parseFloat(String(r.confidence)),
+        })),
       };
 
       return reply.send(
@@ -451,6 +565,242 @@ export async function catalogRoutes(app: FastifyInstance): Promise<void> {
       logger.error({ error }, 'Failed to get availability');
       return reply.status(500).send(
         createErrorResponse('INTERNAL_ERROR', 'Failed to get availability')
+      );
+    }
+  });
+
+  /**
+   * catalog.get_brand
+   * 
+   * Get brand details from KG
+   */
+  app.post('/get_brand', async (request: FastifyRequest, reply: FastifyReply) => {
+    const body = request.body as { params?: { brand_id?: string } };
+    const brandId = body.params?.brand_id;
+
+    if (!brandId) {
+      return reply.status(400).send(
+        createErrorResponse('INVALID_ARGUMENT', 'brand_id is required')
+      );
+    }
+
+    try {
+      const brand = await queryOne<BrandRow>(
+        `SELECT * FROM agent.brands WHERE id = $1`,
+        [brandId]
+      );
+
+      if (!brand) {
+        return reply.status(404).send(
+          createErrorResponse('NOT_FOUND', `Brand ${brandId} not found`)
+        );
+      }
+
+      const offerCount = await queryOne<{ count: string }>(
+        `SELECT COUNT(*) as count FROM agent.offers WHERE brand_id_ref = $1`,
+        [brandId]
+      );
+
+      return reply.send(
+        createSuccessResponse({
+          brand_id: brand.id,
+          name: brand.name,
+          normalized_name: brand.normalized_name,
+          logo_url: brand.logo_url,
+          country_of_origin: brand.country_of_origin,
+          confidence: brand.confidence,
+          offer_count: parseInt(offerCount?.count ?? '0'),
+        })
+      );
+    } catch (error) {
+      logger.error({ error, brand_id: brandId }, 'Failed to get brand');
+      return reply.status(500).send(
+        createErrorResponse('INTERNAL_ERROR', 'Failed to get brand')
+      );
+    }
+  });
+
+  /**
+   * catalog.get_merchant
+   * 
+   * Get merchant details and risk assessment from KG
+   */
+  app.post('/get_merchant', async (request: FastifyRequest, reply: FastifyReply) => {
+    const body = request.body as { params?: { merchant_id?: string } };
+    const merchantId = body.params?.merchant_id;
+
+    if (!merchantId) {
+      return reply.status(400).send(
+        createErrorResponse('INVALID_ARGUMENT', 'merchant_id is required')
+      );
+    }
+
+    try {
+      const merchant = await queryOne<MerchantRow>(
+        `SELECT * FROM agent.merchants WHERE id = $1`,
+        [merchantId]
+      );
+
+      if (!merchant) {
+        return reply.status(404).send(
+          createErrorResponse('NOT_FOUND', `Merchant ${merchantId} not found`)
+        );
+      }
+
+      return reply.send(
+        createSuccessResponse({
+          merchant_id: merchant.id,
+          name: merchant.name,
+          store_url: merchant.store_url,
+          rating: parseFloat(String(merchant.rating)),
+          total_products: merchant.total_products,
+          country: merchant.country,
+          verified: merchant.verified,
+          risk_level: merchant.risk_level,
+        })
+      );
+    } catch (error) {
+      logger.error({ error, merchant_id: merchantId }, 'Failed to get merchant');
+      return reply.status(500).send(
+        createErrorResponse('INTERNAL_ERROR', 'Failed to get merchant')
+      );
+    }
+  });
+
+  /**
+   * catalog.get_category_tree
+   * 
+   * Get category hierarchy with product counts
+   */
+  app.post('/get_category_tree', async (request: FastifyRequest, reply: FastifyReply) => {
+    const body = request.body as { params?: { parent_id?: string; depth?: number } };
+    const parentId = body.params?.parent_id;
+    const depth = Math.min(body.params?.depth ?? 2, 5);
+
+    try {
+      let categories: CategoryRow[];
+      
+      if (parentId) {
+        categories = await query<CategoryRow>(
+          `SELECT id, name_en, name_zh, path, full_path_en, product_count, level, parent_id
+           FROM agent.categories 
+           WHERE parent_id = $1
+           ORDER BY product_count DESC`,
+          [parentId]
+        );
+      } else {
+        categories = await query<CategoryRow>(
+          `SELECT id, name_en, name_zh, path, full_path_en, product_count, level, parent_id
+           FROM agent.categories 
+           WHERE level <= $1
+           ORDER BY level, product_count DESC
+           LIMIT 200`,
+          [depth]
+        );
+      }
+
+      return reply.send(
+        createSuccessResponse({
+          parent_id: parentId ?? null,
+          max_depth: depth,
+          categories: categories.map(c => ({
+            id: c.id,
+            name: c.name_en,
+            name_zh: c.name_zh,
+            path: c.full_path_en ?? (c.path?.join(' > ') || ''),
+            product_count: c.product_count,
+            level: c.level,
+            has_children: true,
+          })),
+          total_count: categories.length,
+        })
+      );
+    } catch (error) {
+      logger.error({ error }, 'Failed to get category tree');
+      return reply.status(500).send(
+        createErrorResponse('INTERNAL_ERROR', 'Failed to get category tree')
+      );
+    }
+  });
+
+  /**
+   * catalog.get_kg_relations
+   * 
+   * Get KG relationships for an entity
+   */
+  app.post('/get_kg_relations', async (request: FastifyRequest, reply: FastifyReply) => {
+    const body = request.body as { 
+      params?: { 
+        entity_type?: string; 
+        entity_id?: string;
+        relation_types?: string[];
+        direction?: string;
+      } 
+    };
+    const entityType = body.params?.entity_type;
+    const entityId = body.params?.entity_id;
+    const relationTypes = body.params?.relation_types;
+    const direction = body.params?.direction ?? 'both';
+
+    if (!entityType || !entityId) {
+      return reply.status(400).send(
+        createErrorResponse('INVALID_ARGUMENT', 'entity_type and entity_id are required')
+      );
+    }
+
+    try {
+      const conditions: string[] = [];
+      const sqlParams: unknown[] = [];
+      let paramIndex = 1;
+
+      if (direction === 'outgoing') {
+        conditions.push(`(from_type = $${paramIndex} AND from_id = $${paramIndex + 1})`);
+        sqlParams.push(entityType, entityId);
+        paramIndex += 2;
+      } else if (direction === 'incoming') {
+        conditions.push(`(to_type = $${paramIndex} AND to_id = $${paramIndex + 1})`);
+        sqlParams.push(entityType, entityId);
+        paramIndex += 2;
+      } else {
+        conditions.push(`((from_type = $${paramIndex} AND from_id = $${paramIndex + 1}) OR (to_type = $${paramIndex} AND to_id = $${paramIndex + 1}))`);
+        sqlParams.push(entityType, entityId);
+        paramIndex += 2;
+      }
+
+      if (relationTypes && relationTypes.length > 0) {
+        conditions.push(`relation_type = ANY($${paramIndex})`);
+        sqlParams.push(relationTypes);
+        paramIndex++;
+      }
+
+      const relations = await query<KgRelationRow>(
+        `SELECT id, from_type, from_id, relation_type, to_type, to_id, confidence, metadata
+         FROM agent.kg_relations 
+         WHERE ${conditions.join(' AND ')}
+         ORDER BY confidence DESC
+         LIMIT 100`,
+        sqlParams
+      );
+
+      return reply.send(
+        createSuccessResponse({
+          entity: { type: entityType, id: entityId },
+          direction,
+          relations: relations.map(r => ({
+            id: r.id,
+            type: r.relation_type,
+            from: { type: r.from_type, id: r.from_id },
+            to: { type: r.to_type, id: r.to_id },
+            confidence: parseFloat(String(r.confidence)),
+            metadata: r.metadata,
+          })),
+          total_count: relations.length,
+        })
+      );
+    } catch (error) {
+      logger.error({ error }, 'Failed to get KG relations');
+      return reply.status(500).send(
+        createErrorResponse('INTERNAL_ERROR', 'Failed to get KG relations')
       );
     }
   });
