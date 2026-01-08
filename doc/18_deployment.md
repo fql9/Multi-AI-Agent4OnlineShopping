@@ -73,6 +73,8 @@ XOOBAY_BASE_URL=https://www.xoobay.com
 
 ## 4. 常用运维命令
 
+> 更完整的“运维命令手册（Runbook）”见：[`19_ops_runbook.md`](./19_ops_runbook.md)
+
 ### 数据管理
 ```bash
 # 运行数据库迁移

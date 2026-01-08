@@ -10,7 +10,8 @@
 2. [`02_tech_stack.md`](./02_tech_stack.md) - **技术栈（落地版）**
 3. [`01_repo_structure.md`](./01_repo_structure.md) - **仓库结构（落地版）**
 4. [`18_deployment.md`](./18_deployment.md) - **🐳 部署指南（Docker 一键启动）**
-5. [`17_progress.md`](./17_progress.md) - **开发进度（100%）**
+5. [`19_ops_runbook.md`](./19_ops_runbook.md) - **🧰 运维 Runbook（命令手册）**
+6. [`17_progress.md`](./17_progress.md) - **开发进度（100%）**
 
 ---
 
@@ -69,6 +70,7 @@
 |------|------|
 | [`17_progress.md`](./17_progress.md) | **开发进度追踪（100% 完成）** |
 | [`18_deployment.md`](./18_deployment.md) | **🐳 部署指南（Docker 完整打包）** |
+| [`19_ops_runbook.md`](./19_ops_runbook.md) | **🧰 运维 Runbook（命令手册）** |
 
 ---
 
