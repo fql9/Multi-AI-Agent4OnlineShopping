@@ -28,6 +28,12 @@ docker compose -f docker-compose.full.yml up -d
 OPENAI_API_KEY=sk-...           # 必填：OpenAI API Key
 APP_ENV=production              # 环境模式
 LOG_LEVEL=info                  # 日志级别 (debug/info/warn/error)
+
+# XOOBAY（生产环境强烈建议开启：服务器若仅有少量 seed 数据，关闭会导致“搜索很容易为空”）
+XOOBAY_ENABLED=true
+XOOBAY_API_KEY=your_key
+XOOBAY_BASE_URL=https://www.xoobay.com
+XOOBAY_LANG=en
 ```
 
 ### Rate Limiting (v0.6 新增)
@@ -57,11 +63,7 @@ AGENT_PORT=8000
 ```
 
 ### 外部集成 (XOOBAY)
-```ini
-XOOBAY_ENABLED=true
-XOOBAY_API_KEY=your_key
-XOOBAY_BASE_URL=https://www.xoobay.com
-```
+> 已整合到上方“核心配置”中，避免部署时遗漏。这里不再重复维护。
 
 ## 3. 服务说明
 
