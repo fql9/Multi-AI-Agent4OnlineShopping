@@ -13,6 +13,34 @@ import { getXOOBAYClient } from '../services/xoobay.js';
 
 const logger = createLogger('catalog');
 
+function extractSearchTokens(input: string): string[] {
+  // The web UI often sends natural language like:
+  // "wireless charger for iPhone 15, budget $50, ship to US"
+  // We keep this search tool forgiving by extracting a small set of meaningful tokens.
+  const firstClause = input.split(',')[0]?.trim() ?? '';
+  const raw = (firstClause || input).toLowerCase();
+
+  const tokens = (raw.match(/[a-z0-9]+/g) ?? [])
+    .filter(t => t.length >= 2 && !/^\d+$/.test(t));
+
+  const stopwords = new Set([
+    'i', 'im', "i'm", 'need', 'want', 'looking', 'buy', 'purchase',
+    'a', 'an', 'the', 'for', 'my', 'with', 'and', 'or',
+    'budget', 'around', 'under', 'over', 'max', 'min',
+    'ship', 'shipping', 'deliver', 'delivery', 'to',
+    'usd', 'eur', 'gbp', 'cny', 'rmb',
+  ]);
+
+  const deduped: string[] = [];
+  for (const t of tokens) {
+    if (stopwords.has(t)) continue;
+    if (!deduped.includes(t)) deduped.push(t);
+    if (deduped.length >= 8) break; // keep SQL small
+  }
+
+  return deduped;
+}
+
 // Product type definitions (Enhanced for AROC v0.2)
 interface OfferRow {
   id: string;
@@ -126,9 +154,22 @@ export async function catalogRoutes(app: FastifyInstance): Promise<void> {
 
       // Keyword search (title)
       if (searchQuery) {
-        conditions.push(`(title_en ILIKE $${paramIndex} OR title_zh ILIKE $${paramIndex} OR brand_name ILIKE $${paramIndex})`);
-        sqlParams.push(`%${searchQuery}%`);
-        paramIndex++;
+        const tokens = extractSearchTokens(searchQuery);
+        logger.info({ raw_query: searchQuery, tokens }, 'Normalized search query');
+
+        if (tokens.length === 0) {
+          conditions.push(`(title_en ILIKE $${paramIndex} OR title_zh ILIKE $${paramIndex} OR brand_name ILIKE $${paramIndex})`);
+          sqlParams.push(`%${searchQuery}%`);
+          paramIndex++;
+        } else {
+          const tokenConditions: string[] = [];
+          for (const token of tokens) {
+            tokenConditions.push(`(title_en ILIKE $${paramIndex} OR title_zh ILIKE $${paramIndex} OR brand_name ILIKE $${paramIndex})`);
+            sqlParams.push(`%${token}%`);
+            paramIndex++;
+          }
+          conditions.push(`(${tokenConditions.join(' OR ')})`);
+        }
       }
 
       // Category filter
