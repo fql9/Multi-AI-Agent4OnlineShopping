@@ -31,9 +31,17 @@ function extractSearchTokens(input: string): string[] {
     'usd', 'eur', 'gbp', 'cny', 'rmb',
   ]);
 
+  // Common country/region codes frequently found in prompts like "ship to US"
+  // Keep this small and conservative to avoid removing meaningful 2-letter tokens.
+  const countryCodes = new Set([
+    'us', 'uk', 'de', 'fr', 'es', 'it', 'nl', 'se', 'no', 'fi', 'dk',
+    'cn', 'jp', 'kr', 'sg', 'hk', 'tw', 'au', 'ca', 'in', 'br', 'mx',
+  ]);
+
   const deduped: string[] = [];
   for (const t of tokens) {
     if (stopwords.has(t)) continue;
+    if (countryCodes.has(t)) continue;
     if (!deduped.includes(t)) deduped.push(t);
     if (deduped.length >= 8) break; // keep SQL small
   }

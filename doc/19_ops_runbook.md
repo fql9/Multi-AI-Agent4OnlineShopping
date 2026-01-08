@@ -472,6 +472,77 @@ docker exec -it agent-tool-gateway env | grep RATE_LIMIT
 
 > 开发/演示环境建议 `RATE_LIMIT_ENABLED=false` 或调大 `RATE_LIMIT_MAX`。
 
+### 8.4 “搜不到商品/搜索结果为空（No products found）”
+
+现象常见分两类：
+
+- **A. `query` 为空能返回，但自然语言整句搜索返回空**  
+  典型：`"wireless charger iphone 15, budget $50, ship to US"` 这种输入包含预算/国家等噪声，若后端只做 `ILIKE '%整句%'` 会很难命中。
+- **B. 不管怎么搜都为空**  
+  多数是 **数据库无商品数据** 或 **XOOBAY 关闭/不可用**。
+
+#### 8.4.1 先确认链路与服务健康
+
+```bash
+curl -fsS http://localhost:3000/health && echo
+docker ps --filter "name=agent-tool-gateway" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+docker logs --tail 200 agent-tool-gateway | grep -iE 'error|invalid|search|xoobay' || true
+```
+
+#### 8.4.2 用 curl 直接验证 `catalog.search_offers`（注意 request_id 必须是 UUID）
+
+> `request_id` **必须是 UUID**；如果你随便写 `debug`，会收到 `INVALID_ARGUMENT`。
+
+```bash
+# 1) 空 query（如果 DB 有数据，一般会返回若干 offer_ids）
+curl -sS http://localhost:3000/tools/catalog/search_offers \
+  -H 'content-type: application/json' \
+  -d '{"request_id":"11111111-1111-1111-1111-111111111111","actor":{"type":"user","id":"ops"},"client":{"app":"ops","version":"1"},"params":{"query":"","limit":10}}' | cat
+
+echo
+
+# 2) 短关键词（例如 charger）
+curl -sS http://localhost:3000/tools/catalog/search_offers \
+  -H 'content-type: application/json' \
+  -d '{"request_id":"22222222-2222-2222-2222-222222222222","actor":{"type":"user","id":"ops"},"client":{"app":"ops","version":"1"},"params":{"query":"charger","limit":10}}' | cat
+
+echo
+
+# 3) 自然语言整句（含预算/国家等信息）
+curl -sS http://localhost:3000/tools/catalog/search_offers \
+  -H 'content-type: application/json' \
+  -d '{"request_id":"33333333-3333-3333-3333-333333333333","actor":{"type":"user","id":"ops"},"client":{"app":"ops","version":"1"},"params":{"query":"wireless charger iphone 15, budget $50, ship to US","limit":10}}' | cat
+```
+
+判读：
+
+- 若 (1) 有结果、(2) 有结果、但 (3) 为 0：  
+  - **升级 tool-gateway 到最新版本**（新版本会对自然语言做 token 化去噪匹配），或前端把预算/国家拆到 filters 中。  
+- 若 (1)(2)(3) 都为 0：继续看 8.4.3 与 8.4.4。
+
+#### 8.4.3 数据库是否有商品数据
+
+```bash
+docker exec -it agent-postgres psql -U agent -d agent_db -c "SELECT COUNT(*) AS offers FROM agent.offers;"
+docker exec -it agent-postgres psql -U agent -d agent_db -c "SELECT COUNT(*) AS skus FROM agent.skus;"
+```
+
+若 `offers=0`：需要跑迁移/导入/同步（见 5.4 迁移、导入、同步）。
+
+#### 8.4.4 XOOBAY 是否启用（用于补充结果）
+
+> 截图里这种情况：`XOOBAY_ENABLED=false`，当 DB 匹配不到时就会“真的搜不到”。
+
+```bash
+docker exec agent-tool-gateway env | grep -E '^XOOBAY_ENABLED=|^XOOBAY_BASE_URL=|^XOOBAY_API_KEY=' || true
+```
+
+如需启用：在 `.env` / compose 环境里设置：
+
+- `XOOBAY_ENABLED=true`
+- `XOOBAY_BASE_URL=https://www.xoobay.com`
+- `XOOBAY_API_KEY=...`（如不设置，代码会使用默认 key；但生产建议显式配置）
+
 ---
 
 ## 9. 清理与回收（谨慎）
