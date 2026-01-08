@@ -189,6 +189,198 @@ ORDER BY created_at DESC
 LIMIT 20;"
 ```
 
+### 5.4 产品数据检查（Offers / SKUs / Categories / Brands / Merchants）
+
+> 以下命令均可直接在服务器上执行；不需要本机安装 psql（走容器内 `psql`）。
+
+#### 5.4.1 产品数据总览（行数/更新时间）
+
+```bash
+docker exec -it agent-postgres psql -U agent -d agent_db -c "
+SELECT
+  (SELECT COUNT(*) FROM agent.categories) AS categories,
+  (SELECT COUNT(*) FROM agent.offers) AS offers,
+  (SELECT COUNT(*) FROM agent.skus) AS skus,
+  (SELECT COUNT(*) FROM agent.brands) AS brands,
+  (SELECT COUNT(*) FROM agent.merchants) AS merchants;
+"
+```
+
+```bash
+# 最近更新的商品（看同步是否“真的在跑”）
+docker exec -it agent-postgres psql -U agent -d agent_db -c "
+SELECT id, title_en, brand_name, currency, base_price, updated_at
+FROM agent.offers
+ORDER BY updated_at DESC NULLS LAST
+LIMIT 20;"
+```
+
+#### 5.4.2 Offers 完整性与异常（标题/价格/类目/风险标签）
+
+```bash
+# 标题缺失、价格缺失、类目缺失的统计
+docker exec -it agent-postgres psql -U agent -d agent_db -c "
+SELECT
+  SUM(CASE WHEN COALESCE(title_en, '') = '' AND COALESCE(title_zh, '') = '' THEN 1 ELSE 0 END) AS missing_title,
+  SUM(CASE WHEN base_price IS NULL OR base_price <= 0 THEN 1 ELSE 0 END) AS missing_or_nonpositive_price,
+  SUM(CASE WHEN category_id IS NULL OR category_id = '' THEN 1 ELSE 0 END) AS missing_category
+FROM agent.offers;"
+```
+
+```bash
+# 类目引用不存在（orphan category_id）
+docker exec -it agent-postgres psql -U agent -d agent_db -c "
+SELECT COUNT(*) AS orphan_offer_category_refs
+FROM agent.offers o
+LEFT JOIN agent.categories c ON c.id = o.category_id
+WHERE o.category_id IS NOT NULL AND c.id IS NULL;"
+```
+
+```bash
+# 价格分布（粗看异常：超低/超高）
+docker exec -it agent-postgres psql -U agent -d agent_db -c "
+SELECT
+  MIN(base_price) AS min_price,
+  PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY base_price) AS p50_price,
+  PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY base_price) AS p95_price,
+  MAX(base_price) AS max_price
+FROM agent.offers
+WHERE base_price IS NOT NULL;"
+```
+
+```bash
+# 风险标签覆盖（哪些风险最常见）
+docker exec -it agent-postgres psql -U agent -d agent_db -c "
+SELECT tag, COUNT(*) AS offers_count
+FROM (
+  SELECT unnest(COALESCE(risk_tags, '{}'::text[])) AS tag
+  FROM agent.offers
+) t
+WHERE tag IS NOT NULL AND tag <> ''
+GROUP BY tag
+ORDER BY offers_count DESC
+LIMIT 30;"
+```
+
+#### 5.4.3 SKUs 完整性与异常（价格/库存/外键）
+
+```bash
+# SKU 外键引用不存在（orphan offer_id）
+docker exec -it agent-postgres psql -U agent -d agent_db -c "
+SELECT COUNT(*) AS orphan_sku_offer_refs
+FROM agent.skus s
+LEFT JOIN agent.offers o ON o.id = s.offer_id
+WHERE s.offer_id IS NOT NULL AND o.id IS NULL;"
+```
+
+```bash
+# SKU 价格缺失/异常、库存异常
+docker exec -it agent-postgres psql -U agent -d agent_db -c "
+SELECT
+  SUM(CASE WHEN price IS NULL OR price <= 0 THEN 1 ELSE 0 END) AS missing_or_nonpositive_price,
+  SUM(CASE WHEN stock IS NULL THEN 1 ELSE 0 END) AS missing_stock,
+  SUM(CASE WHEN stock < 0 THEN 1 ELSE 0 END) AS negative_stock
+FROM agent.skus;"
+```
+
+```bash
+# 每个 offer 的 SKU 数量分布（找“没有 SKU”的商品）
+docker exec -it agent-postgres psql -U agent -d agent_db -c "
+SELECT
+  SUM(CASE WHEN sku_count = 0 THEN 1 ELSE 0 END) AS offers_without_skus,
+  SUM(CASE WHEN sku_count = 1 THEN 1 ELSE 0 END) AS offers_with_1_sku,
+  SUM(CASE WHEN sku_count BETWEEN 2 AND 5 THEN 1 ELSE 0 END) AS offers_with_2_5_skus,
+  SUM(CASE WHEN sku_count > 5 THEN 1 ELSE 0 END) AS offers_with_gt5_skus
+FROM (
+  SELECT o.id, COUNT(s.id) AS sku_count
+  FROM agent.offers o
+  LEFT JOIN agent.skus s ON s.offer_id = o.id
+  GROUP BY o.id
+) x;"
+```
+
+#### 5.4.4 类目数据检查（层级/覆盖）
+
+```bash
+# 类目层级分布
+docker exec -it agent-postgres psql -U agent -d agent_db -c "
+SELECT level, COUNT(*) AS categories
+FROM agent.categories
+GROUP BY level
+ORDER BY level;"
+```
+
+```bash
+# 商品在类目上的覆盖（Top 类目）
+docker exec -it agent-postgres psql -U agent -d agent_db -c "
+SELECT c.id, c.name_en, COUNT(o.id) AS offers
+FROM agent.categories c
+JOIN agent.offers o ON o.category_id = c.id
+GROUP BY c.id, c.name_en
+ORDER BY offers DESC
+LIMIT 30;"
+```
+
+#### 5.4.5 品牌/商家聚合（用于发现脏数据/空值）
+
+```bash
+# brand_name 为空的商品占比
+docker exec -it agent-postgres psql -U agent -d agent_db -c "
+SELECT
+  COUNT(*) FILTER (WHERE COALESCE(brand_name, '') = '') AS missing_brand_name,
+  COUNT(*) AS total_offers
+FROM agent.offers;"
+```
+
+```bash
+# Top 品牌（按商品数）
+docker exec -it agent-postgres psql -U agent -d agent_db -c "
+SELECT COALESCE(NULLIF(brand_name, ''), '(empty)') AS brand_name, COUNT(*) AS offers
+FROM agent.offers
+GROUP BY COALESCE(NULLIF(brand_name, ''), '(empty)')
+ORDER BY offers DESC
+LIMIT 30;"
+```
+
+```bash
+# 商家分布（merchant_id 字段如为空，先用此确认数据情况）
+docker exec -it agent-postgres psql -U agent -d agent_db -c "
+SELECT COALESCE(NULLIF(merchant_id, ''), '(empty)') AS merchant_id, COUNT(*) AS offers
+FROM agent.offers
+GROUP BY COALESCE(NULLIF(merchant_id, ''), '(empty)')
+ORDER BY offers DESC
+LIMIT 30;"
+```
+
+#### 5.4.6 RAG/证据块检查（embedding/来源）
+
+```bash
+# evidence_chunks 来源分布
+docker exec -it agent-postgres psql -U agent -d agent_db -c "
+SELECT source_type, COUNT(*) AS chunks
+FROM agent.evidence_chunks
+GROUP BY source_type
+ORDER BY chunks DESC;"
+```
+
+```bash
+# embedding 缺失统计（向量索引/语义检索依赖）
+docker exec -it agent-postgres psql -U agent -d agent_db -c "
+SELECT
+  COUNT(*) FILTER (WHERE embedding IS NULL) AS missing_embedding,
+  COUNT(*) AS total_chunks
+FROM agent.evidence_chunks;"
+```
+
+```bash
+# 近期 evidence_chunks（看索引/同步是否在持续产出）
+docker exec -it agent-postgres psql -U agent -d agent_db -c "
+SELECT id, source_type, offer_id, language, created_at
+FROM agent.evidence_chunks
+ORDER BY created_at DESC
+LIMIT 20;"
+```
+
 ### 5.4 迁移、导入、同步（compose profiles）
 
 ```bash
