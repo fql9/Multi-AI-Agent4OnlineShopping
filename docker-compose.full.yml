@@ -26,7 +26,6 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./infra/docker/init-db.sql:/docker-entrypoint-initdb.d/01-init-db.sql:ro
-      - ./infra/docker/seed-data.sql:/docker-entrypoint-initdb.d/02-seed-data.sql:ro
       - ./infra/docker/migrations:/docker-entrypoint-initdb.d/migrations:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-agent} -d ${POSTGRES_DB:-agent_db}"]
@@ -407,38 +406,6 @@ services:
     depends_on:
       - redis
     restart: unless-stopped
-    networks:
-      - agent-network
-
-  # ========================================
-  # 🌱 种子数据导入 (一次性运行)
-  # ========================================
-  seed-data:
-    image: pgvector/pgvector:pg16
-    container_name: agent-seed-data
-    profiles:
-      - seed
-    volumes:
-      - ./infra/docker/seed-data.sql:/seed-data.sql:ro
-    environment:
-      PGHOST: postgres
-      PGPORT: 5432
-      PGUSER: ${POSTGRES_USER:-agent}
-      PGPASSWORD: ${POSTGRES_PASSWORD:-agent_dev_password}
-      PGDATABASE: ${POSTGRES_DB:-agent_db}
-    command: >
-      sh -c "
-        echo 'Waiting for PostgreSQL...' &&
-        until pg_isready -h postgres -p 5432 -U ${POSTGRES_USER:-agent}; do
-          sleep 2
-        done &&
-        echo 'Importing seed data...' &&
-        psql -f /seed-data.sql &&
-        echo 'Seed data imported successfully!'
-      "
-    depends_on:
-      postgres:
-        condition: service_healthy
     networks:
       - agent-network
 

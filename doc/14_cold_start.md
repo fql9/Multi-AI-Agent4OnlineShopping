@@ -202,27 +202,22 @@ for insight in insights:
 
 ---
 
-## 六、种子数据脚本
+## 六、真实数据导入 / 同步（推荐）
+
+> 原则：**不使用种子数据**。冷启动阶段应尽快接入真实数据源（商家 feed / XOOBAY 等）。
+
+### 方案 A：XOOBAY 同步（最快让系统“可搜可用”）
 
 ```bash
-# 导入种子数据
-cd data/seeds
-
-# 1. 导入类目树
-python import_categories.py
-
-# 2. 导入属性定义
-python import_attributes.py
-
-# 3. 导入合规规则
-python import_compliance_rules.py
-
-# 4. 导入样例 AROC（100 个 SKU）
-python import_sample_aroc.py
-
-# 5. 导入平台政策文档
-python import_policies.py
+# 先跑迁移，再同步真实商品数据
+docker compose -f docker-compose.full.yml --profile migrate up db-migrate
+docker compose -f docker-compose.full.yml --profile sync run --rm xoobay-sync
 ```
+
+### 方案 B：商家/ERP Feed（长期方案）
+
+- 由商家/ERP 提供结构化 feed（CSV/JSON/Parquet）
+- 入库前做字段校验、去重、版本化（version_hash），并将来源标记到 attributes/metadata（可审计）
 
 ---
 

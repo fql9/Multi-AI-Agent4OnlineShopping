@@ -39,7 +39,6 @@
 | Redis 7 | 缓存 + 会话 + 幂等性 | `docker-compose.full.yml` |
 | 数据库表结构 | 11 张表 + RAG 增强 | `infra/docker/migrations/` |
 | 数据库连接池 | pg 连接管理 + 事务支持 | `packages/common/src/db.ts` |
-| 种子数据 | 12 类目 + 6 规则 + 14 商品 + 22 SKU | `infra/docker/seed-data.sql` |
 | CI/CD | GitHub Actions 自动构建测试 | `.github/workflows/ci.yml` |
 | 环境配置 | 完整环境变量模板 | `.env.example` |
 | 部署文档 | 完整部署指南 | `doc/18_deployment.md` |
@@ -56,7 +55,6 @@
 | Web App | 3001 | 前端界面 | ✅ healthy |
 | Python Agent | 8000 | LangGraph 编排 | ✅ healthy |
 | DB Migrate | - | 数据库迁移 | ✅ profile: migrate |
-| Seed Data | - | 种子数据导入 | ✅ profile: seed |
 | XOOBAY Sync | - | 产品同步 | ✅ profile: sync |
 
 ### 🔧 工具层（23 个端点）
@@ -210,7 +208,7 @@
 | 里程碑 | 目标 | 状态 |
 |--------|------|------|
 | **M0** | 环境搭建 + Contract 定义 | ✅ 完成 |
-| **M1** | 工具层实现 + 种子数据 | ✅ 完成 |
+| **M1** | 工具层实现 + 真实数据同步（XOOBAY） | ✅ 完成 |
 | **M2** | Agent 编排 + LLM 集成 | ✅ 完成 |
 | **M3** | 端到端流程 + 测试覆盖 | ✅ 完成 |
 | **M4** | 前端 Demo | ✅ 完成 |
@@ -253,7 +251,7 @@
   - 步骤卡片支持运行中高亮、动画和 token/time 指标
   - Processing 页不再直接跳转，先展示多 Agent 运行细节
 - ✅ **部署文档提醒**:
-  - 部署指南强调需要导入足够商品（seed + XOOBAY 同步）以获得理想推荐效果
+  - 部署指南强调：数据库必须同步真实商品数据（XOOBAY / 自有 feed），否则“搜索很容易为空”
 
 ### 2026-01-02 (v0.5.0) - 全服务 Docker 部署完成
 
@@ -348,7 +346,7 @@
 ### 2025-12-26 (v0.1.0)
 
 - ✅ 实现所有 19 个工具端点的数据库逻辑
-- ✅ 添加种子数据（类目/规则/商品）
+- ✅ 支持真实数据同步（XOOBAY 产品同步）
 - ✅ 修复 Python lint 问题
 - ✅ 创建 PR #1 合并到 main
 
@@ -391,8 +389,9 @@ open http://localhost:3001
 # 1. 启动数据库
 docker compose up -d
 
-# 2. 导入种子数据
-docker exec agent-postgres psql -U agent -d agent_db -f /docker-entrypoint-initdb.d/02-seed-data.sql
+# 2. 跑迁移并同步真实数据（XOOBAY / 自有 feed）
+docker compose -f docker-compose.full.yml --profile migrate up db-migrate
+docker compose -f docker-compose.full.yml --profile sync run --rm xoobay-sync
 
 # 3. 安装依赖
 pnpm install

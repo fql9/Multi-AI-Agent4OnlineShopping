@@ -174,7 +174,6 @@ services:
 
   # 辅助服务 (profiles)
   db-migrate:   # 数据库迁移 (migrate profile)
-  seed-data:    # 种子数据 (seed profile)
   xoobay-sync:  # XOOBAY 同步 (sync profile)
   adminer:      # 数据库管理 (tools profile)
   redis-commander:  # Redis 管理 (tools profile)
@@ -256,11 +255,8 @@ docker compose -f docker-compose.full.yml --profile tools up -d
 # 运行数据库迁移
 docker compose -f docker-compose.full.yml --profile migrate up db-migrate
 
-# 导入种子数据
-docker compose -f docker-compose.full.yml --profile seed up seed-data
-
 # XOOBAY 产品同步
-docker compose -f docker-compose.full.yml --profile sync up xoobay-sync
+docker compose -f docker-compose.full.yml --profile sync run --rm xoobay-sync
 
 # 验证服务状态
 docker compose -f docker-compose.full.yml ps

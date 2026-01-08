@@ -24,7 +24,52 @@
 
 ---
 
-## 1. 约定与关键参数（默认值）
+## 1. ⭐ 数据迁移 / 导入 / 同步（重点：数据库必须是真实数据）
+
+> **重要原则**：本项目不再提供/使用任何“种子数据（seed）”。生产数据库必须通过 **真实数据源同步**（如 XOOBAY）或你的自有商家/ERP feed 导入。
+
+### 1.1 首次部署（或重建数据库）推荐流程
+
+```bash
+# 0) 确认 XOOBAY 已启用（生产强烈建议开启，否则 DB 为空时将完全无商品可搜）
+docker exec agent-tool-gateway env | grep -E '^XOOBAY_ENABLED=|^XOOBAY_BASE_URL=|^XOOBAY_API_KEY=' || true
+
+# 1) 启动基础依赖
+docker compose -f docker-compose.full.yml up -d postgres redis
+
+# 2) 跑迁移（让表结构与代码一致）
+docker compose -f docker-compose.full.yml --profile migrate up db-migrate
+
+# 3) 启动业务服务
+docker compose -f docker-compose.full.yml up -d core-mcp checkout-mcp tool-gateway agent web-app
+
+# 4) 同步真实商品数据（XOOBAY → PostgreSQL）
+# 推荐用 run --rm：一次性任务跑完即退出
+docker compose -f docker-compose.full.yml --profile sync run --rm xoobay-sync
+```
+
+### 1.2 验收：确认“确实有真实数据”
+
+```bash
+docker exec -it agent-postgres psql -U agent -d agent_db -c "
+SELECT
+  (SELECT COUNT(*) FROM agent.categories) AS categories,
+  (SELECT COUNT(*) FROM agent.offers) AS offers,
+  (SELECT COUNT(*) FROM agent.skus) AS skus,
+  (SELECT COUNT(*) FROM agent.evidence_chunks) AS evidence_chunks;"
+```
+
+### 1.3 可选：数据增强（从真实数据派生品牌/商家/KG/风险画像）
+
+> 该脚本不会注入“样例商品”，只会基于现有真实 offers 派生/补全字段。
+
+```bash
+docker exec -i agent-postgres psql -U agent -d agent_db < scripts/enhance-database-data.sql
+```
+
+---
+
+## 2. 约定与关键参数（默认值）
 
 ### 1.1 关键容器名（来自 `docker-compose.full.yml`）
 
@@ -51,7 +96,7 @@
 
 ---
 
-## 2. 服务生命周期（Start / Stop / Restart）
+## 3. 服务生命周期（Start / Stop / Restart）
 
 ### 2.1 启动/停止全套服务
 
@@ -87,7 +132,7 @@ docker compose -f docker-compose.full.yml up -d agent web-app
 
 ---
 
-## 3. 日志与运行态诊断
+## 4. 日志与运行态诊断
 
 ### 3.1 查看日志
 
@@ -120,7 +165,7 @@ docker exec -it agent-python sh
 
 ---
 
-## 4. 健康检查（Healthcheck / 端口连通）
+## 5. 健康检查（Healthcheck / 端口连通）
 
 ### 4.1 HTTP 健康检查
 
@@ -142,7 +187,7 @@ docker exec -it agent-redis redis-cli -a redis_dev_password ping
 
 ---
 
-## 5. 数据库运维（PostgreSQL）
+## 6. 数据库运维（PostgreSQL）
 
 ### 5.1 进入 psql（容器内）
 
@@ -381,17 +426,14 @@ ORDER BY created_at DESC
 LIMIT 20;"
 ```
 
-### 5.4 迁移、导入、同步（compose profiles）
+### 6.4 迁移、同步（compose profiles）
 
 ```bash
 # 数据库迁移（profile: migrate）
 docker compose -f docker-compose.full.yml --profile migrate up db-migrate
 
-# 导入种子数据（profile: seed）
-docker compose -f docker-compose.full.yml --profile seed up seed-data
-
 # XOOBAY 产品同步（profile: sync）
-docker compose -f docker-compose.full.yml --profile sync up xoobay-sync
+docker compose -f docker-compose.full.yml --profile sync run --rm xoobay-sync
 ```
 
 ### 5.5 备份与恢复
@@ -455,7 +497,7 @@ docker compose -f docker-compose.full.yml logs --tail 200 tool-gateway
 curl -fsS http://localhost:3000/health && echo
 ```
 
-### 8.2 “数据库连接失败/迁移失败”
+### 9.2 “数据库连接失败/迁移失败”
 
 ```bash
 docker exec -it agent-postgres pg_isready -U agent -d agent_db
@@ -472,7 +514,7 @@ docker exec -it agent-tool-gateway env | grep RATE_LIMIT
 
 > 开发/演示环境建议 `RATE_LIMIT_ENABLED=false` 或调大 `RATE_LIMIT_MAX`。
 
-### 8.4 “搜不到商品/搜索结果为空（No products found）”
+### 9.4 “搜不到商品/搜索结果为空（No products found）”
 
 现象常见分两类：
 
@@ -527,7 +569,7 @@ docker exec -it agent-postgres psql -U agent -d agent_db -c "SELECT COUNT(*) AS 
 docker exec -it agent-postgres psql -U agent -d agent_db -c "SELECT COUNT(*) AS skus FROM agent.skus;"
 ```
 
-若 `offers=0`：需要跑迁移/导入/同步（见 5.4 迁移、导入、同步）。
+若 `offers=0`：需要跑迁移/同步真实数据（见 **1** 或 **6.4**）。
 
 #### 8.4.4 XOOBAY 是否启用（用于补充结果）
 

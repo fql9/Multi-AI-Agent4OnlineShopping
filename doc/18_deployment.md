@@ -10,7 +10,7 @@
 # 复制环境变量模板
 cp .env.example .env
 # 编辑 .env 填入 OpenAI Key
-# 生产环境强烈建议启用 XOOBAY（否则服务器只有少量 seed 数据时很容易“搜不到商品”）：
+# 生产环境强烈建议启用 XOOBAY（否则数据库为空/数据量不足时很容易“搜不到商品”）：
 #   XOOBAY_ENABLED=true
 #   XOOBAY_API_KEY=your_key
 #   XOOBAY_BASE_URL=https://www.xoobay.com
@@ -29,7 +29,7 @@ OPENAI_API_KEY=sk-...           # 必填：OpenAI API Key
 APP_ENV=production              # 环境模式
 LOG_LEVEL=info                  # 日志级别 (debug/info/warn/error)
 
-# XOOBAY（生产环境强烈建议开启：服务器若仅有少量 seed 数据，关闭会导致“搜索很容易为空”）
+# XOOBAY（生产环境强烈建议开启：数据库为空/数据量不足时，关闭会导致“搜索很容易为空”）
 XOOBAY_ENABLED=true
 XOOBAY_API_KEY=your_key
 XOOBAY_BASE_URL=https://www.xoobay.com

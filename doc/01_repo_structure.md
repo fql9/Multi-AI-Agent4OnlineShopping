@@ -187,19 +187,12 @@
 │           └── store/
 │               └── shopping.ts     # Zustand 状态管理
 │
-├── data/                            # 数据管道
-│   └── seeds/                       # 种子数据
-│       ├── attributes.json
-│       ├── categories.json
-│       ├── compliance_rules.json
-│       ├── sample_aroc.json
-│       └── import_seeds.py
+├── data/                            # 数据管道（预留：真实数据导入/ETL/评估）
 │
 ├── infra/                           # 基础设施
 │   └── docker/
 │       ├── docker-compose.yml      # 基础开发环境
 │       ├── init-db.sql             # 数据库初始化
-│       ├── seed-data.sql           # 种子数据
 │       └── migrations/
 │           ├── 001_update_schema.sql
 │           └── 002_enhance_rag.sql # 🆕 RAG 增强
