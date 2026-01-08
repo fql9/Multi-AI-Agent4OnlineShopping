@@ -17,6 +17,9 @@
 ```powershell
 cp .env.example .env
 # 编辑 .env，设置 OPENAI_API_KEY
+# 生产环境强烈建议确认 XOOBAY 已启用（否则 seed 数据很少时容易“搜不到商品”）：
+#   XOOBAY_ENABLED=true
+#   XOOBAY_API_KEY=your_key
 
 docker compose -f docker-compose.full.yml up -d
 docker compose -f docker-compose.full.yml ps

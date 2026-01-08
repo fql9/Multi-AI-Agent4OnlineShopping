@@ -10,6 +10,10 @@
 # 复制环境变量模板
 cp .env.example .env
 # 编辑 .env 填入 OpenAI Key
+# 生产环境强烈建议启用 XOOBAY（否则服务器只有少量 seed 数据时很容易“搜不到商品”）：
+#   XOOBAY_ENABLED=true
+#   XOOBAY_API_KEY=your_key
+#   XOOBAY_BASE_URL=https://www.xoobay.com
 
 # 启动（后台运行）
 docker compose -f docker-compose.full.yml up -d
@@ -83,6 +87,9 @@ docker compose -f docker-compose.full.yml ps
 
 # 查看网关健康
 curl -fsS http://localhost:3000/health && echo
+
+# 确认 XOOBAY 已启用（重要）
+docker exec agent-tool-gateway env | grep -E '^XOOBAY_ENABLED=|^XOOBAY_BASE_URL=|^XOOBAY_API_KEY=' || true
 ```
 
 ## 5. 常见问题排查
