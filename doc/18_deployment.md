@@ -73,36 +73,16 @@ XOOBAY_BASE_URL=https://www.xoobay.com
 
 ## 4. 常用运维命令
 
-> 更完整的“运维命令手册（Runbook）”见：[`19_ops_runbook.md`](./19_ops_runbook.md)
+> 本文档只保留“部署相关”的最小命令与参数说明；所有运维/排障/数据库检查命令统一收敛到：[`19_ops_runbook.md`](./19_ops_runbook.md)
 
-### 数据管理
+### 最小常用命令（部署后自检）
+
 ```bash
-# 运行数据库迁移
-docker compose -f docker-compose.full.yml --profile migrate up db-migrate
+# 查看服务状态（应看到 postgres/redis/tool-gateway/core-mcp/checkout-mcp/agent/web-app）
+docker compose -f docker-compose.full.yml ps
 
-# 导入种子数据 (初始演示数据)
-docker compose -f docker-compose.full.yml --profile seed up seed-data
-
-# 同步 XOOBAY 真实产品
-docker compose -f docker-compose.full.yml --profile sync up xoobay-sync
-```
-
-### 辅助工具
-```bash
-# 启动 Adminer (DB管理) 和 Redis Commander
-docker compose -f docker-compose.full.yml --profile tools up -d
-
-# 访问 Adminer: http://localhost:8080
-# 访问 Redis Commander: http://localhost:8081
-```
-
-### 查看日志
-```bash
-# 查看所有日志
-docker compose -f docker-compose.full.yml logs -f
-
-# 查看特定服务日志 (如 Python Agent)
-docker compose -f docker-compose.full.yml logs -f agent
+# 查看网关健康
+curl -fsS http://localhost:3000/health && echo
 ```
 
 ## 5. 常见问题排查
@@ -114,7 +94,9 @@ docker compose -f docker-compose.full.yml logs -f agent
 **A:** 检查端口 `5433` 是否被占用。如果修改了 `POSTGRES_PORT`，请确保所有服务（Gateway, Agent）的环境变量都已对应更新（Docker Compose 会自动处理容器间通信，但本地调试需注意端口）。
 
 ### Q: Agent 报错 "Connection refused"？
-**A:** Agent 依赖 `tool-gateway`。请确保 `tool-gateway` 处于 `healthy` 状态：
+**A:** Agent 依赖 `tool-gateway`。先确保 `tool-gateway` 处于 `healthy` 状态：
 ```bash
 docker compose -f docker-compose.full.yml ps tool-gateway
 ```
+
+更完整排障清单：[`19_ops_runbook.md`](./19_ops_runbook.md)

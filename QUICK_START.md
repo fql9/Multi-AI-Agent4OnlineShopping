@@ -8,6 +8,22 @@
 
 ---
 
+## 🐳 最短启动方式（Docker）
+
+> 详细部署与运维命令见：
+> - 部署：`doc/18_deployment.md`
+> - 运维 Runbook：`doc/19_ops_runbook.md`
+
+```powershell
+cp .env.example .env
+# 编辑 .env，设置 OPENAI_API_KEY
+
+docker compose -f docker-compose.full.yml up -d
+docker compose -f docker-compose.full.yml ps
+```
+
+---
+
 ## 📋 使用前检查
 
 ### 1. 确认服务运行
@@ -116,61 +132,11 @@ docker compose -f docker-compose.full.yml up -d web-app
 
 ---
 
-## 📊 API 端点
+## 📊 API / 工具目录
 
-### 1. 搜索产品
-
-**端点**: `POST /tools/catalog/search_offers`
-
-**参数**:
-- `query` (string): 搜索关键词
-- `limit` (number): 返回数量，默认 50，最大 100
-- `offset` (number): 偏移量，默认 0
-- `category_id` (string, 可选): 分类 ID
-- `price_min` (number, 可选): 最低价格
-- `price_max` (number, 可选): 最高价格
-
-**返回**:
-```json
-{
-  "ok": true,
-  "data": {
-    "offer_ids": ["xoobay_63509", "xoobay_63492", ...],
-    "scores": [0.8, 0.7, ...],
-    "total_count": 1067,
-    "has_more": true
-  }
-}
-```
-
-### 2. 获取产品详情
-
-**端点**: `POST /tools/catalog/get_offer_card`
-
-**参数**:
-- `offer_id` (string): 产品 ID
-
-**返回**:
-```json
-{
-  "ok": true,
-  "data": {
-    "offer_id": "xoobay_63509",
-    "titles": [{"lang": "en", "text": "..."}],
-    "price": {"amount": 2, "currency": "USD"},
-    "brand": {"name": "XOOBAY"},
-    ...
-  }
-}
-```
-
-### 3. 获取库存状态
-
-**端点**: `POST /tools/catalog/get_availability`
-
-**参数**:
-- `offer_id` (string, 可选): 产品 ID
-- `sku_id` (string, 可选): SKU ID
+> 工具端点与参数以文档为准（避免在此重复维护）：
+> - `doc/05_tool_catalog.md`
+> - `doc/04_tooling_spec.md`
 
 ---
 
@@ -232,53 +198,6 @@ Write-Host "品牌: $($data.brand.name)"
 
 ---
 
-## 🛠️ 启动所有服务
-
-如果需要启动所有服务：
-
-```powershell
-# 启动所有服务
-docker compose -f docker-compose.full.yml up -d
-
-# 检查服务状态
-docker compose -f docker-compose.full.yml ps
-
-# 查看日志
-docker compose -f docker-compose.full.yml logs -f tool-gateway
-```
-
----
-
-## 📝 常用命令
-
-### 服务管理
-
-```powershell
-# 启动服务
-docker compose -f docker-compose.full.yml up -d
-
-# 停止服务
-docker compose -f docker-compose.full.yml down
-
-# 重启服务
-docker compose -f docker-compose.full.yml restart tool-gateway
-
-# 查看日志
-docker logs agent-tool-gateway -f
-```
-
-### 测试 API
-
-```powershell
-# 健康检查
-Invoke-WebRequest -Uri "http://localhost:3000/health"
-
-# 测试搜索
-.\scripts\test-integration.ps1
-```
-
----
-
 ## 🎯 下一步
 
 1. **开始使用 API**: 使用上面的示例代码
@@ -293,7 +212,6 @@ Invoke-WebRequest -Uri "http://localhost:3000/health"
 - **架构说明**: `ARCHITECTURE_EXPLANATION.md`
 - **集成状态**: `XOOBAY_INTEGRATION_STATUS.md`
 - **配置指南**: `XOOBAY_SETUP_GUIDE.md`
-- **API 测试**: `XOOBAY_API_TEST_RESULT.md`
 
 ---
 
