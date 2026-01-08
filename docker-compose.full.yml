@@ -433,12 +433,25 @@ services:
       XOOBAY_API_KEY: ${XOOBAY_API_KEY:-xoobay_api_ai_geo}
       XOOBAY_BASE_URL: ${XOOBAY_BASE_URL:-https://www.xoobay.com}
       XOOBAY_LANG: ${XOOBAY_LANG:-en}
+      # Sync tuning (optional)
+      XOOBAY_SYNC_PAGES: ${XOOBAY_SYNC_PAGES:-100}
+      XOOBAY_SYNC_START_PAGE: ${XOOBAY_SYNC_START_PAGE:-1}
+      XOOBAY_SYNC_CONCURRENCY: ${XOOBAY_SYNC_CONCURRENCY:-6}
+      XOOBAY_SYNC_LANG: ${XOOBAY_SYNC_LANG:-}
+      XOOBAY_SYNC_KEEP_EXISTING: ${XOOBAY_SYNC_KEEP_EXISTING:-false}
     command: >
       sh -c "
         echo '📦 Installing dependencies...' &&
         npm install -g pnpm tsx pg &&
-        echo '🔄 Starting XOOBAY product sync (100 pages = 2000 products)...' &&
-        npx tsx /app/scripts/sync-xoobay-products.ts --pages=100 &&
+        PAGES=\"${XOOBAY_SYNC_PAGES:-100}\" &&
+        START_PAGE=\"${XOOBAY_SYNC_START_PAGE:-1}\" &&
+        CONCURRENCY=\"${XOOBAY_SYNC_CONCURRENCY:-6}\" &&
+        LANG=\"${XOOBAY_SYNC_LANG:-${XOOBAY_LANG:-en}}\" &&
+        KEEP_EXISTING=\"${XOOBAY_SYNC_KEEP_EXISTING:-false}\" &&
+        ARGS=\"--pages=${PAGES} --start-page=${START_PAGE} --concurrency=${CONCURRENCY} --lang=${LANG}\" &&
+        if [ \"${KEEP_EXISTING}\" = \"true\" ] || [ \"${KEEP_EXISTING}\" = \"1\" ]; then ARGS=\"${ARGS} --keep-existing\"; fi &&
+        echo \"🔄 Starting XOOBAY product sync: ${ARGS}\" &&
+        npx tsx /app/scripts/sync-xoobay-products.ts ${ARGS} &&
         echo '✅ Sync completed!'
       "
     depends_on:

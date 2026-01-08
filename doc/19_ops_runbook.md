@@ -42,8 +42,122 @@ docker compose -f docker-compose.full.yml --profile migrate up db-migrate
 docker compose -f docker-compose.full.yml up -d core-mcp checkout-mcp tool-gateway agent web-app
 
 # 4) 同步真实商品数据（XOOBAY → PostgreSQL）
-# 推荐用 run --rm：一次性任务跑完即退出
+# 推荐用 run --rm：一次性任务跑完即退出（前台会显示同步进度条）
 docker compose -f docker-compose.full.yml --profile sync run --rm xoobay-sync
+```
+
+### 1.1.1 迁移会显示什么“进度”？
+
+迁移容器会按文件逐个输出：
+
+- `Waiting for PostgreSQL...`
+- `Running migrations...`
+- `Applying: /migrations/001_xxx.sql`
+- `Applying: /migrations/002_xxx.sql`
+- `Migrations completed successfully!`
+
+如需追日志：
+
+```bash
+docker compose -f docker-compose.full.yml --profile migrate up db-migrate
+```
+
+### 1.1.2 XOOBAY 同步（重点）：进度显示、导入数量、断点续传
+
+#### A) 前台运行（推荐：能实时看到进度条）
+
+```bash
+docker compose -f docker-compose.full.yml --profile sync run --rm xoobay-sync
+```
+
+> 同步脚本会打印类似：`Progress: 37/100 pages (37%) | 740 products | ETA: 120s`
+
+#### B) 控制“导入多少数据”（按 page 控制，约 20 products/page）
+
+你可以通过环境变量控制导入规模（不改 compose 文件）：
+
+```bash
+# 导入 100 pages ≈ 2000 商品（默认）
+docker compose -f docker-compose.full.yml --profile sync run --rm \
+  -e XOOBAY_SYNC_PAGES=100 \
+  xoobay-sync
+
+# 导入 500 pages ≈ 10000 商品
+docker compose -f docker-compose.full.yml --profile sync run --rm \
+  -e XOOBAY_SYNC_PAGES=500 \
+  xoobay-sync
+
+# 更快：提升并发（上限建议 12；视服务器与 XOOBAY 限流情况调整）
+docker compose -f docker-compose.full.yml --profile sync run --rm \
+  -e XOOBAY_SYNC_PAGES=500 \
+  -e XOOBAY_SYNC_CONCURRENCY=10 \
+  xoobay-sync
+```
+
+可选参数（均为可选）：
+
+- `XOOBAY_SYNC_PAGES`：结束页（默认 100）
+- `XOOBAY_SYNC_START_PAGE`：起始页（默认 1）
+- `XOOBAY_SYNC_CONCURRENCY`：并发 worker 数（默认 6）
+- `XOOBAY_SYNC_LANG`：同步语言（默认沿用 `XOOBAY_LANG`）
+- `XOOBAY_SYNC_KEEP_EXISTING`：是否保留已有 xoobay 数据（默认 false，默认会先清空再同步）
+
+#### C) 断点续传/继续导入（“检查上一次进度并继续”）
+
+同步脚本本身不会自动持久化“最后页号”，推荐的运维方式是：
+
+1) **保留同步容器日志**（不要 `--rm`），方便回看中断点  
+2) 从日志里找出“最后一次看到的页数”，然后用 `START_PAGE + KEEP_EXISTING` 继续
+
+**方式 1：不删除容器，便于查看日志（推荐用于长时间同步）**
+
+```bash
+# 启动同步（后台跑）
+docker compose -f docker-compose.full.yml --profile sync up -d xoobay-sync
+
+# 跟随日志（可看到进度输出）
+docker logs -f agent-xoobay-sync
+```
+
+**方式 2：从日志里找“上次大概跑到哪”**
+
+```bash
+docker logs --tail 3000 agent-xoobay-sync | grep -Eo 'Progress: [0-9]+/[0-9]+' | tail -n 1 || true
+```
+
+**方式 3：继续从下一段页码开始（关键：必须 KEEP_EXISTING=true，否则会先清空）**
+
+```bash
+# 示例：假设上次跑到 500/1000，想从 501 继续跑到 1000
+docker compose -f docker-compose.full.yml --profile sync run --rm \
+  -e XOOBAY_SYNC_START_PAGE=501 \
+  -e XOOBAY_SYNC_PAGES=1000 \
+  -e XOOBAY_SYNC_KEEP_EXISTING=true \
+  xoobay-sync
+```
+
+> 提醒：如果你把 `XOOBAY_SYNC_KEEP_EXISTING` 留空或设为 false，同步会先删除已有 `xoobay_%` 数据再重建（适合“全量重刷”，不适合续跑）。
+
+#### D) 同步过程中监控“已入库多少”
+
+```bash
+# 仅统计 XOOBAY 数据
+docker exec -it agent-postgres psql -U agent -d agent_db -c "
+SELECT
+  (SELECT COUNT(*) FROM agent.offers WHERE id LIKE 'xoobay_%') AS xoobay_offers,
+  (SELECT COUNT(*) FROM agent.skus WHERE offer_id LIKE 'xoobay_%') AS xoobay_skus,
+  (SELECT COUNT(*) FROM agent.evidence_chunks WHERE offer_id LIKE 'xoobay_%') AS xoobay_chunks;"
+```
+
+#### E) “上一次同步是否成功 / 何时同步的？”
+
+```bash
+docker exec -it agent-postgres psql -U agent -d agent_db -c "
+SELECT
+  COUNT(*) AS xoobay_offers,
+  MAX(updated_at) AS last_offer_updated_at
+FROM agent.offers
+WHERE id LIKE 'xoobay_%';"
 ```
 
 ### 1.2 验收：确认“确实有真实数据”
