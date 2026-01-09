@@ -74,7 +74,7 @@ docker compose -f docker-compose.full.yml --profile sync run --rm xoobay-sync
 
 #### B) 控制“导入多少数据”（按 page 控制，约 20 products/page）
 
-你可以通过环境变量控制导入规模（不改 compose 文件）：
+你可以通过环境变量控制导入规模（不改 compose 文件）。**注意：必须使用 `run -e` 把变量传进容器**，因为这些参数是在容器内 shell 里解析的（不是 docker compose 在宿主机侧展开）。
 
 ```bash
 # 导入 100 pages ≈ 2000 商品（默认）
