@@ -100,15 +100,44 @@ Extract the following information into JSON format:
 - quantity: Number of items (default 1)
 - arrival_days_max: Maximum delivery days if urgency mentioned (null otherwise)
 - search_query: The main product search query in the user's original language
+- search_query_en: English translation of the search query (REQUIRED - for product search)
 - primary_product_type: The exact product type the user wants
-- primary_product_type_en: English translation of product type
+- primary_product_type_en: English translation of product type (REQUIRED - for product filtering)
 - detected_language: User's detected language code (en, zh, ja, es, de, fr, etc.)
-- hard_constraints: Array of must-have requirements [{type: string, value: string}]
-- soft_preferences: Array of nice-to-have preferences [{type: string, value: string}]
+- hard_constraints: Array of must-have requirements [{{type: string, value: string}}]
+- hard_constraints_en: Same constraints but values translated to English
+- soft_preferences: Array of nice-to-have preferences [{{type: string, value: string}}]
+- soft_preferences_en: Same preferences but values translated to English
 - purchase_context: Object with occasion, recipient, recipient_gender, recipient_age_range, style_preference, urgency, budget_sensitivity, special_requirements
+
+IMPORTANT: Always provide English translations for search_query_en, primary_product_type_en, hard_constraints_en, and soft_preferences_en. These are essential for the product search system which works best with English queries.
 
 Be precise and extract only what was explicitly mentioned or strongly implied.
 Return ONLY valid JSON, no markdown or explanation.
+"""
+
+TRANSLATE_MISSION_PROMPT = """Translate the following mission fields to English. Keep any already-English text unchanged.
+
+Mission to translate:
+{mission_json}
+
+Provide translations for:
+1. search_query -> search_query_en (product search query in English)
+2. primary_product_type -> primary_product_type_en (product type in English) 
+3. hard_constraints -> hard_constraints_en (translate each constraint value to English)
+4. soft_preferences -> soft_preferences_en (translate each preference value to English)
+
+Return ONLY valid JSON with both original and translated fields. Do not add any explanation.
+Example output format:
+{{
+  "search_query": "黑色休闲夹克",
+  "search_query_en": "black casual jacket",
+  "primary_product_type": "夹克",
+  "primary_product_type_en": "jacket",
+  "hard_constraints": [{{"type": "color", "value": "黑色"}}],
+  "hard_constraints_en": [{{"type": "color", "value": "black"}}],
+  ...rest of original fields unchanged...
+}}
 """
 
 
@@ -316,6 +345,75 @@ async def stream_guided_chat(
         yield StreamChunk(type="error", content=f"Error: {str(e)}")
 
 
+async def translate_mission_to_english(mission_data: dict) -> dict:
+    """
+    Translate mission fields to English for better product search.
+    This is called transparently - user doesn't see this translation.
+    """
+    # Check if translation is needed
+    detected_lang = mission_data.get("detected_language", "en")
+    search_query = mission_data.get("search_query", "")
+    search_query_en = mission_data.get("search_query_en", "")
+    
+    # Skip if already English or if English translation exists
+    if detected_lang == "en" and search_query_en:
+        return mission_data
+    
+    # Skip if search query is already in English (basic heuristic)
+    def is_likely_english(text: str) -> bool:
+        if not text:
+            return True
+        # Check if text contains non-ASCII characters commonly used in non-English languages
+        non_ascii_count = sum(1 for c in text if ord(c) > 127)
+        return non_ascii_count / max(len(text), 1) < 0.1
+    
+    if is_likely_english(search_query) and search_query_en:
+        return mission_data
+    
+    logger.info("guided_chat.translating_mission", detected_language=detected_lang, search_query=search_query[:50])
+    
+    llm = get_llm(model_type="planner", temperature=0.0)
+    
+    try:
+        # Prepare mission JSON for translation
+        translation_input = {
+            "search_query": mission_data.get("search_query", ""),
+            "primary_product_type": mission_data.get("primary_product_type", ""),
+            "hard_constraints": mission_data.get("hard_constraints", []),
+            "soft_preferences": mission_data.get("soft_preferences", []),
+        }
+        
+        prompt = TRANSLATE_MISSION_PROMPT.format(mission_json=json.dumps(translation_input, ensure_ascii=False))
+        response = await llm.ainvoke([{"role": "user", "content": prompt}])
+        
+        content = response.content if hasattr(response, "content") else str(response)
+        cleaned = clean_json_response(content)
+        translated = json.loads(cleaned)
+        
+        # Merge translations into mission_data
+        if translated.get("search_query_en"):
+            mission_data["search_query_en"] = translated["search_query_en"]
+        if translated.get("primary_product_type_en"):
+            mission_data["primary_product_type_en"] = translated["primary_product_type_en"]
+        if translated.get("hard_constraints_en"):
+            mission_data["hard_constraints_en"] = translated["hard_constraints_en"]
+        if translated.get("soft_preferences_en"):
+            mission_data["soft_preferences_en"] = translated["soft_preferences_en"]
+        
+        logger.info(
+            "guided_chat.translation_complete",
+            search_query_en=mission_data.get("search_query_en", "")[:50],
+            primary_type_en=mission_data.get("primary_product_type_en", ""),
+        )
+        
+        return mission_data
+        
+    except Exception as e:
+        logger.warning("guided_chat.translation_error", error=str(e))
+        # Fall back to original - translation is nice to have, not critical
+        return mission_data
+
+
 async def extract_mission_from_conversation(session: GuidedChatSession) -> dict | None:
     """Extract structured mission from conversation history"""
     # Build conversation string
@@ -336,17 +434,80 @@ async def extract_mission_from_conversation(session: GuidedChatSession) -> dict 
         content = response.content if hasattr(response, "content") else str(response)
         cleaned = clean_json_response(content)
         
+        logger.debug("guided_chat.extract_debug", raw_content=content[:500], cleaned=cleaned[:500])
+        
         # Parse as dict
         mission_data = json.loads(cleaned)
         
-        # Validate with Pydantic
-        result = MissionParseResult.model_validate(mission_data)
+        logger.debug("guided_chat.parsed_mission_data", mission_data=mission_data)
         
-        logger.info("guided_chat.mission_extracted", mission=result.model_dump())
-        return result.model_dump()
+        # Fix common issues with hard_constraints/soft_preferences format
+        # LLM sometimes returns them without proper 'type' field
+        if "hard_constraints" in mission_data:
+            fixed_constraints = []
+            for c in mission_data.get("hard_constraints", []):
+                if isinstance(c, dict):
+                    if "type" not in c and "value" in c:
+                        # Infer type from context
+                        c["type"] = "feature"
+                    if "type" in c and "value" in c:
+                        fixed_constraints.append({
+                            "type": c.get("type", "feature"),
+                            "value": c.get("value", ""),
+                            "operator": c.get("operator", "eq"),
+                        })
+            mission_data["hard_constraints"] = fixed_constraints
         
+        if "soft_preferences" in mission_data:
+            fixed_prefs = []
+            for p in mission_data.get("soft_preferences", []):
+                if isinstance(p, dict):
+                    if "type" not in p and "value" in p:
+                        p["type"] = "preference"
+                    if "type" in p and "value" in p:
+                        fixed_prefs.append({
+                            "type": p.get("type", "preference"),
+                            "value": p.get("value", ""),
+                            "weight": p.get("weight", 0.5),
+                        })
+            mission_data["soft_preferences"] = fixed_prefs
+        
+        # Translate mission to English for product search (transparent to user)
+        mission_data = await translate_mission_to_english(mission_data)
+        
+        # Try to validate with Pydantic, but fall back to raw dict if it fails
+        try:
+            result = MissionParseResult.model_validate(mission_data)
+            mission_dict = result.model_dump()
+        except Exception as validation_error:
+            logger.warning("guided_chat.validation_fallback", error=str(validation_error))
+            # Use raw dict with essential fields
+            mission_dict = {
+                "destination_country": mission_data.get("destination_country"),
+                "budget_amount": mission_data.get("budget_amount"),
+                "budget_currency": mission_data.get("budget_currency", "USD"),
+                "quantity": mission_data.get("quantity", 1),
+                "search_query": mission_data.get("search_query", ""),
+                "search_query_en": mission_data.get("search_query_en", ""),  # Add English translation
+                "primary_product_type": mission_data.get("primary_product_type", ""),
+                "primary_product_type_en": mission_data.get("primary_product_type_en", ""),
+                "detected_language": mission_data.get("detected_language", "en"),
+                "hard_constraints": mission_data.get("hard_constraints", []),
+                "hard_constraints_en": mission_data.get("hard_constraints_en", []),  # Add English translation
+                "soft_preferences": mission_data.get("soft_preferences", []),
+                "soft_preferences_en": mission_data.get("soft_preferences_en", []),  # Add English translation
+                "purchase_context": mission_data.get("purchase_context", {}),
+            }
+        
+        logger.info("guided_chat.mission_extracted", mission=mission_dict)
+        return mission_dict
+        
+    except json.JSONDecodeError as e:
+        logger.error("guided_chat.extract_json_error", error=str(e), content=cleaned[:500] if 'cleaned' in dir() else "N/A")
+        return None
     except Exception as e:
-        logger.error("guided_chat.extract_error", error=str(e))
+        import traceback
+        logger.error("guided_chat.extract_error", error=str(e), traceback=traceback.format_exc())
         return None
 
 

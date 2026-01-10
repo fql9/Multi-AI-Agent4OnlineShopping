@@ -35,25 +35,47 @@ async def candidate_node(state: AgentState) -> AgentState:
                 "current_step": "candidate",
             }
 
-        # 优先使用 mission 中的 search_query（由 Intent Agent 从用户输入中提取）
-        # search_query 保持用户原始语言（中文/英文等）
+        # 优先使用英语翻译后的搜索查询（search_query_en），以获得更好的搜索结果
+        # 如果没有英语翻译，则使用原始 search_query
+        search_query_en = mission.get("search_query_en", "").strip()
         original_query = mission.get("search_query", "").strip()
         
         # 构建搜索查询 - 优先级：
-        # 1. 直接使用 search_query（如果存在且有意义）
-        # 2. 从硬性约束中提取产品类型关键词
-        # 3. 作为最后手段，尝试从原始查询中提取关键词
+        # 1. 使用 search_query_en（英语翻译，搜索效果最好）
+        # 2. 使用 primary_product_type_en（英语产品类型）
+        # 3. 使用原始 search_query（可能是非英语）
+        # 4. 从硬性约束中提取产品类型关键词
+        # 5. 作为最后手段，尝试从原始查询中提取关键词
         
         search_query = ""
         keywords = []
         
-        # 检查 search_query 是否已经是一个有意义的搜索词
-        # （对于中文，检测是否包含中文字符）
-        if original_query and _is_meaningful_query(original_query):
+        # 优先使用英语翻译后的搜索查询
+        if search_query_en and _is_meaningful_query(search_query_en):
+            search_query = search_query_en
+            keywords = [search_query_en]
+            logger.debug(
+                "candidate_node.using_search_query_en",
+                search_query=search_query,
+            )
+        # 其次使用英语产品类型
+        elif mission.get("primary_product_type_en"):
+            primary_type_en = mission.get("primary_product_type_en", "").strip()
+            search_query = primary_type_en
+            keywords = [primary_type_en]
+            logger.debug(
+                "candidate_node.using_primary_product_type_en",
+                primary_product_type_en=search_query,
+            )
+        # 再次使用原始查询（可能是非英语）
+        elif original_query and _is_meaningful_query(original_query):
             # 直接使用 search_query，它应该已经是用户想要搜索的产品关键词
             search_query = original_query
             keywords = [original_query]
-            print(f"[DEBUG] candidate_node: using original search_query='{search_query}'")
+            logger.debug(
+                "candidate_node.using_original_search_query",
+                search_query=search_query,
+            )
         else:
             # 从硬性约束中提取主要关键词
             for constraint in mission.get("hard_constraints", []):
@@ -70,18 +92,28 @@ async def candidate_node(state: AgentState) -> AgentState:
             # 如果从约束中提取到了关键词，使用它们
             if keywords:
                 search_query = " ".join(keywords[:4])
-                print(f"[DEBUG] candidate_node: extracted keywords from constraints: {keywords}")
+                logger.debug(
+                    "candidate_node.extracted_keywords_from_constraints",
+                    keywords=keywords,
+                )
             else:
                 # 最后尝试从原始查询中提取关键词（支持多语言）
                 search_query = _extract_search_keywords(original_query)
                 keywords = [search_query] if search_query else []
-                print(f"[DEBUG] candidate_node: extracted from original query: '{search_query}'")
+                logger.debug(
+                    "candidate_node.extracted_from_original_query",
+                    search_query=search_query,
+                )
         
         # 确保有一个有效的搜索查询
         if not search_query:
             search_query = "product"
-            
-        print(f"[DEBUG] candidate_node.search: final query='{search_query}', keywords={keywords}")
+
+        logger.debug(
+            "candidate_node.search_final_query",
+            search_query=search_query,
+            keywords=keywords,
+        )
 
         # 调用搜索工具 - 增加召回数量以便生成更多方案
         search_result = await search_offers(

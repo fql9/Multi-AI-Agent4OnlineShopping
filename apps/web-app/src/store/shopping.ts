@@ -62,6 +62,8 @@ export type Mission = {
   hard_constraints: Array<{ type: string; value: string }>
   soft_preferences: Array<{ type: string; value: string }>
   search_query: string
+  primary_product_type?: string
+  primary_product_type_en?: string
   detected_language?: string
   purchase_context?: {
     occasion?: string | null
@@ -311,6 +313,7 @@ interface ShoppingState {
   // Guided Chat Actions
   sendGuidedMessage: (message: string, images?: string[]) => Promise<void>
   confirmGuidedChat: () => void
+  updateGuidedChatMission: (mission: Mission) => void
   resetGuidedChat: () => void
 }
 
@@ -686,23 +689,22 @@ export const useShoppingStore = create<ShoppingState>()(
           }
         }
         
-        // 解析意图
+        // 解析意图（优先使用已提取的 mission）
         const state = get()
-        const mission = (() => {
-          const base = parseMission(query)
-          const budgetCurrency = state.currency || base.budget_currency
-          const baseBudgetAmount = base.budget_amount ?? 0
-          return {
-            ...base,
-            destination_country: state.destinationCountry || base.destination_country,
-            budget_currency: budgetCurrency,
-            budget_amount: sanitizeNonNegativeNumber(
-              state.priceMax ?? state.priceMin ?? baseBudgetAmount,
-              baseBudgetAmount
-            ),
-            quantity: Math.max(1, sanitizeNonNegativeInt(state.quantity || base.quantity, 1)),
-          }
-        })()
+        const baseMission = state.mission ? { ...state.mission } : parseMission(query)
+        const budgetFromInputs = state.priceMax ?? state.priceMin
+        const finalBudget = budgetFromInputs ?? baseMission.budget_amount ?? null
+
+        const mission: Mission = {
+          ...baseMission,
+          destination_country: state.destinationCountry || baseMission.destination_country,
+          budget_currency: state.currency || baseMission.budget_currency,
+          budget_amount: finalBudget !== null
+            ? sanitizeNonNegativeNumber(finalBudget, typeof baseMission.budget_amount === 'number' ? baseMission.budget_amount : 0)
+            : null,
+          quantity: Math.max(1, sanitizeNonNegativeInt(state.quantity || baseMission.quantity, 1)),
+        }
+
         set({ mission, orderState: 'MISSION_READY' })
         
         // 调用后端 Agent（Real API）
@@ -721,22 +723,38 @@ export const useShoppingStore = create<ShoppingState>()(
             
           try {
             const preferenceLines: string[] = []
-            if (get().destinationCountry) preferenceLines.push(`Ship to: ${get().destinationCountry}`)
-            if (get().currency) preferenceLines.push(`Currency: ${get().currency}`)
-            if (get().priceMin !== null || get().priceMax !== null) {
+            const missionState = get().mission || mission
+
+            if (missionState?.destination_country) preferenceLines.push(`Ship to: ${missionState.destination_country}`)
+            if (missionState?.budget_currency) preferenceLines.push(`Currency: ${missionState.budget_currency}`)
+
+            const budgetDisplay = missionState?.budget_amount
+            if (budgetDisplay !== null && budgetDisplay !== undefined) {
+              preferenceLines.push(`Budget (max): ${budgetDisplay} ${missionState.budget_currency || 'USD'}`)
+            } else if (get().priceMin !== null || get().priceMax !== null) {
               const min = get().priceMin !== null ? String(get().priceMin) : ''
               const max = get().priceMax !== null ? String(get().priceMax) : ''
               preferenceLines.push(`Desired price range: ${min}-${max} ${get().currency || 'USD'}`.trim())
             }
-            if (get().quantity) preferenceLines.push(`Quantity: ${get().quantity}`)
+
+            if (missionState?.quantity) preferenceLines.push(`Quantity: ${missionState.quantity}`)
+
+            // 将结构化 mission 也附加到消息，确保后端 LLM 拿到准确信息
+            const structuredMission = missionState
+              ? `\n\nStructured mission (do not ignore):\n- Product: ${missionState.search_query || query}\n- Destination: ${missionState.destination_country}\n- Budget: ${missionState.budget_amount ?? 'N/A'} ${missionState.budget_currency || 'USD'}\n- Quantity: ${missionState.quantity}\n`
+              : ''
 
             const composedMessage = preferenceLines.length
-              ? `${query}\n\nPreferences:\n${preferenceLines.map((l) => `- ${l}`).join('\n')}`
-              : query
+              ? `${query}\n\nPreferences:\n${preferenceLines.map((l) => `- ${l}`).join('\n')}${structuredMission}`
+              : `${query}${structuredMission}`
 
+            // 如果已有从 Guided Chat 提取的 mission，直接传给后端（跳过 Intent Agent）
+            const missionToSend = missionState && Object.keys(missionState).length > 0 ? missionState : undefined
+            
             response = await api.sendChatMessage({
               message: composedMessage,
               session_id: get().sessionId || undefined,
+              mission: missionToSend,
             })
           } catch (err) {
             // 如果是 404 错误（Session not found），清除 session 并重试
@@ -775,14 +793,30 @@ export const useShoppingStore = create<ShoppingState>()(
                 response.error_code === 'NO_RESULTS'
               
               if (isNoProductsError) {
-                console.log('[DEBUG] No products found error, returning to input page')
+                console.log('[DEBUG] No products found error, fully resetting to clean input page')
+                // 完全重置到初始状态，清空所有记录，返回干净的第一页
                 set({
                   orderState: 'IDLE',
-                  clarificationAttempts: 0,
-                  lastAgentMessage: '抱歉，未能找到符合您需求的商品。请尝试：\n- 使用更通用的搜索词\n- 调整预算范围\n- 更换目的地国家\n\nSorry, no products were found matching your criteria. Please try:\n- Using more general search terms\n- Adjusting your budget\n- Changing the destination country',
+                  query: '',
+                  mission: null,
+                  agentSteps: createInitialAgentSteps(),
+                  currentStepIndex: -1,
                   isStreaming: false,
-                  error: null,
-                  errorCode: null,
+                  streamingText: '',
+                  currentThinkingStep: '',
+                  candidates: [],
+                  plans: [],
+                  selectedPlan: null,
+                  draftOrder: null,
+                  aiRecommendation: null,
+                  totalTokens: 0,
+                  totalToolCalls: 0,
+                  clarificationAttempts: 0,
+                  error: '未找到商品 / No Products Found',
+                  errorCode: 'NO_PRODUCTS_FOUND',
+                  lastAgentMessage: undefined,
+                  // 同时重置 guided chat
+                  guidedChat: createInitialGuidedChatState(),
                 })
                 return
               }
@@ -1231,8 +1265,22 @@ export const useShoppingStore = create<ShoppingState>()(
         set({
           mission: guidedChat.extractedMission,
           query: guidedChat.extractedMission.search_query || '',
+          destinationCountry: guidedChat.extractedMission.destination_country || '',
+          currency: guidedChat.extractedMission.budget_currency || 'USD',
+          priceMax: guidedChat.extractedMission.budget_amount ?? null,
+          priceMin: null,
+          quantity: guidedChat.extractedMission.quantity || 1,
           orderState: 'MISSION_READY',
         })
+      },
+
+      updateGuidedChatMission: (mission: Mission) => {
+        set((state) => ({
+          guidedChat: {
+            ...state.guidedChat,
+            extractedMission: mission,
+          },
+        }))
       },
 
       resetGuidedChat: () => {

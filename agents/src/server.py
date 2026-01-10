@@ -32,6 +32,7 @@ from .guided_chat import (
     reset_session,
     get_session_info,
     StreamChunk,
+    translate_mission_to_english,
 )
 
 # 配置日志
@@ -112,6 +113,7 @@ class ChatRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=2000, description="用户消息")
     session_id: str | None = Field(None, description="会话 ID（可选，不提供则创建新会话）")
     user_id: str = Field(default="anonymous", description="用户 ID")
+    mission: dict | None = Field(None, description="已提取的 Mission（可选，若提供则跳过 Intent Agent）")
 
 
 class ChatResponse(BaseModel):
@@ -215,9 +217,20 @@ async def chat(request: ChatRequest):
         session.touch()
         
         # 初始状态
+        # 如果前端已提供 mission（从 Guided Chat 提取），则直接使用，跳过 Intent Agent
+        # 如果 mission 包含非英语内容，先翻译为英语以提高搜索质量
+        mission_to_use = request.mission
+        if mission_to_use:
+            # Translate mission to English if needed (transparent to user)
+            mission_to_use = await translate_mission_to_english(mission_to_use)
+            logger.info(
+                "chat.mission_translated",
+                search_query_en=mission_to_use.get("search_query_en", "")[:50] if mission_to_use else "",
+            )
+        
         initial_state: AgentState = {
             "messages": [HumanMessage(content=request.message)],
-            "mission": None,
+            "mission": mission_to_use,  # 可能为 None 或已提取并翻译的 mission
             "candidates": [],
             "verified_candidates": [],
             "plans": [],

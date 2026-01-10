@@ -19,6 +19,7 @@ export interface ChatRequest {
   message: string
   session_id?: string
   user_id?: string
+  mission?: MissionSpec  // 已提取的 mission（从 Guided Chat），若存在则跳过 Intent Agent
 }
 
 export interface ChatResponse {

@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
+import { useEffect, useMemo, useRef, useState, useCallback, type ReactNode } from 'react'
 import { 
   ShoppingCart, Bot, Package, CheckCircle, Loader2, Send, 
   Sparkles, AlertTriangle, Info, Shield, Truck, Receipt,
@@ -12,7 +12,7 @@ import {
 } from 'lucide-react'
 import Image from 'next/image'
 import * as api from '@/lib/api'
-import { useShoppingStore, type OrderState, type TaxEstimate, type ComplianceRisk, type ThinkingStep, type ToolCall, type AgentStep, type GuidedChatMessage } from '@/store/shopping'
+import { useShoppingStore, type Mission, type OrderState, type TaxEstimate, type ComplianceRisk, type ThinkingStep, type ToolCall, type AgentStep, type GuidedChatMessage } from '@/store/shopping'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Progress } from '@/components/ui/progress'
 import { Badge } from '@/components/ui/badge'
@@ -495,6 +495,74 @@ function ImagePreview({ images, onRemove }: { images: string[]; onRemove: (index
   )
 }
 
+// Editable info row for mission summary
+function EditableInfoRow({ 
+  label, 
+  value, 
+  isEditing, 
+  onChange,
+  type = 'text',
+  placeholder = ''
+}: { 
+  label: string
+  value: string
+  isEditing: boolean
+  onChange: (value: string) => void
+  type?: 'text' | 'number'
+  placeholder?: string
+}) {
+  if (!isEditing) {
+    return (
+      <div className="flex flex-col gap-1 p-3 rounded-xl bg-white/70 border border-surface-200 shadow-xs">
+        <span className="text-xs font-semibold text-surface-500 uppercase tracking-wide">{label}</span>
+        <span className="text-sm text-surface-800 break-words leading-relaxed">{value || '—'}</span>
+      </div>
+    )
+  }
+  
+  return (
+    <div className="flex flex-col gap-1 p-3 rounded-xl bg-white border-2 border-primary-300 shadow-md">
+      <span className="text-xs font-semibold text-primary-600 uppercase tracking-wide">{label}</span>
+      <input
+        type={type}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        className="text-sm text-surface-800 bg-transparent border-b border-primary-200 focus:border-primary-500 focus:outline-none py-1"
+      />
+    </div>
+  )
+}
+
+// Read-only info row for display (used for non-editable fields)
+function InfoRow({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div className="flex flex-col gap-1 p-3 rounded-xl bg-white/70 border border-surface-200 shadow-xs">
+      <span className="text-xs font-semibold text-surface-500 uppercase tracking-wide">{label}</span>
+      <span className="text-sm text-surface-800 break-words leading-relaxed">{value || '—'}</span>
+    </div>
+  )
+}
+
+function renderConstraints(
+  items?: Array<{ type?: string; value?: string }> | null,
+): React.ReactNode {
+  if (!items || !items.length) return '—'
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {items.map((c, idx) => (
+        <span
+          key={`${c.type}-${c.value}-${idx}`}
+          className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-surface-100 text-surface-700 text-xs border border-surface-200"
+        >
+          {c.type && <strong className="font-semibold text-surface-600">{c.type}:</strong>}
+          <span>{c.value || '—'}</span>
+        </span>
+      ))}
+    </div>
+  )
+}
+
 // Agent 步骤详情组件 - Light theme
 function AgentStepDetail({ step, isActive }: { step: AgentStep; isActive: boolean }) {
   if (step.status === 'pending') return null
@@ -718,6 +786,45 @@ function ComparisonTable({ plans, onSelectPlan }: { plans: Plan[]; onSelectPlan:
 
 // 错误提示组件
 function ErrorAlert({ error, errorCode, onDismiss }: { error: string; errorCode?: string | null; onDismiss: () => void }) {
+  // 特殊处理"未找到商品"错误，显示更醒目的提示
+  if (errorCode === 'NO_PRODUCTS_FOUND') {
+    return (
+      <Card className="mb-6 border-2 border-warning-300 bg-gradient-to-br from-warning-50 to-orange-50 shadow-lg animate-fade-in">
+        <CardContent className="p-6">
+          <div className="flex items-start gap-4">
+            <div className="w-14 h-14 rounded-2xl bg-warning-100 flex items-center justify-center flex-shrink-0">
+              <span className="text-3xl">🔍</span>
+            </div>
+            <div className="flex-1">
+              <h3 className="text-xl font-bold text-warning-800 mb-2">未找到符合条件的商品</h3>
+              <p className="text-warning-700 mb-4">
+                抱歉，我们没有找到匹配您需求的商品。请尝试以下建议：
+              </p>
+              <ul className="space-y-2 text-sm text-warning-600 mb-4">
+                <li className="flex items-center gap-2">
+                  <span className="w-5 h-5 rounded-full bg-warning-200 flex items-center justify-center text-xs font-bold">1</span>
+                  使用更通用的搜索词（如「夹克」而非特定品牌型号）
+                </li>
+                <li className="flex items-center gap-2">
+                  <span className="w-5 h-5 rounded-full bg-warning-200 flex items-center justify-center text-xs font-bold">2</span>
+                  调整预算范围（扩大价格区间）
+                </li>
+                <li className="flex items-center gap-2">
+                  <span className="w-5 h-5 rounded-full bg-warning-200 flex items-center justify-center text-xs font-bold">3</span>
+                  更换目的地国家（部分商品可能有地区限制）
+                </li>
+              </ul>
+              <Button onClick={onDismiss} variant="outline" className="border-warning-400 text-warning-700 hover:bg-warning-100">
+                <RotateCcw className="w-4 h-4 mr-2" />
+                重新开始搜索
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    )
+  }
+  
   return (
     <Alert variant="danger" onClose={onDismiss} className="mb-6">
       <AlertTitle>Error {errorCode && `(${errorCode})`}</AlertTitle>
@@ -739,6 +846,25 @@ export default function Home() {
   const [chatImages, setChatImages] = useState<string[]>([])
   const chatContainerRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const chatInputRef = useRef<HTMLTextAreaElement | null>(null)
+  
+  // Editable mission state
+  const [isEditingMission, setIsEditingMission] = useState(false)
+  const [editableMission, setEditableMission] = useState<{
+    search_query: string
+    primary_product_type: string
+    destination_country: string
+    budget_amount: string
+    budget_currency: string
+    quantity: string
+  }>({
+    search_query: '',
+    primary_product_type: '',
+    destination_country: '',
+    budget_amount: '',
+    budget_currency: 'USD',
+    quantity: '1',
+  })
 
   // 检查连接状态
   useEffect(() => {
@@ -901,23 +1027,23 @@ export default function Home() {
 
         {/* Input View - Chat-based Interface */}
         {currentView === 'input' && (
-          <div className="animate-fade-in flex flex-col h-[calc(100vh-200px)] max-h-[700px]">
+          <div className="animate-fade-in flex flex-col min-h-[500px]">
             {/* Header */}
-            <div className="text-center mb-6 flex-shrink-0">
-              <div className="flex justify-center mb-4">
-                <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-primary-500 to-accent-500 flex items-center justify-center shadow-tech">
-                  <MessageCircle className="w-7 h-7 text-white" />
+            <div className="text-center mb-4 flex-shrink-0">
+              <div className="flex justify-center mb-3">
+                <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-primary-500 to-accent-500 flex items-center justify-center shadow-tech">
+                  <MessageCircle className="w-6 h-6 text-white" />
                 </div>
               </div>
-              <h2 className="text-2xl font-bold text-surface-800 mb-2">
+              <h2 className="text-xl md:text-2xl font-bold text-surface-800 mb-1">
                 Chat with AI Shopping Assistant
               </h2>
-              <p className="text-surface-500 text-sm max-w-md mx-auto">
+              <p className="text-surface-500 text-xs md:text-sm max-w-md mx-auto">
                 Tell me what you&apos;re looking for! I&apos;ll ask a few questions to help find the perfect product.
               </p>
               
               {/* Turn counter */}
-              <div className="flex items-center justify-center gap-2 mt-3">
+              <div className="flex items-center justify-center gap-2 mt-2">
                 <Badge variant="default" className="text-xs">
                   {store.guidedChat.turnCount} / {store.guidedChat.maxTurns} turns
                 </Badge>
@@ -930,22 +1056,20 @@ export default function Home() {
             </div>
 
             {/* Chat messages area */}
-            <Card className="flex-1 flex flex-col overflow-hidden mb-4">
+            <Card className="flex-1 flex flex-col overflow-hidden mb-4 min-h-[280px] max-h-[50vh]">
               <div 
                 ref={chatContainerRef}
-                className="flex-1 overflow-y-auto p-4 space-y-4"
+                className="flex-1 overflow-y-auto p-3 md:p-4 space-y-3"
               >
                 {/* Welcome message if no messages */}
                 {store.guidedChat.messages.length === 0 && (
-                  <div className="flex gap-3">
-                    <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-primary-500 to-accent-500 flex items-center justify-center flex-shrink-0 shadow-md">
-                      <Bot className="w-5 h-5 text-white" />
+                  <div className="flex gap-2 md:gap-3">
+                    <div className="w-8 h-8 md:w-9 md:h-9 rounded-xl bg-gradient-to-br from-primary-500 to-accent-500 flex items-center justify-center flex-shrink-0 shadow-md">
+                      <Bot className="w-4 h-4 md:w-5 md:h-5 text-white" />
                     </div>
-                    <div className="max-w-[80%] rounded-2xl rounded-bl-md px-4 py-3 bg-white border border-surface-200 text-surface-800 shadow-sm">
-                      <p className="text-sm leading-relaxed">
-                        Hi! 👋 I&apos;m your AI shopping assistant. What would you like to buy today?
-                        <br /><br />
-                        You can describe what you&apos;re looking for, and I&apos;ll help you find the best options. Feel free to share images too!
+                    <div className="flex-1 max-w-[85%] rounded-2xl rounded-bl-md px-3 py-2 md:px-4 md:py-3 bg-white border border-surface-200 text-surface-800 shadow-sm">
+                      <p className="text-xs md:text-sm leading-relaxed">
+                        Hi! 👋 I&apos;m your AI shopping assistant. What would you like to buy today? Feel free to share images too!
                       </p>
                     </div>
                   </div>
@@ -983,7 +1107,7 @@ export default function Home() {
               />
 
               {/* Chat input */}
-              <form onSubmit={handleChatSubmit} className="p-3 border-t border-surface-100 bg-surface-50">
+              <form onSubmit={handleChatSubmit} className="p-2 md:p-3 border-t border-surface-100 bg-surface-50 flex-shrink-0">
                 <div className="flex items-end gap-2">
                   {/* Image upload button */}
                   <input
@@ -999,18 +1123,19 @@ export default function Home() {
                     onClick={() => fileInputRef.current?.click()}
                     disabled={chatImages.length >= 4 || store.guidedChat.isStreaming}
                     className={cn(
-                      "p-2.5 rounded-xl border transition-colors",
+                      "p-2 md:p-2.5 rounded-xl border transition-colors flex-shrink-0",
                       chatImages.length >= 4 || store.guidedChat.isStreaming
                         ? "bg-surface-100 border-surface-200 text-surface-400 cursor-not-allowed"
                         : "bg-white border-surface-200 text-surface-600 hover:bg-surface-50 hover:text-primary-600"
                     )}
                   >
-                    <ImagePlus className="w-5 h-5" />
+                    <ImagePlus className="w-4 h-4 md:w-5 md:h-5" />
                   </button>
                   
                   {/* Text input */}
-                  <div className="flex-1 relative">
+                  <div className="flex-1 min-w-0">
                     <Textarea
+                      ref={chatInputRef}
                       value={chatInput}
                       onChange={(e) => setChatInput(e.target.value)}
                       onKeyDown={(e) => {
@@ -1019,9 +1144,9 @@ export default function Home() {
                           handleChatSubmit(e)
                         }
                       }}
-                      placeholder="Type your message... (Shift+Enter for new line)"
+                      placeholder="Type your message..."
                       disabled={store.guidedChat.isStreaming}
-                      className="min-h-[44px] max-h-[120px] resize-none pr-12"
+                      className="min-h-[40px] max-h-[80px] resize-none text-sm"
                     />
                   </div>
                   
@@ -1029,69 +1154,263 @@ export default function Home() {
                   <Button
                     type="submit"
                     disabled={(!chatInput.trim() && chatImages.length === 0) || store.guidedChat.isStreaming}
-                    className="h-11 px-4"
+                    className="h-10 px-3 md:h-11 md:px-4 flex-shrink-0"
                   >
                     {store.guidedChat.isStreaming ? (
-                      <Loader2 className="w-5 h-5 animate-spin" />
+                      <Loader2 className="w-4 h-4 md:w-5 md:h-5 animate-spin" />
                     ) : (
-                      <Send className="w-5 h-5" />
+                      <Send className="w-4 h-4 md:w-5 md:h-5" />
                     )}
                   </Button>
                 </div>
               </form>
             </Card>
 
-            {/* Action buttons */}
-            <div className="flex items-center justify-between flex-shrink-0">
-              <Button
-                variant="outline"
-                onClick={() => {
-                  store.resetGuidedChat()
-                  setChatInput('')
-                  setChatImages([])
-                }}
-                disabled={store.guidedChat.messages.length === 0}
-                leftIcon={<RotateCcw className="w-4 h-4" />}
-              >
-                Start Over
-              </Button>
-              
-              <div className="flex items-center gap-3">
-                {store.guidedChat.extractedMission && (
-                  <div className="text-xs text-surface-500 max-w-xs truncate">
-                    <span className="font-medium">Ready: </span>
-                    {store.guidedChat.extractedMission.search_query || 'Your request'}
+            {/* Extracted mission confirmation */}
+            {store.guidedChat.readyToSearch && store.guidedChat.extractedMission && (
+              <Card className={cn(
+                "mb-3 shadow-lg relative overflow-hidden",
+                isEditingMission 
+                  ? "border-2 border-warning-400 shadow-warning-100/40" 
+                  : "border-primary-200 shadow-primary-100/40"
+              )}>
+                <div className={cn(
+                  "absolute inset-0 pointer-events-none",
+                  isEditingMission 
+                    ? "bg-gradient-to-br from-warning-50 via-white to-orange-50"
+                    : "bg-gradient-to-br from-primary-50 via-white to-accent-50"
+                )} />
+                <CardHeader className="relative pb-2">
+                  <div className={cn(
+                    "flex items-center gap-2",
+                    isEditingMission ? "text-warning-700" : "text-primary-700"
+                  )}>
+                    {isEditingMission ? <Wrench className="w-5 h-5" /> : <Table2 className="w-5 h-5" />}
+                    <CardTitle className="text-base md:text-lg">
+                      {isEditingMission ? 'Edit your request' : 'Please confirm your request'}
+                    </CardTitle>
                   </div>
-                )}
-                <Button
-                  onClick={handleConfirmChat}
-                  disabled={!store.guidedChat.readyToSearch || store.guidedChat.isStreaming}
-                  rightIcon={<ChevronRight className="w-4 h-4" />}
-                  className={cn(
-                    store.guidedChat.readyToSearch && "animate-pulse"
+                  <p className="text-xs text-surface-500 mt-1">
+                    {isEditingMission 
+                      ? '直接修改下方字段，完成后点击"保存修改"'
+                      : '已整理出的需求，请确认是否准确。点击"需要修改"可直接编辑。'}
+                  </p>
+                </CardHeader>
+                <CardContent className="relative">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <EditableInfoRow 
+                      label="What to buy" 
+                      value={isEditingMission ? editableMission.search_query : (store.guidedChat.extractedMission.search_query || '')}
+                      isEditing={isEditingMission}
+                      onChange={(v) => setEditableMission(prev => ({ ...prev, search_query: v }))}
+                      placeholder="e.g. black casual jacket"
+                    />
+                    <EditableInfoRow 
+                      label="Primary type" 
+                      value={isEditingMission ? editableMission.primary_product_type : (store.guidedChat.extractedMission.primary_product_type || store.guidedChat.extractedMission.primary_product_type_en || '')}
+                      isEditing={isEditingMission}
+                      onChange={(v) => setEditableMission(prev => ({ ...prev, primary_product_type: v }))}
+                      placeholder="e.g. jacket, coat"
+                    />
+                    <EditableInfoRow 
+                      label="Ship to" 
+                      value={isEditingMission ? editableMission.destination_country : (store.guidedChat.extractedMission.destination_country || '')}
+                      isEditing={isEditingMission}
+                      onChange={(v) => setEditableMission(prev => ({ ...prev, destination_country: v }))}
+                      placeholder="e.g. Singapore, US, Germany"
+                    />
+                    <div className="grid grid-cols-2 gap-2">
+                      <EditableInfoRow 
+                        label="Budget" 
+                        value={isEditingMission 
+                          ? editableMission.budget_amount 
+                          : (store.guidedChat.extractedMission.budget_amount?.toString() || '')}
+                        isEditing={isEditingMission}
+                        onChange={(v) => setEditableMission(prev => ({ ...prev, budget_amount: v }))}
+                        type="number"
+                        placeholder="e.g. 500"
+                      />
+                      <EditableInfoRow 
+                        label="Currency" 
+                        value={isEditingMission 
+                          ? editableMission.budget_currency 
+                          : (store.guidedChat.extractedMission.budget_currency || 'USD')}
+                        isEditing={isEditingMission}
+                        onChange={(v) => setEditableMission(prev => ({ ...prev, budget_currency: v }))}
+                        placeholder="USD, EUR, SGD"
+                      />
+                    </div>
+                    <EditableInfoRow 
+                      label="Quantity" 
+                      value={isEditingMission 
+                        ? editableMission.quantity 
+                        : (store.guidedChat.extractedMission.quantity?.toString() || '1')}
+                      isEditing={isEditingMission}
+                      onChange={(v) => setEditableMission(prev => ({ ...prev, quantity: v }))}
+                      type="number"
+                      placeholder="1"
+                    />
+                    <InfoRow label="Language" value={store.guidedChat.extractedMission.detected_language || '—'} />
+                    {!isEditingMission && (
+                      <>
+                        <InfoRow label="Hard constraints" value={renderConstraints(store.guidedChat.extractedMission.hard_constraints)} />
+                        <InfoRow label="Preferences" value={renderConstraints(store.guidedChat.extractedMission.soft_preferences)} />
+                      </>
+                    )}
+                  </div>
+
+                  {!isEditingMission && store.guidedChat.extractedMission.purchase_context && Object.values(store.guidedChat.extractedMission.purchase_context).some(Boolean) && (
+                    <div className="mt-3 p-3 rounded-xl border border-surface-200 bg-white/70">
+                      <div className="text-xs font-semibold text-surface-600 mb-2">Purchase context</div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs text-surface-600">
+                        {store.guidedChat.extractedMission.purchase_context.occasion && (
+                          <span className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-primary-50 text-primary-700 border border-primary-100">
+                            <Sparkles className="w-3 h-3" /> {store.guidedChat.extractedMission.purchase_context.occasion}
+                          </span>
+                        )}
+                        {store.guidedChat.extractedMission.purchase_context.recipient && (
+                          <span className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-accent-50 text-accent-700 border border-accent-100">
+                            <User className="w-3 h-3" /> {store.guidedChat.extractedMission.purchase_context.recipient}
+                          </span>
+                        )}
+                        {store.guidedChat.extractedMission.purchase_context.urgency && (
+                          <span className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-warning-50 text-warning-700 border border-warning-100">
+                            <Clock className="w-3 h-3" /> {store.guidedChat.extractedMission.purchase_context.urgency}
+                          </span>
+                        )}
+                        {store.guidedChat.extractedMission.purchase_context.style_preference && (
+                          <span className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-success-50 text-success-700 border border-success-100">
+                            <LayoutGrid className="w-3 h-3" /> {store.guidedChat.extractedMission.purchase_context.style_preference}
+                          </span>
+                        )}
+                      </div>
+                    </div>
                   )}
+
+                  <div className="mt-4 flex flex-col sm:flex-row gap-2">
+                    {isEditingMission ? (
+                      <>
+                        <Button
+                          onClick={() => {
+                            // Save edits back to store
+                            const updatedMission = {
+                              ...store.guidedChat.extractedMission,
+                              search_query: editableMission.search_query,
+                              primary_product_type: editableMission.primary_product_type,
+                              primary_product_type_en: editableMission.primary_product_type,
+                              destination_country: editableMission.destination_country,
+                              budget_amount: editableMission.budget_amount ? parseFloat(editableMission.budget_amount) : null,
+                              budget_currency: editableMission.budget_currency || 'USD',
+                              quantity: parseInt(editableMission.quantity, 10) || 1,
+                            }
+                            // Update the store's extracted mission (via Zustand setter to ensure reactivity)
+                            store.updateGuidedChatMission(updatedMission as Mission)
+                            setIsEditingMission(false)
+                          }}
+                          rightIcon={<CheckCircle className="w-4 h-4" />}
+                          className="sm:flex-1"
+                        >
+                          保存修改 / Save Changes
+                        </Button>
+                        <Button
+                          variant="outline"
+                          onClick={() => {
+                            setIsEditingMission(false)
+                          }}
+                        >
+                          取消 / Cancel
+                        </Button>
+                      </>
+                    ) : (
+                      <>
+                        <Button
+                          onClick={handleConfirmChat}
+                          disabled={store.guidedChat.isStreaming}
+                          rightIcon={<ChevronRight className="w-4 h-4" />}
+                          className="sm:flex-1"
+                        >
+                          Looks good, proceed
+                        </Button>
+                        <Button
+                          variant="outline"
+                          onClick={() => {
+                            // Initialize editable values from current mission
+                            const m = store.guidedChat.extractedMission
+                            setEditableMission({
+                              search_query: m?.search_query || '',
+                              primary_product_type: m?.primary_product_type || m?.primary_product_type_en || '',
+                              destination_country: m?.destination_country || '',
+                              budget_amount: m?.budget_amount?.toString() || '',
+                              budget_currency: m?.budget_currency || 'USD',
+                              quantity: m?.quantity?.toString() || '1',
+                            })
+                            setIsEditingMission(true)
+                          }}
+                        >
+                          Need changes
+                        </Button>
+                      </>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Action buttons (hide when confirmation table is present to avoid duplicate CTAs) */}
+            {!(store.guidedChat.readyToSearch && store.guidedChat.extractedMission) && (
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 flex-shrink-0 mt-2">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    store.resetGuidedChat()
+                    setChatInput('')
+                    setChatImages([])
+                  }}
+                  disabled={store.guidedChat.messages.length === 0}
+                  leftIcon={<RotateCcw className="w-4 h-4" />}
+                  className="text-sm"
                 >
-                  Find Products
+                  Start Over
                 </Button>
+                
+                <div className="flex items-center gap-2 sm:gap-3">
+                  {store.guidedChat.extractedMission && (
+                    <div className="text-xs text-surface-500 max-w-[120px] sm:max-w-xs truncate hidden sm:block">
+                      <span className="font-medium">Ready: </span>
+                      {store.guidedChat.extractedMission.search_query || 'Your request'}
+                    </div>
+                  )}
+                  <Button
+                    onClick={handleConfirmChat}
+                    disabled={!store.guidedChat.readyToSearch || store.guidedChat.isStreaming}
+                    rightIcon={<ChevronRight className="w-4 h-4" />}
+                    className={cn(
+                      "flex-1 sm:flex-none text-sm",
+                      store.guidedChat.readyToSearch && "animate-pulse"
+                    )}
+                  >
+                    Find Products
+                  </Button>
+                </div>
               </div>
-            </div>
+            )}
 
             {/* Quick start examples */}
             {store.guidedChat.messages.length === 0 && (
-              <div className="mt-6 flex-shrink-0">
+              <div className="mt-4 flex-shrink-0">
                 <p className="text-surface-500 text-xs mb-2 font-medium">Quick start:</p>
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap gap-1.5 md:gap-2">
                   {[
-                    'I want to buy a gift for my mom',
-                    'Looking for a laptop bag',
-                    'Need a dress for a wedding',
+                    'Gift for my mom',
+                    'Laptop bag',
+                    'Dress for wedding',
                   ].map((example) => (
                     <button
                       key={example}
                       onClick={() => {
                         setChatInput(example)
                       }}
-                      className="px-3 py-1.5 bg-white hover:bg-surface-50 border border-surface-200 rounded-lg text-surface-600 text-xs transition-all hover:border-primary-300 hover:text-primary-600"
+                      className="px-2.5 py-1 md:px-3 md:py-1.5 bg-white hover:bg-surface-50 border border-surface-200 rounded-lg text-surface-600 text-xs transition-all hover:border-primary-300 hover:text-primary-600"
                     >
                       {example}
                     </button>

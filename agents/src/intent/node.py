@@ -231,7 +231,7 @@ def _mock_intent_response(state: AgentState, user_message: str) -> AgentState:
     
     # 提取搜索关键词（核心改进：正确提取产品名称）
     search_query = _extract_product_keywords(user_message)
-    
+
     # 检测约束
     hard_constraints = []
     
@@ -257,7 +257,7 @@ def _mock_intent_response(state: AgentState, user_message: str) -> AgentState:
     # Extract primary product type for strict filtering
     primary_product_type = search_query
     primary_product_type_en = _translate_product_type_to_english(search_query, user_message)
-    
+
     mission_dict = {
         "destination_country": destination_country,
         "budget_amount": budget_amount,
