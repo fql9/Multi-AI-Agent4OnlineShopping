@@ -1,13 +1,42 @@
 # 故障排查指南
 
+## 🚨 最常见问题：429 错误 / 健康检查失败
+
+### 症状
+- Docker 容器状态显示 `unhealthy`
+- 前端报 429 Too Many Requests 错误
+- 健康检查 `/health` 返回 429
+
+### 原因
+Rate Limiting 把 `/health` 健康检查也计入限流，导致 Docker 健康检查被 429 拦截。
+
+### 解决方案
+
+```bash
+# 1. 检查当前限流配置
+docker exec agent-tool-gateway env | grep RATE_LIMIT
+
+# 2. 开发环境：在 .env 中关闭限流
+RATE_LIMIT_ENABLED=false
+
+# 3. 生产环境：提高限流阈值
+RATE_LIMIT_ENABLED=true
+RATE_LIMIT_MAX=1000
+
+# 4. 重启服务
+docker compose -f docker-compose.full.yml restart tool-gateway
+```
+
+---
+
 ## 🔍 服务访问问题排查
 
 ### 当前服务状态
 
 根据测试，服务实际上是可以访问的：
 
-- ✅ **Tool Gateway** (http://localhost:18000/health) - 返回 200 状态码
-- ✅ **Web App** (http://localhost:18004) - 返回 200 状态码，内容长度 10893 字节
+- ✅ **Tool Gateway** (http://localhost:28000/health) - 返回 200 状态码
+- ✅ **Web App** (http://localhost:28004) - 返回 200 状态码
 
 ### 如果浏览器访问不了，可能的原因和解决方法
 
@@ -76,22 +105,22 @@ docker compose -f docker-compose.full.yml restart web-app
 
 ```powershell
 # 测试 Tool Gateway
-Invoke-WebRequest -Uri http://localhost:18000/health
+Invoke-WebRequest -Uri http://localhost:28000/health
 
 # 测试 Web App
-Invoke-WebRequest -Uri http://localhost:18004
+Invoke-WebRequest -Uri http://localhost:28004
 ```
 
 ### 方法 2: 使用浏览器
 
-- Tool Gateway: http://localhost:18000/health
-- Web App: http://localhost:18004
+- Tool Gateway: http://localhost:28000/health
+- Web App: http://localhost:28004
 
 ### 方法 3: 使用 curl (如果已安装)
 
 ```bash
-curl http://localhost:18000/health
-curl http://localhost:18004
+curl http://localhost:28000/health
+curl http://localhost:28004
 ```
 
 ## 🔧 常见问题修复
@@ -161,15 +190,15 @@ Write-Host "=== 服务状态检查 ===" -ForegroundColor Cyan
 
 # Tool Gateway
 try {
-    $r = Invoke-WebRequest -Uri http://localhost:18000/health -UseBasicParsing
+    $r = Invoke-WebRequest -Uri http://localhost:28000/health -UseBasicParsing
     Write-Host "✅ Tool Gateway: OK ($($r.StatusCode))" -ForegroundColor Green
 } catch {
-    Write-Host "❌ Tool Gateway: FAILED" -ForegroundColor Red
+    Write-Host "❌ Tool Gateway: FAILED (可能是 429 限流)" -ForegroundColor Red
 }
 
 # Web App
 try {
-    $r = Invoke-WebRequest -Uri http://localhost:18004 -UseBasicParsing
+    $r = Invoke-WebRequest -Uri http://localhost:28004 -UseBasicParsing
     Write-Host "✅ Web App: OK ($($r.StatusCode))" -ForegroundColor Green
 } catch {
     Write-Host "❌ Web App: FAILED" -ForegroundColor Red

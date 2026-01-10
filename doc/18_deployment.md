@@ -37,18 +37,31 @@ XOOBAY_LANG=en
 ```
 
 ### Rate Limiting (v0.6 新增)
-为了防止前端高频请求（如 Dock 动画加载）触发 429 错误，你可以调整或关闭限流：
 
+⚠️ **重要警告**：Rate Limiting 会影响 `/health` 健康检查端点！如果阈值设置过低，Docker 健康检查会被 429 拦截，导致容器状态显示 unhealthy。
+
+#### 开发环境（推荐）
 ```ini
-# 是否开启限流 (开发环境建议设为 false)
-RATE_LIMIT_ENABLED=true
-
-# 限流阈值 (每窗口最大请求数)
-RATE_LIMIT_MAX=1000
-
-# 限流窗口 (时间单位)
-RATE_LIMIT_WINDOW="1 minute"
+# 关闭限流，避免 /health 健康检查被 429 干扰
+APP_ENV=development
+RATE_LIMIT_ENABLED=false
+LOG_LEVEL=debug
 ```
+
+#### 生产环境（推荐）
+```ini
+# 开启限流保护服务，但阈值要足够高
+# 需要覆盖：监控探针 + 负载均衡健康检查 + 正常用户请求峰值
+APP_ENV=production
+RATE_LIMIT_ENABLED=true
+RATE_LIMIT_MAX=1000
+RATE_LIMIT_WINDOW=60000
+LOG_LEVEL=info
+```
+
+> 💡 **提示**：如果生产环境需要限流但 `/health` 总被 429，有两个选择：
+> 1. 提高 `RATE_LIMIT_MAX`（推荐先尝试）
+> 2. 修改 `tool-gateway` 代码给 `/health` 加白名单（需要改代码）
 
 ### 端口映射
 如果默认端口被占用，可修改以下变量：
@@ -101,8 +114,29 @@ docker exec agent-tool-gateway env | grep -E '^XOOBAY_ENABLED=|^XOOBAY_BASE_URL=
 
 ## 5. 常见问题排查
 
+### Q: Docker 健康检查失败 / 容器状态 unhealthy？
+**A:** 很可能是 Rate Limiting 把 `/health` 也算进去了。解决方案：
+
+```bash
+# 1. 检查限流配置
+docker exec agent-tool-gateway env | grep RATE_LIMIT
+
+# 2. 开发环境：关闭限流
+# 在 .env 中设置：
+RATE_LIMIT_ENABLED=false
+
+# 3. 生产环境：提高阈值
+RATE_LIMIT_ENABLED=true
+RATE_LIMIT_MAX=1000
+
+# 4. 重启服务
+docker compose -f docker-compose.full.yml restart tool-gateway
+```
+
 ### Q: 前端加载图片慢或显示 429 错误？
-**A:** 请检查 `RATE_LIMIT_ENABLED` 是否为 `true`。开发环境下，Dock 组件会并发请求多个图片，建议在 `.env` 中设置 `RATE_LIMIT_ENABLED=false` 或调高 `RATE_LIMIT_MAX`。
+**A:** Rate Limiting 阈值过低。开发环境下，Dock 组件会并发请求多个图片，建议：
+- 开发环境：`RATE_LIMIT_ENABLED=false`
+- 生产环境：`RATE_LIMIT_MAX=1000` 或更高
 
 ### Q: 数据库连接失败？
 **A:** 检查端口 `25432` 是否被占用。如果修改了 `POSTGRES_PORT`，请确保所有服务（Gateway, Agent）的环境变量都已对应更新（Docker Compose 会自动处理容器间通信，但本地调试需注意端口）。

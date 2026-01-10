@@ -619,14 +619,31 @@ docker compose -f docker-compose.full.yml logs --tail 200 db-migrate
 docker compose -f docker-compose.full.yml run --rm db-migrate
 ```
 
-### 8.3 “429/限流导致前端异常”
+### 8.3 "429/限流导致前端异常 或 健康检查失败"
+
+⚠️ **重要**：Rate Limiting 会把 `/health` 也算进去！如果阈值过低，Docker 健康检查会被 429 拦截。
 
 ```bash
-# 检查网关限流配置
+# 1. 检查网关限流配置
 docker exec -it agent-tool-gateway env | grep RATE_LIMIT
+
+# 2. 开发/演示环境：关闭限流
+# 在 .env 中设置：
+#   RATE_LIMIT_ENABLED=false
+
+# 3. 生产环境：提高阈值（需覆盖监控 + LB 健康检查 + 用户请求）
+# 在 .env 中设置：
+#   RATE_LIMIT_ENABLED=true
+#   RATE_LIMIT_MAX=1000
+
+# 4. 修改后重启服务
+docker compose -f docker-compose.full.yml restart tool-gateway
+
+# 5. 验证健康检查是否恢复
+curl -fsS http://localhost:28000/health && echo
 ```
 
-> 开发/演示环境建议 `RATE_LIMIT_ENABLED=false` 或调大 `RATE_LIMIT_MAX`。
+> 💡 如果生产环境需要限流但 `/health` 总被 429，可以修改 `tool-gateway` 代码给 `/health` 加白名单。
 
 ### 9.4 “搜不到商品/搜索结果为空（No products found）”
 

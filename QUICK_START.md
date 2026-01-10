@@ -16,8 +16,15 @@
 
 ```powershell
 cp .env.example .env
-# 编辑 .env，设置 OPENAI_API_KEY
-# 生产环境强烈建议确认 XOOBAY 已启用（否则数据库为空/数据量不足时容易“搜不到商品”）：
+# 编辑 .env，设置以下关键配置：
+
+# 1. 必填：OpenAI API Key
+#   OPENAI_API_KEY=sk-your-api-key-here
+
+# 2. 开发环境：关闭限流（避免健康检查被 429 拦截）
+#   RATE_LIMIT_ENABLED=false
+
+# 3. 生产环境：开启 XOOBAY（否则数据库为空时容易"搜不到商品"）
 #   XOOBAY_ENABLED=true
 #   XOOBAY_API_KEY=your_key
 
@@ -130,7 +137,7 @@ $result.data
 docker compose -f docker-compose.full.yml up -d web-app
 
 # 访问
-# http://localhost:18004
+# http://localhost:28004
 ```
 
 ---
