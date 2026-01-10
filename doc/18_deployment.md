@@ -53,13 +53,13 @@ RATE_LIMIT_WINDOW="1 minute"
 ### 端口映射
 如果默认端口被占用，可修改以下变量：
 ```ini
-POSTGRES_PORT=5433
-REDIS_PORT=6379
-TOOL_GATEWAY_PORT=3000
-CORE_MCP_PORT=3010
-CHECKOUT_MCP_PORT=3011
-WEB_APP_PORT=3001
-AGENT_PORT=8000
+POSTGRES_PORT=25432
+REDIS_PORT=26379
+TOOL_GATEWAY_PORT=28000
+CORE_MCP_PORT=28001
+CHECKOUT_MCP_PORT=28002
+WEB_APP_PORT=28004
+AGENT_PORT=28003
 ```
 
 ### 外部集成 (XOOBAY)
@@ -69,13 +69,13 @@ AGENT_PORT=8000
 
 | 服务名 | 容器名 | 端口 | 依赖 | 说明 |
 |--------|--------|------|------|------|
-| **postgres** | agent-postgres | 5433 | - | 核心数据库，带 pgvector 扩展 |
-| **redis** | agent-redis | 6379 | - | 缓存与限流存储 |
-| **tool-gateway** | agent-tool-gateway | 3000 | DB, Redis | 统一 API 网关，处理鉴权与限流 |
-| **core-mcp** | agent-core-mcp | 3010 | DB, Redis | 核心业务工具 (Catalog, Compliance) |
-| **checkout-mcp** | agent-checkout-mcp | 3011 | DB, Redis | 交易相关工具 (Cart, Checkout) |
-| **agent** | agent-python | 8000 | Gateway | LangGraph 智能体编排服务 |
-| **web-app** | agent-web-app | 3001 | Gateway | Next.js 前端界面 |
+| **postgres** | agent-postgres | 25432 | - | 核心数据库，带 pgvector 扩展 |
+| **redis** | agent-redis | 26379 | - | 缓存与限流存储 |
+| **tool-gateway** | agent-tool-gateway | 28000 | DB, Redis | 统一 API 网关，处理鉴权与限流 |
+| **core-mcp** | agent-core-mcp | 28001 | DB, Redis | 核心业务工具 (Catalog, Compliance) |
+| **checkout-mcp** | agent-checkout-mcp | 28002 | DB, Redis | 交易相关工具 (Cart, Checkout) |
+| **agent** | agent-python | 28003 | Gateway | LangGraph 智能体编排服务 |
+| **web-app** | agent-web-app | 28004 | Gateway | Next.js 前端界面 |
 
 > **数据库迁移保证**  
 > `docker-compose.full.yml` 内置了 `db-migrate` 一次性服务，`docker compose ... up` 时会自动在 Postgres 就绪后执行全部 SQL 迁移（幂等）。  
@@ -93,7 +93,7 @@ AGENT_PORT=8000
 docker compose -f docker-compose.full.yml ps
 
 # 查看网关健康
-curl -fsS http://localhost:3000/health && echo
+curl -fsS http://localhost:28000/health && echo
 
 # 确认 XOOBAY 已启用（重要）
 docker exec agent-tool-gateway env | grep -E '^XOOBAY_ENABLED=|^XOOBAY_BASE_URL=|^XOOBAY_API_KEY=' || true
@@ -105,7 +105,7 @@ docker exec agent-tool-gateway env | grep -E '^XOOBAY_ENABLED=|^XOOBAY_BASE_URL=
 **A:** 请检查 `RATE_LIMIT_ENABLED` 是否为 `true`。开发环境下，Dock 组件会并发请求多个图片，建议在 `.env` 中设置 `RATE_LIMIT_ENABLED=false` 或调高 `RATE_LIMIT_MAX`。
 
 ### Q: 数据库连接失败？
-**A:** 检查端口 `5433` 是否被占用。如果修改了 `POSTGRES_PORT`，请确保所有服务（Gateway, Agent）的环境变量都已对应更新（Docker Compose 会自动处理容器间通信，但本地调试需注意端口）。
+**A:** 检查端口 `25432` 是否被占用。如果修改了 `POSTGRES_PORT`，请确保所有服务（Gateway, Agent）的环境变量都已对应更新（Docker Compose 会自动处理容器间通信，但本地调试需注意端口）。
 
 ### Q: Agent 报错 "Connection refused"？
 **A:** Agent 依赖 `tool-gateway`。先确保 `tool-gateway` 处于 `healthy` 状态：

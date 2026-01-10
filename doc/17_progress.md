@@ -380,7 +380,7 @@ docker compose -f docker-compose.full.yml up -d
 docker compose -f docker-compose.full.yml ps
 
 # 5. 访问前端
-open http://localhost:3001
+open http://localhost:28004
 ```
 
 ### 方式二：本地开发
@@ -403,7 +403,7 @@ pnpm --filter @shopping-agent/tool-gateway dev
 pnpm --filter @shopping-agent/web-app dev
 
 # 6. 测试 API
-curl -X POST http://localhost:3000/tools/catalog/search_offers \
+curl -X POST http://localhost:28000/tools/catalog/search_offers \
   -H 'Content-Type: application/json' \
   -d '{"request_id": "test", "actor": {"type": "user", "id": "test"}, "client": {"app": "web", "version": "1.0"}, "params": {"query": "iPhone"}}'
 ```
@@ -415,7 +415,7 @@ curl -X POST http://localhost:3000/tools/catalog/search_offers \
 ### 搜索产品
 
 ```bash
-curl -X POST http://localhost:3000/tools/catalog/search_offers \
+curl -X POST http://localhost:28000/tools/catalog/search_offers \
   -H 'Content-Type: application/json' \
   -d '{
     "request_id": "test-001",
@@ -428,7 +428,7 @@ curl -X POST http://localhost:3000/tools/catalog/search_offers \
 ### 获取产品详情
 
 ```bash
-curl -X POST http://localhost:3000/tools/catalog/get_offer_card \
+curl -X POST http://localhost:28000/tools/catalog/get_offer_card \
   -H 'Content-Type: application/json' \
   -d '{
     "request_id": "test-002",
@@ -441,7 +441,7 @@ curl -X POST http://localhost:3000/tools/catalog/get_offer_card \
 ### Agent 对话
 
 ```bash
-curl -X POST http://localhost:8000/api/v1/chat \
+curl -X POST http://localhost:28003/api/v1/chat \
   -H 'Content-Type: application/json' \
   -d '{
     "session_id": "session-001",

@@ -116,10 +116,10 @@ docker compose -f docker-compose.prod.yml ps
 
 ```bash
 # 测试 Tool Gateway
-curl http://localhost:3000/health
+curl http://localhost:28000/health
 
 # 测试 Web App
-curl http://localhost:3001
+curl http://localhost:28004
 
 # 测试数据库连接
 docker exec agent-postgres-prod psql -U agent -d agent_db -c "SELECT 1;"
@@ -143,13 +143,13 @@ docker compose -f docker-compose.prod.yml logs -f agent
 
 ```bash
 # Ubuntu/Debian (UFW)
-sudo ufw allow 3000/tcp
-sudo ufw allow 3001/tcp
+sudo ufw allow 28000/tcp
+sudo ufw allow 28004/tcp
 sudo ufw enable
 
 # CentOS/RHEL (firewalld)
-sudo firewall-cmd --permanent --add-port=3000/tcp
-sudo firewall-cmd --permanent --add-port=3001/tcp
+sudo firewall-cmd --permanent --add-port=28000/tcp
+sudo firewall-cmd --permanent --add-port=28004/tcp
 sudo firewall-cmd --reload
 ```
 
@@ -192,7 +192,7 @@ server {
 
     # Web App
     location / {
-        proxy_pass http://localhost:3001;
+        proxy_pass http://localhost:28004;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection 'upgrade';
@@ -202,7 +202,7 @@ server {
 
     # Tool Gateway API
     location /api {
-        proxy_pass http://localhost:3000;
+        proxy_pass http://localhost:28000;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;

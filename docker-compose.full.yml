@@ -16,7 +16,7 @@ services:
     image: pgvector/pgvector:pg16
     container_name: agent-postgres
     ports:
-      - "${POSTGRES_PORT:-5433}:5432"
+      - "${POSTGRES_PORT:-25432}:5432"
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-agent}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-agent_dev_password}
@@ -49,7 +49,7 @@ services:
     image: redis:7-alpine
     container_name: agent-redis
     ports:
-      - "${REDIS_PORT:-6379}:6379"
+      - "${REDIS_PORT:-26379}:6379"
     command: >
       redis-server 
       --appendonly yes 
@@ -84,7 +84,7 @@ services:
         NODE_ENV: production
     container_name: agent-tool-gateway
     ports:
-      - "${TOOL_GATEWAY_PORT:-3000}:3000"
+      - "${TOOL_GATEWAY_PORT:-28000}:3000"
     environment:
       NODE_ENV: production
       PORT: 3000
@@ -108,7 +108,7 @@ services:
       MCP_CORE_URL: http://core-mcp:3010
       MCP_CHECKOUT_URL: http://checkout-mcp:3011
       # CORS 配置
-      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3001,http://web-app:3001}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:28004,http://web-app:3001}
       # XOOBAY API 配置
       XOOBAY_ENABLED: ${XOOBAY_ENABLED:-false}
       XOOBAY_API_KEY: ${XOOBAY_API_KEY:-}
@@ -149,7 +149,7 @@ services:
         NODE_ENV: production
     container_name: agent-core-mcp
     ports:
-      - "${CORE_MCP_PORT:-3010}:3010"
+      - "${CORE_MCP_PORT:-28001}:3010"
     environment:
       NODE_ENV: production
       PORT: 3010
@@ -203,7 +203,7 @@ services:
         NODE_ENV: production
     container_name: agent-checkout-mcp
     ports:
-      - "${CHECKOUT_MCP_PORT:-3011}:3011"
+      - "${CHECKOUT_MCP_PORT:-28002}:3011"
     environment:
       NODE_ENV: production
       PORT: 3011
@@ -253,15 +253,15 @@ services:
         NODE_ENV: production
     container_name: agent-web-app
     ports:
-      - "${WEB_APP_PORT:-3001}:3001"
+      - "${WEB_APP_PORT:-28004}:3001"
     environment:
       NODE_ENV: production
       PORT: 3001
       # API 配置 - 客户端使用外部地址，服务端使用内部地址
       # Agent API (Python backend)
-      NEXT_PUBLIC_AGENT_API_URL: ${NEXT_PUBLIC_AGENT_API_URL:-http://localhost:8000}
+      NEXT_PUBLIC_AGENT_API_URL: ${NEXT_PUBLIC_AGENT_API_URL:-http://localhost:28003}
       # Tool Gateway API
-      NEXT_PUBLIC_TOOL_GATEWAY_URL: ${NEXT_PUBLIC_TOOL_GATEWAY_URL:-http://localhost:3000}
+      NEXT_PUBLIC_TOOL_GATEWAY_URL: ${NEXT_PUBLIC_TOOL_GATEWAY_URL:-http://localhost:28000}
       TOOL_GATEWAY_URL: http://tool-gateway:3000
     depends_on:
       tool-gateway:
@@ -292,7 +292,7 @@ services:
         PYTHON_VERSION: "3.11"
     container_name: agent-python
     ports:
-      - "${AGENT_PORT:-8000}:8000"
+      - "${AGENT_PORT:-28003}:8000"
     environment:
       APP_ENV: production
       DEBUG: "false"
@@ -388,7 +388,7 @@ services:
     profiles:
       - tools
     ports:
-      - "${ADMINER_PORT:-8080}:8080"
+      - "${ADMINER_PORT:-28080}:8080"
     environment:
       ADMINER_DEFAULT_SERVER: postgres
       ADMINER_DESIGN: hydra
@@ -407,7 +407,7 @@ services:
     profiles:
       - tools
     ports:
-      - "${REDIS_COMMANDER_PORT:-8081}:8081"
+      - "${REDIS_COMMANDER_PORT:-28081}:8081"
     environment:
       REDIS_HOSTS: local:redis:6379:0:${REDIS_PASSWORD:-redis_dev_password}
     depends_on:

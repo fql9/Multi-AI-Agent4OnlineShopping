@@ -15,10 +15,10 @@
 - **看日志（全量）**：
   - `docker compose -f docker-compose.full.yml logs -f`
 - **健康检查**：
-  - Tool Gateway：`curl -fsS http://localhost:3000/health`
-  - Core MCP：`curl -fsS http://localhost:3010/health`
-  - Checkout MCP：`curl -fsS http://localhost:3011/health`
-  - Python Agent：`curl -fsS http://localhost:8000/health`
+- Tool Gateway：`curl -fsS http://localhost:28000/health`
+- Core MCP：`curl -fsS http://localhost:28001/health`
+- Checkout MCP：`curl -fsS http://localhost:28002/health`
+- Python Agent：`curl -fsS http://localhost:28003/health`
 - **进数据库排查**（容器内 psql，不依赖宿主机安装）：
   - `docker exec -it agent-postgres psql -U agent -d agent_db`
 
@@ -199,13 +199,13 @@ docker exec -i agent-postgres psql -U agent -d agent_db < scripts/enhance-databa
 
 ### 1.2 默认端口（可通过 `.env` 覆盖）
 
-- PostgreSQL：宿主机 `POSTGRES_PORT`（默认 5433）→ 容器 5432
-- Redis：宿主机 `REDIS_PORT`（默认 6379）→ 容器 6379
-- Tool Gateway：`TOOL_GATEWAY_PORT`（默认 3000）
-- Core MCP：`CORE_MCP_PORT`（默认 3010）
-- Checkout MCP：`CHECKOUT_MCP_PORT`（默认 3011）
-- Web App：`WEB_APP_PORT`（默认 3001）
-- Python Agent：`AGENT_PORT`（默认 8000）
+- PostgreSQL：宿主机 `POSTGRES_PORT`（默认 25432）→ 容器 5432
+- Redis：宿主机 `REDIS_PORT`（默认 26379）→ 容器 6379
+- Tool Gateway：`TOOL_GATEWAY_PORT`（默认 28000）
+- Core MCP：`CORE_MCP_PORT`（默认 28001）
+- Checkout MCP：`CHECKOUT_MCP_PORT`（默认 28002）
+- Web App：`WEB_APP_PORT`（默认 28004）
+- Python Agent：`AGENT_PORT`（默认 28003）
 
 ---
 
@@ -283,10 +283,10 @@ docker exec -it agent-python sh
 ### 4.1 HTTP 健康检查
 
 ```bash
-curl -fsS http://localhost:3000/health && echo
-curl -fsS http://localhost:3010/health && echo
-curl -fsS http://localhost:3011/health && echo
-curl -fsS http://localhost:8000/health && echo
+curl -fsS http://localhost:28000/health && echo
+curl -fsS http://localhost:28001/health && echo
+curl -fsS http://localhost:28002/health && echo
+curl -fsS http://localhost:28003/health && echo
 ```
 
 ### 4.2 PostgreSQL / Redis 健康检查（容器内）
@@ -595,8 +595,8 @@ docker compose -f docker-compose.full.yml stop adminer redis-commander
 
 访问地址（按需改为服务器域名/内网 IP）：
 
-- Adminer：`http://localhost:8080`
-- Redis Commander：`http://localhost:8081`
+- Adminer：`http://localhost:28080`
+- Redis Commander：`http://localhost:28081`
 
 ---
 
@@ -607,7 +607,7 @@ docker compose -f docker-compose.full.yml stop adminer redis-commander
 ```bash
 docker compose -f docker-compose.full.yml ps
 docker compose -f docker-compose.full.yml logs --tail 200 tool-gateway
-curl -fsS http://localhost:3000/health && echo
+curl -fsS http://localhost:28000/health && echo
 ```
 
 ### 9.2 “数据库连接失败/迁移失败”
@@ -640,7 +640,7 @@ docker exec -it agent-tool-gateway env | grep RATE_LIMIT
 #### 8.4.1 先确认链路与服务健康
 
 ```bash
-curl -fsS http://localhost:3000/health && echo
+curl -fsS http://localhost:28000/health && echo
 docker ps --filter "name=agent-tool-gateway" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
 docker logs --tail 200 agent-tool-gateway | grep -iE 'error|invalid|search|xoobay' || true
 ```
@@ -651,23 +651,23 @@ docker logs --tail 200 agent-tool-gateway | grep -iE 'error|invalid|search|xooba
 
 ```bash
 # 1) 空 query（如果 DB 有数据，一般会返回若干 offer_ids）
-curl -sS http://localhost:3000/tools/catalog/search_offers \
+curl -sS http://localhost:28000/tools/catalog/search_offers \
   -H 'content-type: application/json' \
-  -d '{"request_id":"11111111-1111-1111-1111-111111111111","actor":{"type":"user","id":"ops"},"client":{"app":"ops","version":"1"},"params":{"query":"","limit":10}}' | cat
+  -d '{"request_id":"11111111-1111-1111-1111-111111111111","actor":{"type":"user","id":"ops"},"client":{"app":"web","version":"1"},"params":{"query":"","limit":10}}' | cat
 
 echo
 
 # 2) 短关键词（例如 charger）
-curl -sS http://localhost:3000/tools/catalog/search_offers \
+curl -sS http://localhost:28000/tools/catalog/search_offers \
   -H 'content-type: application/json' \
-  -d '{"request_id":"22222222-2222-2222-2222-222222222222","actor":{"type":"user","id":"ops"},"client":{"app":"ops","version":"1"},"params":{"query":"charger","limit":10}}' | cat
+  -d '{"request_id":"22222222-2222-2222-2222-222222222222","actor":{"type":"user","id":"ops"},"client":{"app":"web","version":"1"},"params":{"query":"charger","limit":10}}' | cat
 
 echo
 
 # 3) 自然语言整句（含预算/国家等信息）
-curl -sS http://localhost:3000/tools/catalog/search_offers \
+curl -sS http://localhost:28000/tools/catalog/search_offers \
   -H 'content-type: application/json' \
-  -d '{"request_id":"33333333-3333-3333-3333-333333333333","actor":{"type":"user","id":"ops"},"client":{"app":"ops","version":"1"},"params":{"query":"wireless charger iphone 15, budget $50, ship to US","limit":10}}' | cat
+  -d '{"request_id":"33333333-3333-3333-3333-333333333333","actor":{"type":"user","id":"ops"},"client":{"app":"web","version":"1"},"params":{"query":"wireless charger iphone 15, budget $50, ship to US","limit":10}}' | cat
 ```
 
 判读：

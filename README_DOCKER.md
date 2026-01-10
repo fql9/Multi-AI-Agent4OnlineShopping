@@ -25,9 +25,9 @@ docker compose -f docker-compose.full.yml up -d
 
 ## 访问服务
 
-- **Web App**: http://localhost:3001
-- **Tool Gateway**: http://localhost:3000/health
-- **数据库**: localhost:5433
+- **Web App**: http://localhost:28004
+- **Tool Gateway**: http://localhost:28000/health
+- **数据库**: localhost:25432
 
 ## 详细文档
 

@@ -44,7 +44,7 @@ services:
       dockerfile: apps/tool-gateway/Dockerfile
     container_name: agent-tool-gateway-prod
     ports:
-      - "${TOOL_GATEWAY_PORT:-3000}:3000"
+      - "${TOOL_GATEWAY_PORT:-28000}:3000"
     environment:
       NODE_ENV: production
       PORT: 3000
@@ -56,7 +56,7 @@ services:
       DATABASE_URL: postgresql://${DB_USER:-agent}:${DB_PASSWORD}@postgres:5432/${DB_NAME:-agent_db}
       MCP_CORE_URL: http://core-mcp:3010
       MCP_CHECKOUT_URL: http://checkout-mcp:3011
-      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3001}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:28004}
       JWT_SECRET: ${JWT_SECRET}
       AUTH_ENABLED: ${AUTH_ENABLED:-false}
       # XOOBAY API 配置（可选）
@@ -85,7 +85,7 @@ services:
       dockerfile: apps/mcp-servers/core-mcp/Dockerfile
     container_name: agent-core-mcp-prod
     ports:
-      - "${CORE_MCP_PORT:-3010}:3010"
+      - "${CORE_MCP_PORT:-28001}:3010"
     environment:
       NODE_ENV: production
       DB_HOST: postgres
@@ -109,7 +109,7 @@ services:
       dockerfile: apps/mcp-servers/checkout-mcp/Dockerfile
     container_name: agent-checkout-mcp-prod
     ports:
-      - "${CHECKOUT_MCP_PORT:-3011}:3011"
+      - "${CHECKOUT_MCP_PORT:-28002}:3011"
     environment:
       NODE_ENV: production
       DB_HOST: postgres
@@ -133,11 +133,11 @@ services:
       dockerfile: apps/web-app/Dockerfile
     container_name: agent-web-app-prod
     ports:
-      - "${WEB_APP_PORT:-3001}:3001"
+      - "${WEB_APP_PORT:-28004}:3001"
     environment:
       NODE_ENV: production
       PORT: 3001
-      NEXT_PUBLIC_TOOL_GATEWAY_URL: ${NEXT_PUBLIC_TOOL_GATEWAY_URL:-http://localhost:3000}
+      NEXT_PUBLIC_TOOL_GATEWAY_URL: ${NEXT_PUBLIC_TOOL_GATEWAY_URL:-http://localhost:28000}
     depends_on:
       - tool-gateway
     restart: always

@@ -381,7 +381,7 @@ from langchain_core.tools import tool
 from pydantic import BaseModel
 import httpx
 
-MCP_GATEWAY_URL = "http://localhost:3000"
+MCP_GATEWAY_URL = "http://localhost:28000"
 
 class SearchOffersInput(BaseModel):
     query: str
