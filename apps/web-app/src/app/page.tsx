@@ -834,98 +834,55 @@ export default function Home() {
                     </div>
                     <div className="md:col-span-2">
                       <div className="text-xs font-medium text-surface-500 mb-1">Desired price range</div>
-                    <div className="space-y-3">
-                      {/* Dual range slider (supports mouse drag + arrow keys) */}
-                      {(() => {
-                        const SLIDER_MAX = 1000
-                        const minVal = store.priceMin ?? 0
-                        const maxVal = store.priceMax ?? SLIDER_MAX
-                        const clampedMin = Math.max(0, Math.min(minVal, SLIDER_MAX))
-                        const clampedMax = Math.max(0, Math.min(Math.max(maxVal, clampedMin), SLIDER_MAX))
-                        const minPct = (clampedMin / SLIDER_MAX) * 100
-                        const maxPct = (clampedMax / SLIDER_MAX) * 100
+                      <div className="space-y-3">
+                        <p className="text-xs text-surface-500">
+                          Enter min/max manually; leave blank for no limit.
+                        </p>
 
-                        return (
-                          <div className="space-y-2">
-                            <div className="flex items-center justify-between text-xs text-surface-500">
-                              <span>0</span>
-                              <span>{SLIDER_MAX}</span>
-                            </div>
-                            <div className="relative h-10">
-                              {/* Track */}
-                              <div className="absolute left-0 right-0 top-1/2 -translate-y-1/2 h-2 rounded-full bg-surface-100 border border-surface-200" />
-                              {/* Selected range */}
-                              <div
-                                className="absolute top-1/2 -translate-y-1/2 h-2 rounded-full bg-primary-500"
-                                style={{ left: `${minPct}%`, width: `${Math.max(0, maxPct - minPct)}%` }}
-                              />
-                              {/* Min slider */}
-                              <input
-                                type="range"
-                                min={0}
-                                max={SLIDER_MAX}
-                                step={1}
-                                value={clampedMin}
-                                onChange={(e) => store.setPriceMin(Number(e.target.value))}
-                                className="absolute inset-0 w-full bg-transparent appearance-none focus:outline-none"
-                                aria-label="Minimum price"
-                              />
-                              {/* Max slider */}
-                              <input
-                                type="range"
-                                min={0}
-                                max={SLIDER_MAX}
-                                step={1}
-                                value={clampedMax}
-                                onChange={(e) => store.setPriceMax(Number(e.target.value))}
-                                className="absolute inset-0 w-full bg-transparent appearance-none focus:outline-none"
-                                aria-label="Maximum price"
-                              />
-                            </div>
+                        {/* Numeric inputs (supports typing + up/down arrows) */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          <Input
+                            type="number"
+                            min={0}
+                            step={1}
+                            inputMode="numeric"
+                            value={store.priceMin ?? ''}
+                            onChange={(e) => store.setPriceMin(e.target.value === '' ? null : Number(e.target.value))}
+                            placeholder="Min"
+                            leftIcon={<DollarSign className="w-4 h-4" />}
+                          />
+                          <Input
+                            type="number"
+                            min={0}
+                            step={1}
+                            inputMode="numeric"
+                            value={store.priceMax ?? ''}
+                            onChange={(e) => store.setPriceMax(e.target.value === '' ? null : Number(e.target.value))}
+                            placeholder="Max"
+                            leftIcon={<DollarSign className="w-4 h-4" />}
+                          />
+                        </div>
 
-                            <div className="flex items-center justify-between text-xs text-surface-500">
-                              <span>
-                                Selected: <span className="font-semibold text-surface-700">{clampedMin}-{clampedMax}</span> {store.currency}
-                              </span>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  store.setPriceMin(null)
-                                  store.setPriceMax(null)
-                                }}
-                                className="text-primary-600 hover:text-primary-700 font-medium"
-                              >
-                                Clear
-                              </button>
-                            </div>
-                          </div>
-                        )
-                      })()}
-
-                      {/* Numeric inputs (supports typing + up/down arrows) */}
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                        <Input
-                          type="number"
-                          min={0}
-                          step={1}
-                          inputMode="numeric"
-                          value={store.priceMin ?? ''}
-                          onChange={(e) => store.setPriceMin(e.target.value === '' ? null : Number(e.target.value))}
-                          placeholder="Min"
-                          leftIcon={<DollarSign className="w-4 h-4" />}
-                        />
-                        <Input
-                          type="number"
-                          min={0}
-                          step={1}
-                          inputMode="numeric"
-                          value={store.priceMax ?? ''}
-                          onChange={(e) => store.setPriceMax(e.target.value === '' ? null : Number(e.target.value))}
-                          placeholder="Max"
-                          leftIcon={<DollarSign className="w-4 h-4" />}
-                        />
+                        <div className="flex items-center justify-between text-xs text-surface-500">
+                          <span>
+                            Selected:{' '}
+                            <span className="font-semibold text-surface-700">
+                              {store.priceMin ?? 'No min'} - {store.priceMax ?? 'No max'}
+                            </span>{' '}
+                            {store.currency}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              store.setPriceMin(null)
+                              store.setPriceMax(null)
+                            }}
+                            className="text-primary-600 hover:text-primary-700 font-medium"
+                          >
+                            Clear
+                          </button>
+                        </div>
                       </div>
-                    </div>
                     </div>
                     <div>
                       <div className="text-xs font-medium text-surface-500 mb-1">Quantity</div>
