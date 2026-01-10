@@ -7,7 +7,7 @@ Write-Host "`n========================================" -ForegroundColor Cyan
 Write-Host "XOOBAY API 集成功能测试" -ForegroundColor Yellow
 Write-Host "========================================`n" -ForegroundColor Cyan
 
-$baseUrl = "http://localhost:3000"
+$baseUrl = "http://localhost:18000"
 
 # 测试 1: 搜索产品（应该包含 XOOBAY 结果）
 Write-Host "📦 测试 1: 搜索产品..." -ForegroundColor Cyan

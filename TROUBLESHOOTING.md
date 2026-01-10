@@ -6,14 +6,14 @@
 
 根据测试，服务实际上是可以访问的：
 
-- ✅ **Tool Gateway** (http://localhost:3000/health) - 返回 200 状态码
-- ✅ **Web App** (http://localhost:3001) - 返回 200 状态码，内容长度 10893 字节
+- ✅ **Tool Gateway** (http://localhost:18000/health) - 返回 200 状态码
+- ✅ **Web App** (http://localhost:18004) - 返回 200 状态码，内容长度 10893 字节
 
 ### 如果浏览器访问不了，可能的原因和解决方法
 
 #### 1. 浏览器访问问题
 
-**症状**: 浏览器无法打开 http://localhost:3001
+**症状**: 浏览器无法打开 http://localhost:18004
 
 **解决方法**:
 
@@ -76,22 +76,22 @@ docker compose -f docker-compose.full.yml restart web-app
 
 ```powershell
 # 测试 Tool Gateway
-Invoke-WebRequest -Uri http://localhost:3000/health
+Invoke-WebRequest -Uri http://localhost:18000/health
 
 # 测试 Web App
-Invoke-WebRequest -Uri http://localhost:3001
+Invoke-WebRequest -Uri http://localhost:18004
 ```
 
 ### 方法 2: 使用浏览器
 
-- Tool Gateway: http://localhost:3000/health
-- Web App: http://localhost:3001
+- Tool Gateway: http://localhost:18000/health
+- Web App: http://localhost:18004
 
 ### 方法 3: 使用 curl (如果已安装)
 
 ```bash
-curl http://localhost:3000/health
-curl http://localhost:3001
+curl http://localhost:18000/health
+curl http://localhost:18004
 ```
 
 ## 🔧 常见问题修复
@@ -161,7 +161,7 @@ Write-Host "=== 服务状态检查 ===" -ForegroundColor Cyan
 
 # Tool Gateway
 try {
-    $r = Invoke-WebRequest -Uri http://localhost:3000/health -UseBasicParsing
+    $r = Invoke-WebRequest -Uri http://localhost:18000/health -UseBasicParsing
     Write-Host "✅ Tool Gateway: OK ($($r.StatusCode))" -ForegroundColor Green
 } catch {
     Write-Host "❌ Tool Gateway: FAILED" -ForegroundColor Red
@@ -169,7 +169,7 @@ try {
 
 # Web App
 try {
-    $r = Invoke-WebRequest -Uri http://localhost:3001 -UseBasicParsing
+    $r = Invoke-WebRequest -Uri http://localhost:18004 -UseBasicParsing
     Write-Host "✅ Web App: OK ($($r.StatusCode))" -ForegroundColor Green
 } catch {
     Write-Host "❌ Web App: FAILED" -ForegroundColor Red

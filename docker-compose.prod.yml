@@ -131,6 +131,9 @@ services:
     build:
       context: .
       dockerfile: apps/web-app/Dockerfile
+      args:
+        NEXT_PUBLIC_AGENT_API_URL: ${NEXT_PUBLIC_AGENT_API_URL:-http://localhost:28003}
+        NEXT_PUBLIC_TOOL_GATEWAY_URL: ${NEXT_PUBLIC_TOOL_GATEWAY_URL:-http://localhost:28000}
     container_name: agent-web-app-prod
     ports:
       - "${WEB_APP_PORT:-28004}:3001"

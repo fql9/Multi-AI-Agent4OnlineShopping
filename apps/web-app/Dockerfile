@@ -6,6 +6,12 @@ RUN corepack enable && corepack prepare pnpm@9.0.0 --activate
 
 WORKDIR /app
 
+# Build-time public envs for Next.js (fallback to high ports)
+ARG NEXT_PUBLIC_AGENT_API_URL=http://localhost:28003
+ARG NEXT_PUBLIC_TOOL_GATEWAY_URL=http://localhost:28000
+ENV NEXT_PUBLIC_AGENT_API_URL=${NEXT_PUBLIC_AGENT_API_URL}
+ENV NEXT_PUBLIC_TOOL_GATEWAY_URL=${NEXT_PUBLIC_TOOL_GATEWAY_URL}
+
 # Copy workspace files
 COPY pnpm-workspace.yaml pnpm-lock.yaml package.json tsconfig.base.json ./
 COPY apps/web-app ./apps/web-app
@@ -24,6 +30,12 @@ WORKDIR /app
 
 # Install pnpm
 RUN corepack enable && corepack prepare pnpm@9.0.0 --activate
+
+# Keep public envs available at runtime for clarity
+ARG NEXT_PUBLIC_AGENT_API_URL=http://localhost:28003
+ARG NEXT_PUBLIC_TOOL_GATEWAY_URL=http://localhost:28000
+ENV NEXT_PUBLIC_AGENT_API_URL=${NEXT_PUBLIC_AGENT_API_URL}
+ENV NEXT_PUBLIC_TOOL_GATEWAY_URL=${NEXT_PUBLIC_TOOL_GATEWAY_URL}
 
 # Copy workspace files
 COPY pnpm-workspace.yaml pnpm-lock.yaml package.json tsconfig.base.json ./

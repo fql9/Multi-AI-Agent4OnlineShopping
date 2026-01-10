@@ -78,7 +78,7 @@ if ($toolGatewayRunning) {
             }
         } | ConvertTo-Json
 
-        $response = Invoke-WebRequest -Uri "http://localhost:3000/tools/catalog/search_offers" `
+        $response = Invoke-WebRequest -Uri "http://localhost:18000/tools/catalog/search_offers" `
             -Method POST `
             -ContentType "application/json" `
             -Body $body `

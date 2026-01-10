@@ -55,13 +55,32 @@ export type ConfirmationItem = {
 // Mission 类型
 export type Mission = {
   destination_country: string
-  budget_amount: number
+  budget_amount: number | null
   budget_currency: string
   quantity: number
   arrival_days_max?: number
   hard_constraints: Array<{ type: string; value: string }>
   soft_preferences: Array<{ type: string; value: string }>
   search_query: string
+  detected_language?: string
+  purchase_context?: {
+    occasion?: string | null
+    recipient?: string | null
+    recipient_gender?: string | null
+    recipient_age_range?: string | null
+    style_preference?: string | null
+    urgency?: string | null
+    budget_sensitivity?: string | null
+    special_requirements?: string[]
+  }
+}
+
+export type AIRecommendationReason = {
+  main_reason: string
+  context_factors?: string[]
+  seasonal_relevance?: string | null
+  value_proposition?: string | null
+  personalized_tip?: string | null
 }
 
 // 产品类型
@@ -98,6 +117,8 @@ export type Plan = {
   reason: string
   risks: string[]
   confidence: number
+  aiRecommendation?: AIRecommendationReason
+  productHighlights?: string[]
 }
 
 // 草稿订单类型
@@ -288,12 +309,14 @@ const defaultConfirmationItems: ConfirmationItem[] = [
 const delay = (ms: number) => new Promise(r => setTimeout(r, ms))
 
 // Helper: 在 real API 模式下模拟 Agent 进度展示
+// apiCompleteSignal: 当真实 API 返回时会 resolve 的 Promise
 async function simulateAgentProgress(
   get: () => ShoppingState,
   set: (partial: Partial<ShoppingState> | ((state: ShoppingState) => Partial<ShoppingState>)) => void,
   addThinkingStep: (stepIndex: number, thinking: ThinkingStep) => void,
   addToolCall: (stepIndex: number, toolCall: ToolCall) => void,
   updateToolCall: (stepIndex: number, toolId: string, updates: Partial<ToolCall>) => void,
+  apiCompleteSignal: Promise<void>,
 ) {
   const agentIds = ['intent', 'candidate', 'verifier', 'plan'] as const
   
@@ -321,12 +344,29 @@ async function simulateAgentProgress(
     ],
   }
 
+  // 等待 API 的循环提示（用于最后一步）
+  const waitingMessages = [
+    'AI is thinking deeply...',
+    'Generating personalized recommendations...',
+    'Analyzing purchase context...',
+    'Optimizing plans for best value...',
+    'Almost there, finalizing results...',
+    'AI agents collaborating...',
+    'Evaluating seasonal relevance...',
+    'Computing best options for you...',
+  ]
+
   let totalTokens = 0
+  let apiCompleted = false
+  
+  // 监听 API 完成信号
+  apiCompleteSignal.then(() => { apiCompleted = true })
   
   for (let i = 0; i < agentIds.length; i++) {
     const agentId = agentIds[i]
     const thinkingSteps = realApiThinkingSteps[agentId]
     const startTime = Date.now()
+    const isLastStep = i === agentIds.length - 1
     
     // 设置当前步骤索引
     set({ currentStepIndex: i })
@@ -367,14 +407,45 @@ async function simulateAgentProgress(
     }
     addToolCall(i, toolCall)
     
-    await delay(400 + Math.random() * 300)
-    
-    const duration = Date.now() - startTime
-    updateToolCall(i, toolCall.id, {
-      output: '{ "status": "success" }',
-      duration,
-      status: 'success',
-    })
+    // 对于最后一步，等待 API 完成后再标记为 completed
+    if (isLastStep) {
+      // 显示循环等待动画，直到 API 返回
+      let waitMsgIndex = 0
+      while (!apiCompleted) {
+        const waitMsg = waitingMessages[waitMsgIndex % waitingMessages.length]
+        set({ currentThinkingStep: waitMsg })
+        
+        // 添加等待中的思考步骤
+        const waitThinking: ThinkingStep = {
+          id: `t_wait_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
+          text: waitMsg,
+          type: 'thinking',
+          timestamp: Date.now(),
+        }
+        addThinkingStep(i, waitThinking)
+        
+        waitMsgIndex++
+        await delay(2000) // 每2秒更新一次等待消息
+      }
+      
+      // API 已完成，更新工具调用状态
+      const duration = Date.now() - startTime
+      updateToolCall(i, toolCall.id, {
+        output: '{ "status": "success", "plans_generated": true }',
+        duration,
+        status: 'success',
+      })
+    } else {
+      // 非最后一步，正常模拟
+      await delay(400 + Math.random() * 300)
+      
+      const duration = Date.now() - startTime
+      updateToolCall(i, toolCall.id, {
+        output: '{ "status": "success" }',
+        duration,
+        status: 'success',
+      })
+    }
     
     set({ isStreaming: false, currentThinkingStep: '' })
     
@@ -399,7 +470,9 @@ async function simulateAgentProgress(
       totalTokens,
     }))
     
-    await delay(200)
+    if (!isLastStep) {
+      await delay(200)
+    }
   }
 }
 
@@ -574,19 +647,30 @@ export const useShoppingStore = create<ShoppingState>()(
         const mission = (() => {
           const base = parseMission(query)
           const budgetCurrency = state.currency || base.budget_currency
+          const baseBudgetAmount = base.budget_amount ?? 0
           return {
             ...base,
             destination_country: state.destinationCountry || base.destination_country,
             budget_currency: budgetCurrency,
-            budget_amount: sanitizeNonNegativeNumber(state.priceMax ?? state.priceMin ?? base.budget_amount, base.budget_amount),
+            budget_amount: sanitizeNonNegativeNumber(
+              state.priceMax ?? state.priceMin ?? baseBudgetAmount,
+              baseBudgetAmount
+            ),
             quantity: Math.max(1, sanitizeNonNegativeInt(state.quantity || base.quantity, 1)),
           }
         })()
         set({ mission, orderState: 'MISSION_READY' })
         
         // 调用后端 Agent（Real API）
+        // 创建一个可以从外部 resolve 的信号，用于通知动画 API 已完成
+        let signalApiComplete: () => void = () => {}
+        const apiCompleteSignal = new Promise<void>((resolve) => {
+          signalApiComplete = resolve
+        })
+        
         // 启动进度模拟 - 在后台运行 API 调用的同时展示进度
-        const progressPromise = simulateAgentProgress(get, set, addThinkingStep, addToolCall, updateToolCall)
+        // 最后一步会等待 apiCompleteSignal 才标记为完成
+        const progressPromise = simulateAgentProgress(get, set, addThinkingStep, addToolCall, updateToolCall, apiCompleteSignal)
           
         try {
           let response: api.ChatResponse
@@ -621,8 +705,11 @@ export const useShoppingStore = create<ShoppingState>()(
               throw err
             }
           }
+          
+          // API 已返回，通知动画可以完成最后一步
+          signalApiComplete()
             
-          // 等待进度模拟完成或至少完成前两步
+          // 等待进度模拟完成（最后一步收到信号后会立即完成）
           await progressPromise
             
           // 如果响应中包含 session 错误，也处理
@@ -719,9 +806,18 @@ export const useShoppingStore = create<ShoppingState>()(
                 min_days: number
                 max_days: number
               }
+              ai_recommendation?: AIRecommendationReason
+              product_highlights?: string[]
             }>
             
             if (apiPlans && apiPlans.length > 0) {
+              // 用后端返回的 mission 覆盖前端临时 mission（包含 purchase_context / detected_language 等新字段）
+              if (response.mission) {
+                set({
+                  mission: response.mission as unknown as Mission,
+                })
+              }
+
               const getProductFromCandidate = (offerId: string): Product => {
                 // 首先在 candidates 中查找
                 let rawCandidate: Record<string, unknown> | undefined = response.candidates?.find((c) => c.offer_id === offerId) as Record<string, unknown> | undefined
@@ -861,6 +957,8 @@ export const useShoppingStore = create<ShoppingState>()(
                          planType === 'fastest' ? 'Fastest delivery' : 'Best value for money',
                   risks: [],
                   confidence: 0.8,
+                  aiRecommendation: (plan as unknown as { ai_recommendation?: AIRecommendationReason }).ai_recommendation,
+                  productHighlights: (plan as unknown as { product_highlights?: string[] }).product_highlights,
                 }
               })
               
@@ -897,8 +995,10 @@ export const useShoppingStore = create<ShoppingState>()(
             
             return
           } catch (err) {
+            // 确保在错误情况下也通知动画完成，避免无限等待
+            signalApiComplete()
             const errorMsg = err instanceof Error ? err.message : 'Unknown error'
-            set({ error: `Failed to call agent: ${errorMsg}`, errorCode: 'API_ERROR' })
+            set({ error: `Failed to call agent: ${errorMsg}`, errorCode: 'API_ERROR', isStreaming: false })
             return
           }
       },

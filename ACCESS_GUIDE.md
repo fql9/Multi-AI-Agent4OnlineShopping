@@ -4,7 +4,7 @@
 
 ### 1. Web App (前端界面)
 
-**地址**: http://localhost:3001
+**地址**: http://localhost:18004
 
 **状态**: ✅ 运行中
 
@@ -16,13 +16,13 @@
 
 ### 2. Tool Gateway (API 网关)
 
-**健康检查**: http://localhost:3000/health
+**健康检查**: http://localhost:18000/health
 
 **状态**: ✅ 运行中
 
 **测试命令**:
 ```powershell
-Invoke-WebRequest -Uri http://localhost:3000/health
+Invoke-WebRequest -Uri http://localhost:18000/health
 ```
 
 ### 3. 数据库
@@ -61,10 +61,10 @@ netstat -ano | findstr ":3000 :3001"
 
 ```powershell
 # 测试 Tool Gateway
-Invoke-WebRequest -Uri http://localhost:3000/health
+Invoke-WebRequest -Uri http://localhost:18000/health
 
 # 测试 Web App
-Invoke-WebRequest -Uri http://localhost:3001
+Invoke-WebRequest -Uri http://localhost:18004
 ```
 
 ### 步骤 4: 查看服务日志

@@ -6,8 +6,10 @@
  */
 
 // 配置
-const AGENT_API_BASE = process.env.NEXT_PUBLIC_AGENT_API_URL || 'http://localhost:8000'
-const TOOL_GATEWAY_BASE = process.env.NEXT_PUBLIC_TOOL_GATEWAY_URL || 'http://localhost:3000'
+const AGENT_API_BASE =
+  process.env.NEXT_PUBLIC_AGENT_API_URL || 'http://localhost:28003'
+const TOOL_GATEWAY_BASE =
+  process.env.NEXT_PUBLIC_TOOL_GATEWAY_URL || 'http://localhost:28000'
 
 // ========================================
 // 类型定义
@@ -39,13 +41,24 @@ export interface ChatResponse {
 
 export interface MissionSpec {
   destination_country: string
-  budget_amount: number
+  budget_amount: number | null
   budget_currency: string
   quantity: number
   arrival_days_max?: number
   hard_constraints: Array<{ type: string; value: string }>
   soft_preferences: Array<{ type: string; value: string }>
   search_query: string
+  detected_language?: string
+  purchase_context?: {
+    occasion?: string | null
+    recipient?: string | null
+    recipient_gender?: string | null
+    recipient_age_range?: string | null
+    style_preference?: string | null
+    urgency?: string | null
+    budget_sensitivity?: string | null
+    special_requirements?: string[]
+  }
 }
 
 export interface ProductCandidate {
@@ -108,6 +121,14 @@ export interface PlanOption {
   reason: string
   confidence: number
   recommended: boolean
+  ai_recommendation?: {
+    main_reason: string
+    context_factors?: string[]
+    seasonal_relevance?: string | null
+    value_proposition?: string | null
+    personalized_tip?: string | null
+  }
+  product_highlights?: string[]
 }
 
 export interface DraftOrderData {

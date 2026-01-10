@@ -353,7 +353,7 @@ docker compose -f docker-compose.full.yml up -d --build web-app
 1. ✅ 构建所有 Docker 镜像
 2. ✅ 配置环境变量（`.env` 文件）
 3. ✅ 启动所有服务
-4. ✅ 访问 http://localhost:3001 测试 Web App
+4. ✅ 访问 http://localhost:18004 测试 Web App
 5. ✅ 查看日志确认服务正常运行
 
 ---

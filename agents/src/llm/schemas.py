@@ -12,6 +12,16 @@ from pydantic import BaseModel, Field
 # ==============================================
 # Intent Agent Output Schema
 # ==============================================
+class IntentPreprocessResult(BaseModel):
+    """意图预处理（语言检测、归一化）"""
+    detected_language: str | None = Field(default=None, description="检测到的语言代码，如 zh/en/es")
+    normalized_query: str = Field(default="", description="归一化后的查询，保持用户原始语言")
+    translated_query_en: str | None = Field(default=None, description="英文翻译，便于下游参考")
+    issues: list[str] = Field(default_factory=list, description="发现的问题或警告")
+    needs_clarification: bool = Field(default=False, description="是否需要澄清")
+    clarification_questions: list[str] = Field(default_factory=list, description="澄清问题（1-3 个）")
+
+
 class HardConstraint(BaseModel):
     """硬性约束"""
     type: str = Field(description="约束类型: category, brand, voltage, certification, material, compatibility")
@@ -33,6 +43,18 @@ class ObjectiveWeights(BaseModel):
     risk: float = Field(default=0.3, ge=0.0, le=1.0, description="风险权重")
 
 
+class PurchaseContext(BaseModel):
+    """购买上下文 - 用于 AI 推荐理由生成"""
+    occasion: str | None = Field(default=None, description="购买场景: gift, self_use, business, event")
+    recipient: str | None = Field(default=None, description="收礼人: girlfriend, boyfriend, parent, friend, colleague")
+    recipient_gender: str | None = Field(default=None, description="收礼人性别: male, female, unknown")
+    recipient_age_range: str | None = Field(default=None, description="年龄段: child, teen, young_adult, adult, senior")
+    style_preference: str | None = Field(default=None, description="风格偏好: casual, formal, sporty, elegant, cute")
+    urgency: str | None = Field(default=None, description="紧急程度: urgent, normal, flexible")
+    budget_sensitivity: str | None = Field(default=None, description="预算敏感度: budget_conscious, moderate, premium")
+    special_requirements: list[str] = Field(default_factory=list, description="特殊要求")
+
+
 class MissionParseResult(BaseModel):
     """Intent Agent 解析结果"""
     destination_country: str | None = Field(default=None, description="目的国 ISO 代码")
@@ -44,6 +66,16 @@ class MissionParseResult(BaseModel):
     soft_preferences: list[SoftPreference] = Field(default_factory=list, description="软性偏好")
     objective_weights: ObjectiveWeights = Field(default_factory=ObjectiveWeights, description="目标权重")
     search_query: str = Field(default="", description="搜索关键词")
+    primary_product_type: str = Field(
+        default="",
+        description="Primary product type in user's language (e.g., '充电器', 'charger', '西装外套')"
+    )
+    primary_product_type_en: str = Field(
+        default="",
+        description="English translation of primary product type for matching (e.g., 'charger', 'blazer', 'dress')"
+    )
+    purchase_context: PurchaseContext = Field(default_factory=PurchaseContext, description="购买上下文")
+    detected_language: str = Field(default="en", description="用户语言")
     needs_clarification: bool = Field(default=False, description="是否需要澄清")
     clarification_questions: list[str] = Field(default_factory=list, description="澄清问题")
 
@@ -65,6 +97,16 @@ class VerificationResult(BaseModel):
     top_recommendation: str = Field(default="", description="推荐的 offer_id")
     recommendation_reason: str = Field(default="", description="推荐理由")
     warnings: list[str] = Field(default_factory=list, description="警告信息")
+
+
+# ==============================================
+# Candidate Relevance Validation Schema
+# ==============================================
+class CandidateRelevanceResult(BaseModel):
+    """Candidate relevance validation result for strict product type filtering"""
+    is_relevant: bool = Field(description="Whether candidate matches user's primary product type")
+    confidence: float = Field(default=0.5, ge=0.0, le=1.0, description="Confidence score 0-1")
+    reason: str = Field(default="", description="Brief explanation of the relevance decision")
 
 
 # ==============================================
@@ -95,6 +137,15 @@ class DeliveryEstimate(BaseModel):
     max_date: str | None = None
 
 
+class AIRecommendationReason(BaseModel):
+    """AI 推荐理由"""
+    main_reason: str = Field(description="主要推荐理由（简短，1-2句话）")
+    context_factors: list[str] = Field(default_factory=list, description="考虑的上下文因素")
+    seasonal_relevance: str | None = Field(default=None, description="季节/节日相关性")
+    value_proposition: str | None = Field(default=None, description="价值主张（性价比/品质/独特性）")
+    personalized_tip: str | None = Field(default=None, description="个性化建议")
+
+
 class PurchasePlan(BaseModel):
     """购买方案"""
     plan_name: str = Field(description="方案名称")
@@ -107,6 +158,8 @@ class PurchasePlan(BaseModel):
     risks: list[str] = Field(default_factory=list, description="风险提示")
     confidence: float = Field(ge=0.0, le=1.0, description="置信度")
     confirmation_items: list[str] = Field(default_factory=list, description="需要用户确认的项目")
+    ai_recommendation: AIRecommendationReason | None = Field(default=None, description="AI 推荐理由")
+    product_highlights: list[str] = Field(default_factory=list, description="产品亮点")
 
 
 class PlanRecommendation(BaseModel):

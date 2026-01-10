@@ -82,7 +82,7 @@ $body = @{
 } | ConvertTo-Json -Depth 5
 
 # 发送请求
-$response = Invoke-WebRequest -Uri "http://localhost:3000/tools/catalog/search_offers" `
+$response = Invoke-WebRequest -Uri "http://localhost:28000/tools/catalog/search_offers" `
     -Method POST `
     -ContentType "application/json" `
     -Body $body
@@ -105,7 +105,7 @@ $body = @{
     }
 } | ConvertTo-Json -Depth 5
 
-$response = Invoke-WebRequest -Uri "http://localhost:3000/tools/catalog/get_offer_card" `
+$response = Invoke-WebRequest -Uri "http://localhost:28000/tools/catalog/get_offer_card" `
     -Method POST `
     -ContentType "application/json" `
     -Body $body
@@ -130,7 +130,7 @@ $result.data
 docker compose -f docker-compose.full.yml up -d web-app
 
 # 访问
-# http://localhost:3001
+# http://localhost:18004
 ```
 
 ---
@@ -159,7 +159,7 @@ $body = @{
     }
 } | ConvertTo-Json -Depth 5
 
-$response = Invoke-WebRequest -Uri "http://localhost:3000/tools/catalog/search_offers" `
+$response = Invoke-WebRequest -Uri "http://localhost:28000/tools/catalog/search_offers" `
     -Method POST `
     -ContentType "application/json" `
     -Body $body
@@ -185,7 +185,7 @@ $body = @{
     params = @{ offer_id = $productId }
 } | ConvertTo-Json -Depth 5
 
-$response = Invoke-WebRequest -Uri "http://localhost:3000/tools/catalog/get_offer_card" `
+$response = Invoke-WebRequest -Uri "http://localhost:28000/tools/catalog/get_offer_card" `
     -Method POST `
     -ContentType "application/json" `
     -Body $body

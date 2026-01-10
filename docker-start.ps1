@@ -23,9 +23,9 @@ if ($LASTEXITCODE -eq 0) {
     docker compose -f docker-compose.full.yml ps
     Write-Host ""
     Write-Host "🌐 访问地址:" -ForegroundColor Cyan
-    Write-Host "   Web App: http://localhost:3001" -ForegroundColor Green
-    Write-Host "   Tool Gateway: http://localhost:3000/health" -ForegroundColor Green
-    Write-Host "   数据库: localhost:5433" -ForegroundColor Green
+    Write-Host "   Web App: http://localhost:18004" -ForegroundColor Green
+    Write-Host "   Tool Gateway: http://localhost:18000/health" -ForegroundColor Green
+    Write-Host "   数据库: localhost:15432" -ForegroundColor Green
     Write-Host ""
     Write-Host "📋 查看日志:" -ForegroundColor Cyan
     Write-Host "   docker compose -f docker-compose.full.yml logs -f"

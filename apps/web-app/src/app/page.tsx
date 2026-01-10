@@ -1061,11 +1061,37 @@ export default function Home() {
                   </h3>
                   <div className="flex flex-wrap gap-3 text-sm">
                     <Badge variant="info">🌍 {store.mission.destination_country}</Badge>
-                    <Badge variant="success">💰 ${store.mission.budget_amount}</Badge>
+                    {store.mission.budget_amount != null && (
+                      <Badge variant="success">💰 ${store.mission.budget_amount}</Badge>
+                    )}
+                    {store.mission.detected_language && (
+                      <Badge variant="default">🗣️ {store.mission.detected_language}</Badge>
+                    )}
                     {store.mission.hard_constraints.map((c) => (
                       <Badge key={c.value} variant="default">{c.value}</Badge>
                     ))}
                   </div>
+
+                  {/* Purchase Context */}
+                  {store.mission.purchase_context && (
+                    <div className="mt-4 flex flex-wrap gap-2 text-xs">
+                      {store.mission.purchase_context.occasion && (
+                        <Badge variant="accent">🎯 {store.mission.purchase_context.occasion}</Badge>
+                      )}
+                      {store.mission.purchase_context.recipient && (
+                        <Badge variant="accent">🎁 {store.mission.purchase_context.recipient}</Badge>
+                      )}
+                      {store.mission.purchase_context.style_preference && (
+                        <Badge variant="accent">✨ {store.mission.purchase_context.style_preference}</Badge>
+                      )}
+                      {store.mission.purchase_context.budget_sensitivity && (
+                        <Badge variant="accent">💡 {store.mission.purchase_context.budget_sensitivity}</Badge>
+                      )}
+                      {(store.mission.purchase_context.special_requirements || []).slice(0, 4).map((r) => (
+                        <Badge key={r} variant="default">{r}</Badge>
+                      ))}
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             )}
@@ -1323,6 +1349,44 @@ export default function Home() {
                           <p className="text-surface-500 text-xs mb-2">{plan.product.shortDescription}</p>
                         )}
                         <p className="text-surface-500 text-sm mb-3">{plan.reason}</p>
+
+                        {/* AI Recommendation Reason (per plan) */}
+                        {(plan.aiRecommendation?.main_reason || (plan.productHighlights && plan.productHighlights.length > 0)) && (
+                          <div className="mb-3 rounded-xl border border-surface-200 bg-surface-50 px-4 py-3">
+                            {plan.aiRecommendation?.main_reason && (
+                              <div className="flex items-start gap-2">
+                                <Bot className="w-4 h-4 text-primary-600 mt-0.5" />
+                                <div className="text-sm text-surface-700 leading-relaxed">
+                                  <span className="font-semibold text-surface-800">AI 推荐：</span>
+                                  {plan.aiRecommendation.main_reason}
+                                  {plan.aiRecommendation.seasonal_relevance && (
+                                    <div className="mt-1 text-xs text-surface-500">
+                                      <span className="font-semibold">季节/节日：</span>{plan.aiRecommendation.seasonal_relevance}
+                                    </div>
+                                  )}
+                                  {plan.aiRecommendation.value_proposition && (
+                                    <div className="mt-1 text-xs text-surface-500">
+                                      <span className="font-semibold">价值点：</span>{plan.aiRecommendation.value_proposition}
+                                    </div>
+                                  )}
+                                  {plan.aiRecommendation.personalized_tip && (
+                                    <div className="mt-1 text-xs text-surface-500">
+                                      <span className="font-semibold">小建议：</span>{plan.aiRecommendation.personalized_tip}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            )}
+
+                            {plan.productHighlights && plan.productHighlights.length > 0 && (
+                              <div className={cn("mt-2 flex flex-wrap gap-2", !plan.aiRecommendation?.main_reason && "mt-0")}>
+                                {plan.productHighlights.slice(0, 6).map((h, idx) => (
+                                  <Badge key={`${plan.name}-hl-${idx}`} variant="default">{h}</Badge>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )}
                         
                         {/* Product Link */}
                         {plan.product.productUrl && (

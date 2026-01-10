@@ -1,16 +1,19 @@
 """
 Plan Agent Node implementation.
 
-基于核验后的候选生成 2-3 个可执行方案。
+基于核验后的候选生成 2-3 个可执行方案，并生成 AI 推荐理由。
 """
+
+from datetime import datetime, UTC
 
 import structlog
 
 from ..config import get_settings
 from ..graph.state import AgentState
 from ..llm.client import call_llm_and_parse
-from ..llm.prompts import PLAN_PROMPT
+from ..llm.prompts import AI_RECOMMENDATION_PROMPT, PLAN_PROMPT
 from ..llm.schemas import (
+    AIRecommendationReason,
     DeliveryEstimate,
     PlanItem,
     PlanRecommendation,
@@ -104,6 +107,7 @@ async def plan_node(state: AgentState) -> AgentState:
                 plan_type="cheapest",
                 quantity=quantity,
                 destination_country=destination_country,
+                mission=mission,
             ))
             used_offer_ids.add(cheapest.get("offer_id"))
 
@@ -126,6 +130,7 @@ async def plan_node(state: AgentState) -> AgentState:
                 plan_type="fastest",
                 quantity=quantity,
                 destination_country=destination_country,
+                mission=mission,
             ))
             used_offer_ids.add(fastest_candidate.get("offer_id"))
 
@@ -149,6 +154,7 @@ async def plan_node(state: AgentState) -> AgentState:
                 plan_type="best_value",
                 quantity=quantity,
                 destination_country=destination_country,
+                mission=mission,
             ))
             used_offer_ids.add(best_value_candidate.get("offer_id"))
 
@@ -169,6 +175,7 @@ async def plan_node(state: AgentState) -> AgentState:
                     plan_type=ptype,
                     quantity=quantity,
                     destination_country=destination_country,
+                    mission=mission,
                 ))
                 used_offer_ids.add(candidate.get("offer_id"))
                 extra_idx += 1
@@ -181,14 +188,22 @@ async def plan_node(state: AgentState) -> AgentState:
                 plan_type="best_value",
                 quantity=quantity,
                 destination_country=destination_country,
+                mission=mission,
             ))
 
-        # 可选：使用 LLM 优化方案
+        # 使用 LLM 生成 AI 推荐理由
         settings = get_settings()
         recommendation = plans[0].plan_name if plans else "No plans available"
         recommendation_reason = "Based on your requirements"
 
         if settings.openai_api_key and plans:
+            # 为每个方案生成 AI 推荐理由
+            try:
+                plans = await _generate_ai_recommendations(plans, mission)
+            except Exception as e:
+                logger.warning("plan_node.ai_recommendation_failed", error=str(e))
+            
+            # 优化方案推荐
             try:
                 llm_result = await _llm_optimize_plans(mission, verified_candidates, plans)
                 if llm_result:
@@ -224,11 +239,12 @@ def _create_plan(
     plan_type: str,
     quantity: int,
     destination_country: str,
+    mission: dict | None = None,
 ) -> PurchasePlan:
     """创建购买方案"""
     offer_id = candidate.get("offer_id", "")
     sku_id = candidate.get("sku_id", "")
-    candidate.get("candidate", {})
+    candidate_info = candidate.get("candidate", {})
 
     pricing = candidate.get("checks", {}).get("pricing", {})
     shipping = candidate.get("checks", {}).get("shipping", {})
@@ -250,6 +266,9 @@ def _create_plan(
     compliance = candidate.get("checks", {}).get("compliance", {})
     if compliance.get("required_docs"):
         warnings.append(f"Required certifications: {', '.join(compliance['required_docs'])}")
+
+    # 提取产品亮点（基于产品信息）
+    product_highlights = _extract_product_highlights(candidate_info, plan_type, mission)
 
     return PurchasePlan(
         plan_name=plan_name,
@@ -281,6 +300,166 @@ def _create_plan(
             "Tax estimate acknowledgment",
             "Return policy acknowledgment",
         ],
+        ai_recommendation=None,  # 将由 _generate_ai_recommendations 填充
+        product_highlights=product_highlights,
+    )
+
+
+def _extract_product_highlights(
+    candidate_info: dict,
+    plan_type: str,
+    mission: dict | None,
+) -> list[str]:
+    """提取产品亮点"""
+    highlights = []
+    
+    # 根据方案类型添加亮点
+    if plan_type == "cheapest":
+        highlights.append("💰 Best price option")
+    elif plan_type == "fastest":
+        highlights.append("⚡ Fastest delivery")
+    elif plan_type == "best_value":
+        highlights.append("⭐ Best overall value")
+    
+    # 从产品信息中提取亮点
+    brand = candidate_info.get("brand", {})
+    if brand.get("confidence") == "high":
+        highlights.append(f"🏷️ Verified brand: {brand.get('name', 'N/A')}")
+    
+    merchant = candidate_info.get("merchant", {})
+    if merchant.get("verified"):
+        highlights.append("✅ Verified seller")
+    if merchant.get("rating") and float(merchant.get("rating", 0)) >= 4.5:
+        highlights.append(f"⭐ High-rated seller: {merchant.get('rating')}/5")
+    
+    # 检查风险标签
+    risk_profile = candidate_info.get("risk_profile", {})
+    if risk_profile.get("counterfeit_risk") == "low":
+        highlights.append("🛡️ Low counterfeit risk")
+    
+    # 根据购买上下文添加亮点
+    if mission:
+        context = mission.get("purchase_context", {})
+        if context.get("occasion") == "gift":
+            highlights.append("🎁 Great for gifting")
+        if context.get("budget_sensitivity") == "budget_conscious":
+            highlights.append("💵 Budget-friendly choice")
+    
+    return highlights[:5]  # 最多返回 5 个亮点
+
+
+async def _generate_ai_recommendations(
+    plans: list[PurchasePlan],
+    mission: dict,
+) -> list[PurchasePlan]:
+    """
+    为每个方案生成 AI 推荐理由
+    
+    考虑因素：
+    - 当前日期/季节/节日
+    - 购买场景（送礼/自用）
+    - 收礼人信息
+    - 预算敏感度
+    - 目的地国家
+    - 用户语言
+    """
+    current_date = datetime.now(UTC).strftime("%Y-%m-%d")
+    user_language = mission.get("detected_language", "en")
+    destination_country = mission.get("destination_country", "US")
+    purchase_context = mission.get("purchase_context", {})
+    
+    updated_plans = []
+    
+    for plan in plans:
+        try:
+            # 获取产品信息
+            product_info = {
+                "plan_name": plan.plan_name,
+                "plan_type": plan.plan_type,
+                "total_price": plan.total.total_landed_cost,
+                "delivery_days": plan.delivery.min_days,
+                "product_highlights": plan.product_highlights,
+            }
+            
+            # 构建 LLM 请求
+            context_str = f"""
+Current date: {current_date}
+User language: {user_language}
+Destination country: {destination_country}
+Purchase context: {purchase_context}
+Product info: {product_info}
+
+Generate a personalized recommendation reason for this product in the user's language ({user_language}).
+"""
+            
+            messages = [
+                {"role": "system", "content": AI_RECOMMENDATION_PROMPT},
+                {"role": "user", "content": context_str},
+            ]
+            
+            result = await call_llm_and_parse(
+                messages=messages,
+                output_schema=AIRecommendationReason,
+                model_type="planner",
+                temperature=0.3,
+            )
+            
+            if result:
+                plan.ai_recommendation = result
+                # 合并 LLM 生成的产品亮点
+                if result.product_highlights:
+                    existing = set(plan.product_highlights)
+                    for h in result.product_highlights:
+                        if h not in existing:
+                            plan.product_highlights.append(h)
+                    plan.product_highlights = plan.product_highlights[:6]
+            
+            updated_plans.append(plan)
+            
+        except Exception as e:
+            logger.warning("_generate_ai_recommendation.failed", plan=plan.plan_name, error=str(e))
+            updated_plans.append(plan)
+    
+    return updated_plans
+
+
+def _generate_default_recommendation(
+    plan: PurchasePlan,
+    mission: dict,
+) -> AIRecommendationReason:
+    """生成默认推荐理由（当 LLM 不可用时）"""
+    purchase_context = mission.get("purchase_context", {})
+    occasion = purchase_context.get("occasion", "self_use")
+    recipient = purchase_context.get("recipient")
+    budget_sensitivity = purchase_context.get("budget_sensitivity", "moderate")
+    
+    # 根据方案类型生成默认理由
+    if plan.plan_type == "cheapest":
+        main_reason = "This is the most budget-friendly option available."
+        value_prop = "Best price-to-value ratio"
+    elif plan.plan_type == "fastest":
+        main_reason = "Get your item delivered as quickly as possible."
+        value_prop = "Fastest delivery time"
+    else:
+        main_reason = "A balanced choice of price, quality, and delivery speed."
+        value_prop = "Best overall value"
+    
+    # 根据场景定制
+    context_factors = []
+    if occasion == "gift":
+        context_factors.append("Gift purchase")
+        if recipient:
+            main_reason += f" Perfect for your {recipient}!"
+    if budget_sensitivity == "budget_conscious":
+        context_factors.append("Budget-conscious")
+    
+    return AIRecommendationReason(
+        main_reason=main_reason,
+        context_factors=context_factors,
+        seasonal_relevance=None,
+        value_proposition=value_prop,
+        personalized_tip=None,
+        product_highlights=plan.product_highlights[:3],
     )
 
 
@@ -297,6 +476,7 @@ async def _llm_optimize_plans(mission: dict, candidates: list, plans: list) -> P
                 "total": p.total.total_landed_cost,
                 "delivery_days": p.delivery.min_days,
                 "risks": p.risks,
+                "ai_reason": p.ai_recommendation.main_reason if p.ai_recommendation else None,
             }
             for p in plans
         ]

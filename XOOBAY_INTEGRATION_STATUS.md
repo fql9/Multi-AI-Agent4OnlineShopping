@@ -64,7 +64,7 @@ XOOBAY_LANG=en
 
 ### 1. 搜索产品
 ```bash
-POST http://localhost:3000/tools/catalog/search_offers
+POST http://localhost:18000/tools/catalog/search_offers
 {
   "request_id": "...",
   "actor": {"type": "user", "id": "..."},
@@ -80,7 +80,7 @@ POST http://localhost:3000/tools/catalog/search_offers
 
 ### 2. 获取产品详情
 ```bash
-POST http://localhost:3000/tools/catalog/get_offer_card
+POST http://localhost:18000/tools/catalog/get_offer_card
 {
   "request_id": "...",
   "actor": {"type": "user", "id": "..."},

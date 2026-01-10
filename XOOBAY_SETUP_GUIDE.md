@@ -67,7 +67,7 @@ $body = @{
     }
 } | ConvertTo-Json
 
-$response = Invoke-WebRequest -Uri "http://localhost:3000/tools/catalog/search_offers" `
+$response = Invoke-WebRequest -Uri "http://localhost:18000/tools/catalog/search_offers" `
     -Method POST `
     -ContentType "application/json" `
     -Body $body
@@ -79,7 +79,7 @@ $result | ConvertTo-Json -Depth 5
 **使用 curl (Git Bash):**
 
 ```bash
-curl -X POST http://localhost:3000/tools/catalog/search_offers \
+curl -X POST http://localhost:18000/tools/catalog/search_offers \
   -H "Content-Type: application/json" \
   -d '{"params": {"query": "charger", "limit": 10}}'
 ```
@@ -100,7 +100,7 @@ $body = @{
     }
 } | ConvertTo-Json
 
-$response = Invoke-WebRequest -Uri "http://localhost:3000/tools/catalog/get_offer_card" `
+$response = Invoke-WebRequest -Uri "http://localhost:18000/tools/catalog/get_offer_card" `
     -Method POST `
     -ContentType "application/json" `
     -Body $body
@@ -112,7 +112,7 @@ $result.data | ConvertTo-Json -Depth 5
 **使用 curl:**
 
 ```bash
-curl -X POST http://localhost:3000/tools/catalog/get_offer_card \
+curl -X POST http://localhost:18000/tools/catalog/get_offer_card \
   -H "Content-Type: application/json" \
   -d '{"params": {"offer_id": "xoobay_63660"}}'
 ```

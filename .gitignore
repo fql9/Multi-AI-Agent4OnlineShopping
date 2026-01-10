@@ -61,3 +61,6 @@ coverage/
 # Docker
 docker-compose.override.yml
 temp_deploy_test/
+
+# WordPress Plugins (Local)
+wordpress-plugins/
