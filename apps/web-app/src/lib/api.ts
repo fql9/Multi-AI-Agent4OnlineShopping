@@ -392,6 +392,137 @@ export async function checkConnectionStatus(): Promise<ConnectionStatus> {
 }
 
 // ========================================
+// Guided Chat API (Pre-agent conversation)
+// ========================================
+
+export interface GuidedChatRequest {
+  message: string
+  images?: string[]  // base64 encoded images
+  session_id?: string
+}
+
+export interface GuidedChatResponse {
+  session_id: string
+  message: string
+  turn_count: number
+  max_turns: number
+  ready_to_search: boolean
+  extracted_mission?: MissionSpec
+}
+
+export interface GuidedChatMessage {
+  id: string
+  role: 'user' | 'assistant'
+  content: string
+  has_images: boolean
+  timestamp: string
+}
+
+export interface GuidedChatSessionInfo {
+  session_id: string
+  turn_count: number
+  max_turns: number
+  ready_to_search: boolean
+  extracted_mission?: MissionSpec
+  messages: GuidedChatMessage[]
+  created_at: string
+  updated_at: string
+}
+
+export interface StreamChunk {
+  type: 'text' | 'done' | 'error' | 'mission'
+  content?: string
+  data?: {
+    session_id?: string
+    turn_count?: number
+    max_turns?: number
+    ready_to_search?: boolean
+    extracted_mission?: MissionSpec
+  }
+}
+
+/**
+ * Send a message to guided chat (non-streaming)
+ */
+export async function sendGuidedChatMessage(request: GuidedChatRequest): Promise<GuidedChatResponse> {
+  const response = await fetch(`${AGENT_API_BASE}/api/v1/guided-chat`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(request),
+  })
+  
+  return handleResponse<GuidedChatResponse>(response)
+}
+
+/**
+ * Send a message to guided chat with streaming response
+ * Returns an async generator that yields StreamChunk objects
+ */
+export async function* streamGuidedChat(request: GuidedChatRequest): AsyncGenerator<StreamChunk> {
+  const response = await fetch(`${AGENT_API_BASE}/api/v1/guided-chat/stream`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(request),
+  })
+  
+  if (!response.ok) {
+    throw new ApiError(`HTTP error ${response.status}`, response.status)
+  }
+  
+  const reader = response.body?.getReader()
+  if (!reader) {
+    throw new ApiError('No response body', 500)
+  }
+  
+  const decoder = new TextDecoder()
+  let buffer = ''
+  
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    
+    buffer += decoder.decode(value, { stream: true })
+    
+    // Parse SSE events
+    const lines = buffer.split('\n')
+    buffer = lines.pop() || ''
+    
+    for (const line of lines) {
+      if (line.startsWith('data: ')) {
+        try {
+          const data = JSON.parse(line.slice(6))
+          yield data as StreamChunk
+        } catch {
+          // Skip invalid JSON
+        }
+      }
+    }
+  }
+}
+
+/**
+ * Get guided chat session info
+ */
+export async function getGuidedChatSession(sessionId: string): Promise<GuidedChatSessionInfo> {
+  const response = await fetch(`${AGENT_API_BASE}/api/v1/guided-chat/sessions/${encodeURIComponent(sessionId)}`)
+  return handleResponse<GuidedChatSessionInfo>(response)
+}
+
+/**
+ * Delete/reset a guided chat session
+ */
+export async function deleteGuidedChatSession(sessionId: string): Promise<void> {
+  const response = await fetch(`${AGENT_API_BASE}/api/v1/guided-chat/sessions/${encodeURIComponent(sessionId)}`, {
+    method: 'DELETE',
+  })
+  await handleResponse(response)
+}
+
+// ========================================
 // 辅助函数
 // ========================================
 

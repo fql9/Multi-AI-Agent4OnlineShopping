@@ -15,12 +15,24 @@ import structlog
 import uvicorn
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from langchain_core.messages import HumanMessage
 from pydantic import BaseModel, Field
 
 from .config import get_settings
 from .graph import AgentState, build_agent_graph
 from .orchestrator import SessionManager, get_session_manager
+from .guided_chat import (
+    GuidedChatRequest,
+    GuidedChatResponse,
+    GuidedChatSession,
+    get_or_create_session,
+    stream_guided_chat,
+    process_guided_chat,
+    reset_session,
+    get_session_info,
+    StreamChunk,
+)
 
 # 配置日志
 structlog.configure(
@@ -352,6 +364,114 @@ async def list_sessions(user_id: str | None = None):
         )
         for s in sessions
     ]
+
+
+# ========================================
+# Guided Chat Endpoints
+# ========================================
+
+@app.post("/api/v1/guided-chat", response_model=GuidedChatResponse)
+async def guided_chat(request: GuidedChatRequest):
+    """
+    Guided chat for gathering shopping requirements
+    
+    This endpoint provides a conversational interface to help users
+    articulate their shopping needs before passing to the agent system.
+    """
+    try:
+        logger.info(
+            "guided_chat.request",
+            message=request.message[:50] if request.message else "",
+            session_id=request.session_id,
+            has_images=len(request.images) > 0,
+        )
+        
+        response = await process_guided_chat(request)
+        
+        logger.info(
+            "guided_chat.response",
+            session_id=response.session_id,
+            turn_count=response.turn_count,
+            ready_to_search=response.ready_to_search,
+        )
+        
+        return response
+        
+    except Exception as e:
+        logger.error("guided_chat.error", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/v1/guided-chat/stream")
+async def guided_chat_stream(request: GuidedChatRequest):
+    """
+    Streaming guided chat endpoint
+    
+    Returns Server-Sent Events (SSE) for real-time response streaming.
+    """
+    import json
+    
+    async def event_generator():
+        session = get_or_create_session(request.session_id)
+        
+        try:
+            async for chunk in stream_guided_chat(session, request.message, request.images):
+                # Format as SSE
+                data = chunk.model_dump()
+                yield f"data: {json.dumps(data)}\n\n"
+                
+        except Exception as e:
+            logger.error("guided_chat_stream.error", error=str(e))
+            error_chunk = StreamChunk(type="error", content=str(e))
+            yield f"data: {json.dumps(error_chunk.model_dump())}\n\n"
+    
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@app.get("/api/v1/guided-chat/sessions/{session_id}")
+async def get_guided_chat_session(session_id: str):
+    """Get guided chat session info"""
+    session = get_session_info(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    return {
+        "session_id": session.session_id,
+        "turn_count": session.turn_count,
+        "max_turns": session.max_turns,
+        "ready_to_search": session.ready_to_search,
+        "extracted_mission": session.extracted_mission,
+        "messages": [
+            {
+                "id": m.id,
+                "role": m.role,
+                "content": m.content,
+                "has_images": len(m.images) > 0,
+                "timestamp": m.timestamp,
+            }
+            for m in session.messages
+        ],
+        "created_at": session.created_at,
+        "updated_at": session.updated_at,
+    }
+
+
+@app.delete("/api/v1/guided-chat/sessions/{session_id}")
+async def delete_guided_chat_session(session_id: str):
+    """Reset/delete a guided chat session"""
+    success = reset_session(session_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    return {"status": "deleted", "session_id": session_id}
 
 
 def _extract_message(result: dict) -> str | None:

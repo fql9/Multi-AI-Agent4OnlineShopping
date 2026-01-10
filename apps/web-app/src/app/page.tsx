@@ -7,11 +7,12 @@ import {
   ChevronRight, Clock, Zap, Terminal, Brain, Wrench,
   ChevronDown, ChevronUp, Activity, Layers,
   LayoutGrid, Table2, ArrowUpDown, Star, DollarSign,
-  ExternalLink, Store
+  ExternalLink, Store, ImagePlus, X, RotateCcw, MessageCircle,
+  User
 } from 'lucide-react'
 import Image from 'next/image'
 import * as api from '@/lib/api'
-import { useShoppingStore, type OrderState, type TaxEstimate, type ComplianceRisk, type ThinkingStep, type ToolCall, type AgentStep } from '@/store/shopping'
+import { useShoppingStore, type OrderState, type TaxEstimate, type ComplianceRisk, type ThinkingStep, type ToolCall, type AgentStep, type GuidedChatMessage } from '@/store/shopping'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Progress } from '@/components/ui/progress'
 import { Badge } from '@/components/ui/badge'
@@ -411,6 +412,89 @@ function DockProductShowcase() {
   )
 }
 
+// Chat message bubble component
+function ChatBubble({ message, isLatest }: { message: GuidedChatMessage; isLatest: boolean }) {
+  const isUser = message.role === 'user'
+  
+  return (
+    <div className={cn(
+      "flex gap-3 animate-fade-in",
+      isUser ? "justify-end" : "justify-start"
+    )}>
+      {!isUser && (
+        <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-primary-500 to-accent-500 flex items-center justify-center flex-shrink-0 shadow-md">
+          <Bot className="w-5 h-5 text-white" />
+        </div>
+      )}
+      
+      <div className={cn(
+        "max-w-[80%] rounded-2xl px-4 py-3",
+        isUser 
+          ? "bg-primary-500 text-white rounded-br-md" 
+          : "bg-white border border-surface-200 text-surface-800 rounded-bl-md shadow-sm"
+      )}>
+        {/* Display images if any */}
+        {message.images && message.images.length > 0 && (
+          <div className="flex flex-wrap gap-2 mb-2">
+            {message.images.map((img, idx) => (
+              <div key={idx} className="relative w-20 h-20 rounded-lg overflow-hidden border border-surface-200">
+                <Image
+                  src={`data:image/jpeg;base64,${img}`}
+                  alt={`Uploaded image ${idx + 1}`}
+                  fill
+                  className="object-cover"
+                />
+              </div>
+            ))}
+          </div>
+        )}
+        
+        <div className={cn(
+          "text-sm leading-relaxed whitespace-pre-wrap",
+          message.isStreaming && "after:content-['▊'] after:animate-pulse after:ml-0.5"
+        )}>
+          {message.content || (message.isStreaming ? '' : '...')}
+        </div>
+      </div>
+      
+      {isUser && (
+        <div className="w-9 h-9 rounded-xl bg-surface-100 border border-surface-200 flex items-center justify-center flex-shrink-0">
+          <User className="w-5 h-5 text-surface-600" />
+        </div>
+      )}
+    </div>
+  )
+}
+
+// Image upload preview component
+function ImagePreview({ images, onRemove }: { images: string[]; onRemove: (index: number) => void }) {
+  if (images.length === 0) return null
+  
+  return (
+    <div className="flex flex-wrap gap-2 p-2 border-b border-surface-100">
+      {images.map((img, idx) => (
+        <div key={idx} className="relative group">
+          <div className="w-16 h-16 rounded-lg overflow-hidden border border-surface-200">
+            <Image
+              src={`data:image/jpeg;base64,${img}`}
+              alt={`Upload ${idx + 1}`}
+              width={64}
+              height={64}
+              className="object-cover w-full h-full"
+            />
+          </div>
+          <button
+            onClick={() => onRemove(idx)}
+            className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-danger-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+          >
+            <X className="w-3 h-3" />
+          </button>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 // Agent 步骤详情组件 - Light theme
 function AgentStepDetail({ step, isActive }: { step: AgentStep; isActive: boolean }) {
   if (step.status === 'pending') return null
@@ -649,6 +733,12 @@ export default function Home() {
   const [expandedStep, setExpandedStep] = useState<number | null>(null)
   const [viewMode, setViewMode] = useState<'cards' | 'table'>('cards')
   const [followUpQuery, setFollowUpQuery] = useState('')
+  
+  // Chat state
+  const [chatInput, setChatInput] = useState('')
+  const [chatImages, setChatImages] = useState<string[]>([])
+  const chatContainerRef = useRef<HTMLDivElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   // 检查连接状态
   useEffect(() => {
@@ -677,6 +767,58 @@ export default function Home() {
       setExpandedStep(store.currentStepIndex)
     }
   }, [store.currentStepIndex])
+
+  // Scroll chat to bottom when new messages arrive
+  useEffect(() => {
+    if (chatContainerRef.current) {
+      chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight
+    }
+  }, [store.guidedChat.messages, store.guidedChat.streamingContent])
+
+  const handleChatSubmit = useCallback(async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!chatInput.trim() && chatImages.length === 0) return
+    
+    const message = chatInput.trim()
+    const images = [...chatImages]
+    
+    // Clear input immediately
+    setChatInput('')
+    setChatImages([])
+    
+    // Send to guided chat
+    await store.sendGuidedMessage(message, images)
+  }, [chatInput, chatImages, store])
+
+  const handleImageUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files
+    if (!files) return
+    
+    Array.from(files).forEach((file) => {
+      if (!file.type.startsWith('image/')) return
+      if (chatImages.length >= 4) return // Max 4 images
+      
+      const reader = new FileReader()
+      reader.onload = (event) => {
+        const base64 = (event.target?.result as string)?.split(',')[1]
+        if (base64) {
+          setChatImages((prev) => [...prev, base64].slice(0, 4))
+        }
+      }
+      reader.readAsDataURL(file)
+    })
+    
+    // Reset input
+    if (fileInputRef.current) {
+      fileInputRef.current.value = ''
+    }
+  }, [chatImages.length])
+
+  const handleConfirmChat = useCallback(() => {
+    store.confirmGuidedChat()
+    setCurrentView('processing')
+    store.startAgentProcess()
+  }, [store])
 
   const handleSubmit = useCallback(async (e: React.FormEvent) => {
     e.preventDefault()
@@ -707,6 +849,9 @@ export default function Home() {
 
   const handleReset = useCallback(() => {
     store.reset()
+    store.resetGuidedChat()
+    setChatInput('')
+    setChatImages([])
     setCurrentView('input')
     setExpandedStep(null)
   }, [store])
@@ -754,199 +899,206 @@ export default function Home() {
           <StateMachineProgress currentState={store.orderState} />
         )}
 
-        {/* Input View - Light theme */}
+        {/* Input View - Chat-based Interface */}
         {currentView === 'input' && (
-          <div className="animate-fade-in">
-            <div className="text-center mb-12">
-              {/* 当超过追问次数返回首页时，显示提示消息 */}
-              {store.orderState === 'IDLE' && store.lastAgentMessage ? (
-                <div className="mb-6 p-6 bg-amber-50 rounded-2xl border border-amber-200 text-left max-w-2xl mx-auto shadow-sm">
-                  <div className="flex items-start gap-4">
-                    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-500 to-orange-500 flex items-center justify-center flex-shrink-0 shadow-md">
-                      <AlertTriangle className="w-6 h-6 text-white" />
-                    </div>
-                    <div className="flex-1">
-                      <h3 className="text-lg font-bold text-surface-800 mb-2">Let&apos;s try again</h3>
-                      <div className="text-surface-600 whitespace-pre-wrap leading-relaxed">
-                        {store.lastAgentMessage}
-                      </div>
-                    </div>
-                  </div>
+          <div className="animate-fade-in flex flex-col h-[calc(100vh-200px)] max-h-[700px]">
+            {/* Header */}
+            <div className="text-center mb-6 flex-shrink-0">
+              <div className="flex justify-center mb-4">
+                <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-primary-500 to-accent-500 flex items-center justify-center shadow-tech">
+                  <MessageCircle className="w-7 h-7 text-white" />
                 </div>
-              ) : store.orderState === 'WAITING_USER_INPUT' && store.lastAgentMessage ? (
-                <div className="mb-6 p-6 bg-primary-50 rounded-2xl border border-primary-200 text-left max-w-2xl mx-auto shadow-sm">
-                  <div className="flex items-start gap-4">
-                    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary-500 to-accent-500 flex items-center justify-center flex-shrink-0 shadow-md">
-                      <Bot className="w-6 h-6 text-white" />
-                    </div>
-                    <div className="flex-1">
-                      <h3 className="text-lg font-bold text-surface-800 mb-2">I need a bit more information</h3>
-                      <div className="text-surface-600 whitespace-pre-wrap leading-relaxed">
-                        {store.lastAgentMessage}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                <>
-                  <div className="flex justify-center mb-6">
-                    <DockProductShowcase />
-                  </div>
-                  <h2 className="text-4xl font-bold text-surface-800 mb-4">
-                    What would you like to buy?
-                  </h2>
-                  <p className="text-surface-500 text-lg max-w-xl mx-auto">
-                    Describe your shopping needs and watch our AI agents work in real-time.
-                  </p>
-                </>
-              )}
-            </div>
-
-            <form onSubmit={handleSubmit} className="relative">
-              <Card className="mb-4">
-                <CardContent className="p-4">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <div>
-                      <div className="text-xs font-medium text-surface-500 mb-1">Ship to (Country/Region)</div>
-                      <Input
-                        value={store.destinationCountry}
-                        onChange={(e) => store.setDestinationCountry(e.target.value)}
-                        placeholder="e.g., US / DE / China"
-                        leftIcon={<Truck className="w-4 h-4" />}
-                      />
-                    </div>
-                    <div>
-                      <div className="text-xs font-medium text-surface-500 mb-1">Currency</div>
-                      <div className="relative">
-                        <select
-                          value={store.currency}
-                          onChange={(e) => store.setCurrency(e.target.value)}
-                          className={cn(
-                            "flex h-11 w-full rounded-xl border bg-white px-4 py-2.5 text-sm ring-offset-white transition-all duration-200",
-                            "border-surface-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2"
-                          )}
-                        >
-                          {['USD', 'EUR', 'CNY', 'GBP', 'JPY', 'CAD', 'AUD', 'HKD', 'SGD'].map((c) => (
-                            <option key={c} value={c}>{c}</option>
-                          ))}
-                        </select>
-                      </div>
-                    </div>
-                    <div className="md:col-span-2">
-                      <div className="text-xs font-medium text-surface-500 mb-1">Desired price range</div>
-                      <div className="space-y-3">
-                        <p className="text-xs text-surface-500">
-                          Enter min/max manually; leave blank for no limit.
-                        </p>
-
-                        {/* Numeric inputs (supports typing + up/down arrows) */}
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                          <Input
-                            type="number"
-                            min={0}
-                            step={1}
-                            inputMode="numeric"
-                            value={store.priceMin ?? ''}
-                            onChange={(e) => store.setPriceMin(e.target.value === '' ? null : Number(e.target.value))}
-                            placeholder="Min"
-                            leftIcon={<DollarSign className="w-4 h-4" />}
-                          />
-                          <Input
-                            type="number"
-                            min={0}
-                            step={1}
-                            inputMode="numeric"
-                            value={store.priceMax ?? ''}
-                            onChange={(e) => store.setPriceMax(e.target.value === '' ? null : Number(e.target.value))}
-                            placeholder="Max"
-                            leftIcon={<DollarSign className="w-4 h-4" />}
-                          />
-                        </div>
-
-                        <div className="flex items-center justify-between text-xs text-surface-500">
-                          <span>
-                            Selected:{' '}
-                            <span className="font-semibold text-surface-700">
-                              {store.priceMin ?? 'No min'} - {store.priceMax ?? 'No max'}
-                            </span>{' '}
-                            {store.currency}
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              store.setPriceMin(null)
-                              store.setPriceMax(null)
-                            }}
-                            className="text-primary-600 hover:text-primary-700 font-medium"
-                          >
-                            Clear
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                    <div>
-                      <div className="text-xs font-medium text-surface-500 mb-1">Quantity</div>
-                      <Input
-                        type="number"
-                        min={1}
-                        step={1}
-                        value={store.quantity}
-                        onChange={(e) => store.setQuantity(Number(e.target.value))}
-                        leftIcon={<Package className="w-4 h-4" />}
-                      />
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-              <Card variant="elevated" className="p-2">
-                <Textarea
-                  value={store.query}
-                  onChange={(e) => store.setQuery(e.target.value)}
-                  placeholder="e.g., I need a wireless charger for my iPhone 15, budget around $50, shipping to Germany..."
-                  className="min-h-[120px] border-0 focus-visible:ring-0 shadow-none resize-none"
-                />
-                <div className="flex items-center justify-between px-2 py-2 border-t border-surface-100">
-                  <div className="flex items-center gap-2 text-xs text-surface-400">
-                    <span>Press Enter to search</span>
-                  </div>
-                  <Button
-                    type="submit"
-                    disabled={!store.query.trim()}
-                    rightIcon={<Send className="w-4 h-4" />}
-                  >
-                    Find Products
-                  </Button>
-                </div>
-              </Card>
-            </form>
-
-            {/* Example queries - Light theme */}
-            <div className="mt-8">
-              <p className="text-surface-500 text-sm mb-3 font-medium">Try these examples:</p>
-              <div className="flex flex-wrap gap-2">
-                {[
-                  'camping tent, budget $50 USD, ship to US',
-                  'pearl necklace, under $20 USD, ship to Germany',
-                  'women watch, budget $80 USD, ship to UK',
-                ].map((example) => (
-                  <button
-                    key={example}
-                    onClick={async () => {
-                      store.setQuery(example)
-                      store.setOrderState('MISSION_READY')
-                      setCurrentView('processing')
-                      // 延迟一下确保状态更新
-                      setTimeout(() => {
-                        store.startAgentProcess()
-                      }, 100)
-                    }}
-                    className="px-4 py-2.5 bg-white hover:bg-surface-50 border border-surface-200 rounded-xl text-surface-600 text-sm transition-all hover:border-primary-300 hover:text-primary-600 hover:shadow-sm"
-                  >
-                    {example}
-                  </button>
-                ))}
+              </div>
+              <h2 className="text-2xl font-bold text-surface-800 mb-2">
+                Chat with AI Shopping Assistant
+              </h2>
+              <p className="text-surface-500 text-sm max-w-md mx-auto">
+                Tell me what you&apos;re looking for! I&apos;ll ask a few questions to help find the perfect product.
+              </p>
+              
+              {/* Turn counter */}
+              <div className="flex items-center justify-center gap-2 mt-3">
+                <Badge variant="default" className="text-xs">
+                  {store.guidedChat.turnCount} / {store.guidedChat.maxTurns} turns
+                </Badge>
+                {store.guidedChat.readyToSearch && (
+                  <Badge variant="success" className="text-xs animate-pulse">
+                    ✓ Ready to search
+                  </Badge>
+                )}
               </div>
             </div>
+
+            {/* Chat messages area */}
+            <Card className="flex-1 flex flex-col overflow-hidden mb-4">
+              <div 
+                ref={chatContainerRef}
+                className="flex-1 overflow-y-auto p-4 space-y-4"
+              >
+                {/* Welcome message if no messages */}
+                {store.guidedChat.messages.length === 0 && (
+                  <div className="flex gap-3">
+                    <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-primary-500 to-accent-500 flex items-center justify-center flex-shrink-0 shadow-md">
+                      <Bot className="w-5 h-5 text-white" />
+                    </div>
+                    <div className="max-w-[80%] rounded-2xl rounded-bl-md px-4 py-3 bg-white border border-surface-200 text-surface-800 shadow-sm">
+                      <p className="text-sm leading-relaxed">
+                        Hi! 👋 I&apos;m your AI shopping assistant. What would you like to buy today?
+                        <br /><br />
+                        You can describe what you&apos;re looking for, and I&apos;ll help you find the best options. Feel free to share images too!
+                      </p>
+                    </div>
+                  </div>
+                )}
+                
+                {/* Chat messages */}
+                {store.guidedChat.messages.map((msg, idx) => (
+                  <ChatBubble 
+                    key={msg.id} 
+                    message={msg} 
+                    isLatest={idx === store.guidedChat.messages.length - 1}
+                  />
+                ))}
+                
+                {/* Streaming indicator */}
+                {store.guidedChat.isStreaming && store.guidedChat.messages.length > 0 && 
+                 !store.guidedChat.messages[store.guidedChat.messages.length - 1]?.isStreaming && (
+                  <div className="flex gap-3">
+                    <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-primary-500 to-accent-500 flex items-center justify-center flex-shrink-0 shadow-md">
+                      <Bot className="w-5 h-5 text-white animate-pulse" />
+                    </div>
+                    <div className="flex items-center gap-1 px-4 py-3 bg-white border border-surface-200 rounded-2xl rounded-bl-md">
+                      <span className="w-2 h-2 bg-primary-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                      <span className="w-2 h-2 bg-primary-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                      <span className="w-2 h-2 bg-primary-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Image preview */}
+              <ImagePreview 
+                images={chatImages} 
+                onRemove={(idx) => setChatImages((prev) => prev.filter((_, i) => i !== idx))}
+              />
+
+              {/* Chat input */}
+              <form onSubmit={handleChatSubmit} className="p-3 border-t border-surface-100 bg-surface-50">
+                <div className="flex items-end gap-2">
+                  {/* Image upload button */}
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    onChange={handleImageUpload}
+                    className="hidden"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={chatImages.length >= 4 || store.guidedChat.isStreaming}
+                    className={cn(
+                      "p-2.5 rounded-xl border transition-colors",
+                      chatImages.length >= 4 || store.guidedChat.isStreaming
+                        ? "bg-surface-100 border-surface-200 text-surface-400 cursor-not-allowed"
+                        : "bg-white border-surface-200 text-surface-600 hover:bg-surface-50 hover:text-primary-600"
+                    )}
+                  >
+                    <ImagePlus className="w-5 h-5" />
+                  </button>
+                  
+                  {/* Text input */}
+                  <div className="flex-1 relative">
+                    <Textarea
+                      value={chatInput}
+                      onChange={(e) => setChatInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && !e.shiftKey) {
+                          e.preventDefault()
+                          handleChatSubmit(e)
+                        }
+                      }}
+                      placeholder="Type your message... (Shift+Enter for new line)"
+                      disabled={store.guidedChat.isStreaming}
+                      className="min-h-[44px] max-h-[120px] resize-none pr-12"
+                    />
+                  </div>
+                  
+                  {/* Send button */}
+                  <Button
+                    type="submit"
+                    disabled={(!chatInput.trim() && chatImages.length === 0) || store.guidedChat.isStreaming}
+                    className="h-11 px-4"
+                  >
+                    {store.guidedChat.isStreaming ? (
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                    ) : (
+                      <Send className="w-5 h-5" />
+                    )}
+                  </Button>
+                </div>
+              </form>
+            </Card>
+
+            {/* Action buttons */}
+            <div className="flex items-center justify-between flex-shrink-0">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  store.resetGuidedChat()
+                  setChatInput('')
+                  setChatImages([])
+                }}
+                disabled={store.guidedChat.messages.length === 0}
+                leftIcon={<RotateCcw className="w-4 h-4" />}
+              >
+                Start Over
+              </Button>
+              
+              <div className="flex items-center gap-3">
+                {store.guidedChat.extractedMission && (
+                  <div className="text-xs text-surface-500 max-w-xs truncate">
+                    <span className="font-medium">Ready: </span>
+                    {store.guidedChat.extractedMission.search_query || 'Your request'}
+                  </div>
+                )}
+                <Button
+                  onClick={handleConfirmChat}
+                  disabled={!store.guidedChat.readyToSearch || store.guidedChat.isStreaming}
+                  rightIcon={<ChevronRight className="w-4 h-4" />}
+                  className={cn(
+                    store.guidedChat.readyToSearch && "animate-pulse"
+                  )}
+                >
+                  Find Products
+                </Button>
+              </div>
+            </div>
+
+            {/* Quick start examples */}
+            {store.guidedChat.messages.length === 0 && (
+              <div className="mt-6 flex-shrink-0">
+                <p className="text-surface-500 text-xs mb-2 font-medium">Quick start:</p>
+                <div className="flex flex-wrap gap-2">
+                  {[
+                    'I want to buy a gift for my mom',
+                    'Looking for a laptop bag',
+                    'Need a dress for a wedding',
+                  ].map((example) => (
+                    <button
+                      key={example}
+                      onClick={() => {
+                        setChatInput(example)
+                      }}
+                      className="px-3 py-1.5 bg-white hover:bg-surface-50 border border-surface-200 rounded-lg text-surface-600 text-xs transition-all hover:border-primary-300 hover:text-primary-600"
+                    >
+                      {example}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
 
