@@ -60,6 +60,7 @@ coverage/
 
 # Docker
 docker-compose.override.yml
+# local-only: ops/deployment rehearsal scratchpad (DO NOT COMMIT)
 temp_deploy_test/
 
 # WordPress Plugins (Local)

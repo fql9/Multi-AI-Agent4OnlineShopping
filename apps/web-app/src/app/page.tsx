@@ -1062,7 +1062,7 @@ export default function Home() {
                   <div className="flex flex-wrap gap-3 text-sm">
                     <Badge variant="info">🌍 {store.mission.destination_country}</Badge>
                     {store.mission.budget_amount != null && (
-                      <Badge variant="success">💰 ${store.mission.budget_amount}</Badge>
+                    <Badge variant="success">💰 ${store.mission.budget_amount}</Badge>
                     )}
                     {store.mission.detected_language && (
                       <Badge variant="default">🗣️ {store.mission.detected_language}</Badge>
