@@ -77,6 +77,11 @@ AGENT_PORT=8000
 | **agent** | agent-python | 8000 | Gateway | LangGraph 智能体编排服务 |
 | **web-app** | agent-web-app | 3001 | Gateway | Next.js 前端界面 |
 
+> **数据库迁移保证**  
+> `docker-compose.full.yml` 内置了 `db-migrate` 一次性服务，`docker compose ... up` 时会自动在 Postgres 就绪后执行全部 SQL 迁移（幂等）。  
+> 如果是 **已有数据卷** 升级到新版（可能缺少新表/字段），请手动执行：  
+> `docker compose -f docker-compose.full.yml run --rm db-migrate`
+
 ## 4. 常用运维命令
 
 > 本文档只保留“部署相关”的最小命令与参数说明；所有运维/排障/数据库检查命令统一收敛到：[`19_ops_runbook.md`](./19_ops_runbook.md)

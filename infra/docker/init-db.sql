@@ -234,4 +234,24 @@ CREATE INDEX IF NOT EXISTS idx_offers_title_search
 ON agent.offers 
 USING gin(to_tsvector('english', COALESCE(title_en, '')));
 
+-- 知识图谱关系表（供商品卡片/关系查询使用）
+CREATE TABLE IF NOT EXISTS agent.kg_relations (
+    id VARCHAR(255) PRIMARY KEY DEFAULT 'rel_' || substr(uuid_generate_v4()::text, 1, 12),
+    from_type VARCHAR(50) NOT NULL,
+    from_id VARCHAR(255) NOT NULL,
+    relation_type VARCHAR(100) NOT NULL,
+    to_type VARCHAR(50) NOT NULL,
+    to_id VARCHAR(255) NOT NULL,
+    confidence DECIMAL(3, 2) DEFAULT 0.8,
+    source VARCHAR(50) DEFAULT 'system',
+    metadata JSONB DEFAULT '{}',
+    valid_from TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    valid_to TIMESTAMP WITH TIME ZONE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_kg_relations_from ON agent.kg_relations(from_type, from_id);
+CREATE INDEX IF NOT EXISTS idx_kg_relations_to ON agent.kg_relations(to_type, to_id);
+CREATE INDEX IF NOT EXISTS idx_kg_relations_type ON agent.kg_relations(relation_type);
+
 COMMENT ON SCHEMA agent IS 'Multi-AI-Agent4OnlineShopping 主 schema';

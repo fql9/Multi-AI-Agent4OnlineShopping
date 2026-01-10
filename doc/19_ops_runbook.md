@@ -32,16 +32,13 @@
 # 0) 确认 XOOBAY 已启用（生产强烈建议开启，否则 DB 为空时将完全无商品可搜）
 docker exec agent-tool-gateway env | grep -E '^XOOBAY_ENABLED=|^XOOBAY_BASE_URL=|^XOOBAY_API_KEY=' || true
 
-# 1) 启动基础依赖
-docker compose -f docker-compose.full.yml up -d postgres redis
+# 1) 启动基础依赖（含自动迁移）
+docker compose -f docker-compose.full.yml up -d postgres redis db-migrate
 
-# 2) 跑迁移（让表结构与代码一致）
-docker compose -f docker-compose.full.yml --profile migrate up db-migrate
-
-# 3) 启动业务服务
+# 2) 启动业务服务（db-migrate 幂等，已跑完会直接退出）
 docker compose -f docker-compose.full.yml up -d core-mcp checkout-mcp tool-gateway agent web-app
 
-# 4) 同步真实商品数据（XOOBAY → PostgreSQL）
+# 3) 同步真实商品数据（XOOBAY → PostgreSQL）
 # 推荐用 run --rm：一次性任务跑完即退出（前台会显示同步进度条）
 docker compose -f docker-compose.full.yml --profile sync run --rm xoobay-sync
 ```
@@ -59,8 +56,12 @@ docker compose -f docker-compose.full.yml --profile sync run --rm xoobay-sync
 如需追日志：
 
 ```bash
-docker compose -f docker-compose.full.yml --profile migrate up db-migrate
+docker compose -f docker-compose.full.yml logs -f db-migrate
 ```
+
+> ⚠️ 已有数据卷从旧版本升级：请先执行一次  
+> `docker compose -f docker-compose.full.yml run --rm db-migrate`  
+> 确保新表（如 `agent.kg_relations`）创建到位，避免 Gateway/Agent 查询 500。
 
 ### 1.1.2 XOOBAY 同步（重点）：进度显示、导入数量、断点续传
 
@@ -541,8 +542,8 @@ LIMIT 20;"
 ### 6.4 迁移、同步（compose profiles）
 
 ```bash
-# 数据库迁移（profile: migrate）
-docker compose -f docker-compose.full.yml --profile migrate up db-migrate
+# 数据库迁移（幂等；用于旧数据卷升级/补齐新表）
+docker compose -f docker-compose.full.yml run --rm db-migrate
 
 # XOOBAY 产品同步（profile: sync）
 docker compose -f docker-compose.full.yml --profile sync run --rm xoobay-sync
@@ -614,7 +615,8 @@ curl -fsS http://localhost:3000/health && echo
 ```bash
 docker exec -it agent-postgres pg_isready -U agent -d agent_db
 docker compose -f docker-compose.full.yml logs --tail 200 postgres
-docker compose -f docker-compose.full.yml --profile migrate up db-migrate
+docker compose -f docker-compose.full.yml logs --tail 200 db-migrate
+docker compose -f docker-compose.full.yml run --rm db-migrate
 ```
 
 ### 8.3 “429/限流导致前端异常”
