@@ -31,10 +31,40 @@
 | Agent | 职责 | 模型 | 可调用工具 |
 |-------|------|------|------------|
 | **Orchestrator** | 任务拆解、路由、预算编排 | GPT-4o-mini | 无（纯逻辑） |
-| **Intent Agent** | 解析用户意图 → Mission 结构化 | GPT-4o-mini | identity.* |
-| **Candidate Agent** | 图谱约束 + 检索召回候选集 | GPT-4o-mini | catalog.*, knowledge.* |
+| **Intent Agent** | 解析用户意图 → Mission 结构化 + 产品类型提取 + 购买上下文 | GPT-4o-mini | identity.* |
+| **Candidate Agent** | 图谱约束 + 检索召回 + **LLM 相关性过滤** | GPT-4o-mini | catalog.*, knowledge.* |
 | **Verifier Agent** | 对 TopN 调实时工具核验 | GPT-4o | pricing.*, shipping.*, tax.*, compliance.* |
+| **Plan Agent** | 生成方案 + **AI 推荐理由** | GPT-4o-mini | - |
 | **Execution Agent** | 生成 Draft Order | GPT-4o-mini | cart.*, checkout.*, evidence.* |
+
+#### Intent Agent 增强（v0.7.0）
+
+Intent Agent 现在执行两阶段处理：
+
+1. **预处理阶段**（`INTENT_PREPROCESS_PROMPT`）:
+   - 语言检测（zh/en/ja/es 等）
+   - 查询归一化（移除客套话）
+   - 英文翻译（便于下游匹配）
+   - 澄清判断（是否需要追问）
+
+2. **意图解析阶段**（`INTENT_PROMPT`）:
+   - 提取 `primary_product_type`（用户原语言）
+   - 提取 `primary_product_type_en`（英文翻译，用于严格匹配）
+   - 提取 `purchase_context`（场景、收礼人、预算敏感度等）
+
+#### Candidate Agent 相关性过滤（v0.7.0）
+
+Candidate Agent 现在包含两层过滤：
+
+1. **快速启发式检查**：关键词匹配 + 已知排斥词过滤
+2. **LLM 相关性验证**：对模糊情况调用 LLM 判断
+
+```python
+# 示例：用户要 "charger"，系统过滤掉 "phone case"
+if primary_product_type_en == "charger":
+    # 快速排斥：case, stand, holder 等
+    # LLM 验证：不确定的情况
+```
 
 ### 扩展 Agent（中期）
 

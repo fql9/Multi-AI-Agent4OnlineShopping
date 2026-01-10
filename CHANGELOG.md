@@ -4,6 +4,43 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-01-10
+
+### Added
+- **Strict Product Type Filtering**:
+  - Added `primary_product_type` and `primary_product_type_en` fields to Intent parsing for precise product matching.
+  - Added `CANDIDATE_RELEVANCE_PROMPT` for LLM-based candidate validation.
+  - Added `CandidateRelevanceResult` schema for structured relevance checks.
+  - Candidate Agent now filters out non-matching products (e.g., phone cases when user asks for charger).
+- **AI Recommendation Reasons**:
+  - Added `PurchaseContext` extraction (occasion, recipient, budget_sensitivity, etc.).
+  - Added `AIRecommendationReason` generation for each plan with seasonal relevance and personalized tips.
+  - Added `AI_RECOMMENDATION_PROMPT` for context-aware recommendations.
+- **Intent Preprocessing**:
+  - Added LLM-based preprocessing step for language detection, normalization, and translation.
+  - Added `INTENT_PREPROCESS_PROMPT` for robust multi-language handling.
+  - Added clarification flow for ambiguous queries.
+- **Frontend Enhancements**:
+  - Progress animation now syncs with real backend API response time.
+  - Last step (Plan Agent) shows dynamic waiting messages until API returns.
+  - Added purchase context display in Mission card.
+  - Added AI recommendation reasons display in Plan cards.
+
+### Changed
+- **Intent Agent**:
+  - Now extracts precise product type instead of generic categories.
+  - Enhanced multi-language support with automatic translation.
+- **Candidate Agent**:
+  - Added two-tier relevance validation (heuristic + LLM).
+  - Returns helpful error when all candidates are filtered out.
+- **Frontend Store**:
+  - Refactored `simulateAgentProgress` to wait for real API completion signal.
+
+### Fixed
+- Fixed issue where "charger for iPhone" returned phone cases and stands instead of chargers.
+- Fixed issue where "西装外套" (blazer) returned unrelated clothing items.
+- Fixed frontend progress showing "completed" while still waiting for API response.
+
 ## [0.6.0] - 2026-01-08
 
 ### Added

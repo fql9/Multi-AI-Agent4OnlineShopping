@@ -6,7 +6,7 @@
 
 ## 当前版本
 
-**v0.6.0** (2026-01-02) - 前端增强与 API 集成
+**v0.7.0** (2026-01-10) - 智能产品过滤与 AI 推荐理由
 
 ---
 
@@ -93,10 +93,10 @@
 | 数据模型 | Mission / DraftOrder / Evidence | `agents/src/models/` |
 | LangGraph 状态 | AgentState TypedDict | `agents/src/graph/state.py` |
 | 状态机构建 | 节点定义 + 边 + 路由 | `agents/src/graph/builder.py` |
-| Intent 节点 | 意图解析 → MissionSpec | `agents/src/intent/node.py` |
-| Candidate 节点 | 商品召回 | `agents/src/candidate/node.py` |
+| Intent 节点 | 意图解析 + 产品类型提取 + 购买上下文 | `agents/src/intent/node.py` |
+| Candidate 节点 | 商品召回 + **LLM 相关性过滤** | `agents/src/candidate/node.py` |
 | Verifier 节点 | 实时核验 | `agents/src/verifier/node.py` |
-| Plan 节点 | 方案生成 | `agents/src/execution/plan_node.py` |
+| Plan 节点 | 方案生成 + **AI 推荐理由** | `agents/src/execution/plan_node.py` |
 | Execution 节点 | 草稿订单创建 | `agents/src/execution/execution_node.py` |
 | Compliance 节点 | 合规深度分析 | `agents/src/compliance/node.py` |
 | Payment 节点 | 支付准备 | `agents/src/execution/payment_node.py` |
@@ -108,8 +108,12 @@
 | 组件 | 描述 | 文件 |
 |------|------|------|
 | LLM 客户端 | OpenAI API 封装 + 结构化输出 | `agents/src/llm/client.py` |
-| Agent Prompts | Intent/Verifier/Plan/Compliance/Payment 提示词 | `agents/src/llm/prompts.py` |
+| Agent Prompts | Intent/Verifier/Plan/Compliance/Payment/Relevance 提示词 | `agents/src/llm/prompts.py` |
 | 输出 Schemas | Pydantic 结构化输出模型 | `agents/src/llm/schemas.py` |
+| Intent 预处理 | 语言检测 + 归一化 + 翻译 | `INTENT_PREPROCESS_PROMPT` |
+| 产品类型过滤 | 严格相关性验证 | `CANDIDATE_RELEVANCE_PROMPT` |
+| AI 推荐理由 | 个性化推荐生成 | `AI_RECOMMENDATION_PROMPT` |
+| 购买上下文 | 场景/收礼人/预算敏感度提取 | `PurchaseContext` schema |
 
 ### 🛡️ Compliance Agent
 
@@ -218,6 +222,25 @@
 ---
 
 ## 变更日志
+
+### 2026-01-10 (v0.7.0) - 智能产品过滤与 AI 推荐理由
+
+- ✅ **严格产品类型过滤**:
+  - Intent Agent 提取 `primary_product_type` 和 `primary_product_type_en`
+  - Candidate Agent 添加 LLM 相关性验证，过滤不匹配的产品
+  - 修复"充电器"返回手机壳的问题
+- ✅ **AI 推荐理由**:
+  - 提取购买上下文（场合、收礼人、预算敏感度等）
+  - 为每个方案生成个性化推荐理由
+  - 考虑季节、节日、风格偏好等因素
+- ✅ **Intent 预处理增强**:
+  - LLM 预处理：语言检测、归一化、翻译
+  - 模糊查询澄清流程
+  - 增强多语言支持
+- ✅ **前端进度同步**:
+  - 进度动画与真实 API 响应时间同步
+  - 最后一步显示动态等待消息
+  - 显示购买上下文和 AI 推荐理由
 
 ### 2026-01-02 (v0.6.0) - 前端增强与 API 集成
 
