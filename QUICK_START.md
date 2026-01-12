@@ -54,9 +54,9 @@ docker ps --filter "name=agent"
 docker exec agent-tool-gateway env | Select-String "XOOBAY"
 ```
 
-应该看到：
+如果你在 `.env` 里启用了 XOOBAY（推荐生产环境启用），应该能看到类似：
 - `XOOBAY_ENABLED=true`
-- `XOOBAY_API_KEY=xoobay_api_ai_geo`
+- `XOOBAY_API_KEY=...`
 - `XOOBAY_BASE_URL=https://www.xoobay.com`
 
 ---

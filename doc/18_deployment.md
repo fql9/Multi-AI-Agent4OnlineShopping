@@ -26,6 +26,8 @@ docker compose -f docker-compose.full.yml up -d
 ### 核心配置
 ```ini
 OPENAI_API_KEY=sk-...           # 必填：OpenAI API Key
+# 可选：OpenAI 兼容 API Base URL（用于代理/镜像/自建网关等）
+# OPENAI_BASE_URL=https://api.openai.com/v1
 APP_ENV=production              # 环境模式
 LOG_LEVEL=info                  # 日志级别 (debug/info/warn/error)
 
@@ -89,6 +91,9 @@ AGENT_PORT=28003
 | **checkout-mcp** | agent-checkout-mcp | 28002 | DB, Redis | 交易相关工具 (Cart, Checkout) |
 | **agent** | agent-python | 28003 | Gateway | LangGraph 智能体编排服务 |
 | **web-app** | agent-web-app | 28004 | Gateway | Next.js 前端界面 |
+
+> ⚠️ **容器名冲突提示**  
+> `docker-compose.full.yml` 使用固定的 `container_name: agent-...`。同一台机器上不要并行跑多套部署；如果你要“重来一遍”，请先 `docker compose -f docker-compose.full.yml down --remove-orphans`。  
 
 > **数据库迁移保证**  
 > `docker-compose.full.yml` 内置了 `db-migrate` 一次性服务，`docker compose ... up` 时会自动在 Postgres 就绪后执行全部 SQL 迁移（幂等）。  
