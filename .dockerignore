@@ -80,6 +80,9 @@ tmp/
 temp/
 *.tmp
 
+# Local-only frontend mock API
+apps/web-app/public/mock-api.js
+
 # Data files (not needed in image)
 data/seeds/
 scripts/import-sample-data.py

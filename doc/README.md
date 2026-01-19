@@ -12,6 +12,7 @@
 4. [`18_deployment.md`](./18_deployment.md) - **🐳 部署指南（Docker 一键启动）**
 5. [`19_ops_runbook.md`](./19_ops_runbook.md) - **🧰 运维 Runbook（命令手册）**
 6. [`17_progress.md`](./17_progress.md) - **开发进度（100%）**
+7. [`quick_start_windows.md`](./quick_start_windows.md) - Windows/PowerShell 快速开始（API 调用示例）
 
 ---
 
@@ -30,6 +31,7 @@
 | [`01_repo_structure.md`](./01_repo_structure.md) | **仓库目录结构（Python Agent + TypeScript API）** |
 | [`02_tech_stack.md`](./02_tech_stack.md) | **技术栈与选型（MVP → 中期 → 成熟期 分阶段演进）** |
 | [`03_dev_process.md`](./03_dev_process.md) | 开发流程、里程碑、CI/CD、联调与验收 |
+| [`22_claude_code_setup.md`](./22_claude_code_setup.md) | Claude Code / Cursor 配置与使用 |
 | [`14_cold_start.md`](./14_cold_start.md) | **冷启动策略（AROC/KG/RAG 从零开始）** |
 | [`15_llm_selection.md`](./15_llm_selection.md) | **LLM 选型指南（模型、成本、调用策略）** |
 | [`16_cost_estimation.md`](./16_cost_estimation.md) | **成本估算（MVP → 规模化）** |
@@ -71,6 +73,9 @@
 | [`17_progress.md`](./17_progress.md) | **开发进度追踪（100% 完成）** |
 | [`18_deployment.md`](./18_deployment.md) | **🐳 部署指南（Docker 完整打包）** |
 | [`19_ops_runbook.md`](./19_ops_runbook.md) | **🧰 运维 Runbook（命令手册）** |
+| [`20_data_architecture.md`](./20_data_architecture.md) | 数据源与数据流（PostgreSQL + XOOBAY） |
+| [`21_xoobay_integration.md`](./21_xoobay_integration.md) | XOOBAY 集成（配置、测试、同步） |
+| [`quick_start_windows.md`](./quick_start_windows.md) | Windows/PowerShell 快速开始（API 调用示例） |
 
 ---
 

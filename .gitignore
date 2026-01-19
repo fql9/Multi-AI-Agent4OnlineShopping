@@ -55,11 +55,16 @@ pgdata/
 *.pem
 *.key
 
+# Private docs (DO NOT COMMIT)
+private_docs/
+
 # Test coverage
 coverage/
 
 # Docker
 docker-compose.override.yml
+# Local-only frontend mock API
+apps/web-app/public/mock-api.js
 # local-only: ops/deployment rehearsal scratchpad (DO NOT COMMIT)
 temp_deploy_test/
 

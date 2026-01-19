@@ -29,8 +29,9 @@ Open Web UI: `http://localhost:18004`
 - **Ops runbook (commands)**: [`doc/19_ops_runbook.md`](doc/19_ops_runbook.md)
 - **Design docs index (Chinese)**: [`doc/README.md`](doc/README.md)
 - **Tool catalog**: [`doc/05_tool_catalog.md`](doc/05_tool_catalog.md)
-- **Architecture explanation**: [`ARCHITECTURE_EXPLANATION.md`](ARCHITECTURE_EXPLANATION.md)
-- **Windows / PowerShell examples**: [`QUICK_START.md`](QUICK_START.md)
+- **Data architecture (DB + XOOBAY)**: [`doc/20_data_architecture.md`](doc/20_data_architecture.md)
+- **Windows / PowerShell examples**: [`doc/quick_start_windows.md`](doc/quick_start_windows.md)
+- **Helper scripts**: `scripts/docker/` (build/start), `scripts/ops/` (deployment)
 
 ---
 
