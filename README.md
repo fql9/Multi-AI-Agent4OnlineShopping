@@ -19,7 +19,7 @@ docker compose -f docker-compose.full.yml up -d
 docker compose -f docker-compose.full.yml ps
 ```
 
-Open Web UI: `http://localhost:18004`
+Open Web UI: `http://localhost:28004`
 
 ---
 
