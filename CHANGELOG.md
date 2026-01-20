@@ -4,6 +4,42 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-01-19
+
+### Added
+- **Product Type Classification System**:
+  - Added comprehensive product taxonomy with 15+ categories (Electronics, Clothing, Home, etc.).
+  - Added `ProductTypeClassification` schema for precise product categorization.
+  - Added `PRODUCT_TYPE_CLASSIFICATION_PROMPT` for LLM-based category detection.
+  - Intent node now performs two-stage classification: category → subcategory → search keywords.
+- **Enhanced Intent Parsing**:
+  - Expanded intent node with robust product type detection and validation.
+  - Added fallback classification for ambiguous queries.
+  - Improved multi-language product name translation.
+- **XOOBAY Integration Improvements**:
+  - Set `XOOBAY_ENABLED=true` as default (essential when DB is empty).
+  - Added `XOOBAY_FALLBACK_ON_EMPTY` flag for development convenience.
+  - Improved error handling in xoobay service.
+- **Agent State Enhancement**:
+  - Added `needs_clarification` field to AgentState for better flow control.
+- **Frontend Clarification Support**:
+  - Added clarification message handling in shopping store.
+
+### Changed
+- **Candidate Agent**:
+  - Improved relevance filtering with better keyword matching.
+  - Enhanced plan generation to ensure diverse product options.
+- **Tool Gateway**:
+  - Simplified catalog routes with cleaner error responses.
+  - Normalized port configuration to 28xxx series.
+- **Documentation**:
+  - Updated env.example to reflect XOOBAY default-on behavior.
+  - Updated deployment and ops docs for consistency.
+
+### Fixed
+- Fixed product search returning empty results when database has no data.
+- Fixed port inconsistencies across services (now standardized to 28xxx).
+
 ## [0.7.0] - 2026-01-10
 
 ### Added
