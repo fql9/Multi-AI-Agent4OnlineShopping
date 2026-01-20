@@ -402,28 +402,39 @@ async def chat_stream(request: ChatRequest):
             
             # 使用 astream_events 来获取实时事件
             # 同时收集最终结果（避免重复调用 ainvoke）
+            import asyncio
             intent_reasoning_sent = False
             final_result = None
+            agent_name_map = {
+                "intent": "intent",
+                "candidate": "candidate",
+                "verify": "verifier",
+                "plan": "plan",
+                "execute": "execution",
+            }
             
             async for event in agent_graph.astream_events(initial_state, config, version="v2"):
                 event_kind = event.get("event")
                 event_name = event.get("name", "")
                 
                 # 检测 Agent 节点开始
-                if event_kind == "on_chain_start" and event_name in ["intent", "candidate", "verifier", "plan", "execution"]:
-                    start_event = StreamEventModel(
-                        type="agent_start",
-                        agent=event_name,
-                        timestamp=int(time.time() * 1000),
-                    )
-                    yield f"data: {json.dumps(start_event.model_dump())}\n\n"
+                if event_kind == "on_chain_start":
+                    agent_id = agent_name_map.get(event_name)
+                    if agent_id:
+                        start_event = StreamEventModel(
+                            type="agent_start",
+                            agent=agent_id,
+                            timestamp=int(time.time() * 1000),
+                        )
+                        yield f"data: {json.dumps(start_event.model_dump())}\n\n"
+                        await asyncio.sleep(0)
                 
                 # 检测 Agent 节点完成
-                elif event_kind == "on_chain_end" and event_name in ["intent", "candidate", "verifier", "plan", "execution"]:
+                if event_kind == "on_chain_end":
                     output = event.get("data", {}).get("output", {})
                     
-                    # Intent Agent 完成时，立即发送思维链
-                    if event_name == "intent" and not intent_reasoning_sent:
+                    # 只要输出中出现 intent_reasoning，就立即发送（不依赖节点名）
+                    if not intent_reasoning_sent:
                         intent_reasoning = output.get("intent_reasoning")
                         if intent_reasoning:
                             reasoning_event = StreamEventModel(
@@ -433,20 +444,23 @@ async def chat_stream(request: ChatRequest):
                                 timestamp=int(time.time() * 1000),
                             )
                             yield f"data: {json.dumps(reasoning_event.model_dump())}\n\n"
+                            await asyncio.sleep(0)
                             intent_reasoning_sent = True
                     
-                    # 发送 Agent 完成事件
-                    complete_event = StreamEventModel(
-                        type="agent_complete",
-                        agent=event_name,
-                        data={"agent_tokens": output.get("token_used", 0)},
-                        timestamp=int(time.time() * 1000),
-                    )
-                    yield f"data: {json.dumps(complete_event.model_dump())}\n\n"
-                
-                # 捕获整个 Graph 完成时的最终结果
-                elif event_kind == "on_chain_end" and event_name == "LangGraph":
-                    final_result = event.get("data", {}).get("output", {})
+                    agent_id = agent_name_map.get(event_name)
+                    if agent_id:
+                        complete_event = StreamEventModel(
+                            type="agent_complete",
+                            agent=agent_id,
+                            data={"agent_tokens": output.get("token_used", 0)},
+                            timestamp=int(time.time() * 1000),
+                        )
+                        yield f"data: {json.dumps(complete_event.model_dump())}\n\n"
+                        await asyncio.sleep(0)
+                    
+                    # 捕获整个 Graph 完成时的最终结果
+                    if event_name == "LangGraph":
+                        final_result = output
             
             # 如果没有从 astream_events 获取到最终结果，则回退到 ainvoke
             if final_result is None:
