@@ -484,6 +484,8 @@ export default function Home() {
       setChatInput('')
       setChatImages([])
       if (chatMode === 'single') {
+        // 一句话模式：先显示用户消息，再启动 agent
+        store.addUserMessage(message, images)
         store.setQuery(message)
         store.setOrderState('MISSION_READY')
         await store.startAgentProcess()

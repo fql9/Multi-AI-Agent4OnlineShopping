@@ -12,6 +12,40 @@ from pydantic import BaseModel, Field
 # ==============================================
 # Intent Agent Output Schema
 # ==============================================
+
+# 用户意图类型
+IntentType = Literal[
+    "search",           # 搜索商品
+    "compare",          # 比较商品
+    "purchase",         # 直接购买
+    "inquiry",          # 咨询/询问
+    "recommendation",   # 请求推荐
+    "cart_operation",   # 购物车操作（添加、删除、查看）
+    "order_status",     # 订单状态查询
+    "return_refund",    # 退换货
+    "other",            # 其他
+]
+
+
+class SubTask(BaseModel):
+    """拆解出的子任务"""
+    task_id: str = Field(description="子任务 ID，如 task_1, task_2")
+    intent_type: str = Field(
+        default="search",
+        description="意图类型: search, compare, purchase, inquiry, recommendation, cart_operation, order_status, return_refund, other"
+    )
+    description: str = Field(description="子任务描述（用户原语言）")
+    description_en: str = Field(default="", description="子任务描述（英文）")
+    product_type: str = Field(default="", description="产品类型（用户原语言）")
+    product_type_en: str = Field(default="", description="产品类型（英文）")
+    priority: int = Field(default=1, ge=1, le=10, description="优先级 1-10，数字越小越优先")
+    depends_on: list[str] = Field(default_factory=list, description="依赖的前置任务 ID")
+    extracted_attributes: dict = Field(
+        default_factory=dict,
+        description="提取的属性: color, size, brand, price_range, material 等"
+    )
+
+
 class IntentPreprocessResult(BaseModel):
     """意图预处理（语言检测、归一化）"""
     detected_language: str | None = Field(default=None, description="检测到的语言代码，如 zh/en/es")
@@ -20,6 +54,12 @@ class IntentPreprocessResult(BaseModel):
     issues: list[str] = Field(default_factory=list, description="发现的问题或警告")
     needs_clarification: bool = Field(default=False, description="是否需要澄清")
     clarification_questions: list[str] = Field(default_factory=list, description="澄清问题（1-3 个）")
+    # 新增：意图类型识别
+    primary_intent: str = Field(
+        default="search",
+        description="主要意图类型: search, compare, purchase, inquiry, recommendation"
+    )
+    has_multiple_intents: bool = Field(default=False, description="是否包含多个意图")
 
 
 class HardConstraint(BaseModel):
@@ -55,16 +95,44 @@ class PurchaseContext(BaseModel):
     special_requirements: list[str] = Field(default_factory=list, description="特殊要求")
 
 
+class ExtractedAttributes(BaseModel):
+    """提取的商品属性"""
+    color: str | None = Field(default=None, description="颜色: red, blue, black, 红色, 蓝色等")
+    size: str | None = Field(default=None, description="尺寸: S, M, L, XL, 或具体尺寸如 42, 10.5")
+    brand: str | None = Field(default=None, description="品牌: Apple, Nike, 苹果等")
+    material: str | None = Field(default=None, description="材质: leather, cotton, 皮革, 棉等")
+    style: str | None = Field(default=None, description="风格: casual, formal, vintage, 休闲, 正式等")
+    gender: str | None = Field(default=None, description="性别: male, female, unisex, 男, 女")
+    age_group: str | None = Field(default=None, description="年龄段: kids, teen, adult, 儿童, 成人等")
+    power: str | None = Field(default=None, description="功率/规格: 20W, 65W, 100W等")
+    connectivity: str | None = Field(default=None, description="连接方式: wireless, USB-C, Bluetooth等")
+    compatibility: str | None = Field(default=None, description="兼容性: iPhone, Android, MacBook等")
+    extra: dict = Field(default_factory=dict, description="其他属性键值对")
+
+
 class MissionParseResult(BaseModel):
     """Intent Agent 解析结果"""
+    # === 意图识别 ===
+    primary_intent: str = Field(
+        default="search",
+        description="主要意图类型: search, compare, purchase, inquiry, recommendation, cart_operation"
+    )
+    has_multiple_tasks: bool = Field(default=False, description="是否包含多个任务")
+    sub_tasks: list[SubTask] = Field(default_factory=list, description="拆解出的子任务列表")
+    
+    # === 基础信息 ===
     destination_country: str | None = Field(default=None, description="目的国 ISO 代码")
     budget_amount: float | None = Field(default=None, description="预算金额")
     budget_currency: str = Field(default="USD", description="预算货币")
     quantity: int = Field(default=1, description="数量")
     arrival_days_max: int | None = Field(default=None, description="最长到货天数")
+    
+    # === 约束与偏好 ===
     hard_constraints: list[HardConstraint] = Field(default_factory=list, description="硬性约束")
     soft_preferences: list[SoftPreference] = Field(default_factory=list, description="软性偏好")
     objective_weights: ObjectiveWeights = Field(default_factory=ObjectiveWeights, description="目标权重")
+    
+    # === 搜索关键词 ===
     search_query: str = Field(default="", description="搜索关键词（用户原始语言）")
     search_query_en: str = Field(
         default="",
@@ -78,10 +146,21 @@ class MissionParseResult(BaseModel):
         default="",
         description="English translation of primary product type for matching (e.g., 'charger', 'blazer', 'dress')"
     )
+    
+    # === 提取的属性 ===
+    extracted_attributes: ExtractedAttributes = Field(
+        default_factory=ExtractedAttributes,
+        description="从用户输入中提取的商品属性"
+    )
+    
+    # === 上下文 ===
     purchase_context: PurchaseContext = Field(default_factory=PurchaseContext, description="购买上下文")
     detected_language: str = Field(default="en", description="用户语言")
+    
+    # === 澄清 ===
     needs_clarification: bool = Field(default=False, description="是否需要澄清")
     clarification_questions: list[str] = Field(default_factory=list, description="澄清问题")
+    clarification_reason: str = Field(default="", description="需要澄清的原因")
 
 
 # ==============================================

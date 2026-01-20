@@ -320,6 +320,7 @@ interface ShoppingState {
   setChatMode: (mode: ChatMode) => void
   
   // Guided Chat Actions
+  addUserMessage: (message: string, images?: string[]) => void
   sendGuidedMessage: (message: string, images?: string[]) => Promise<void>
   confirmGuidedChat: () => void
   updateGuidedChatMission: (mission: Mission) => void
@@ -1290,6 +1291,24 @@ export const useShoppingStore = create<ShoppingState>()(
       resetClarificationAttempts: () => set({ clarificationAttempts: 0 }),
 
       // Guided Chat Actions
+      addUserMessage: (message: string, images: string[] = []) => {
+        // 仅添加用户消息到聊天记录，不触发 AI 响应（用于一句话模式）
+        const userMessage: GuidedChatMessage = {
+          id: `msg_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
+          role: 'user',
+          content: message,
+          images,
+          timestamp: new Date().toISOString(),
+        }
+        
+        set((state) => ({
+          guidedChat: {
+            ...state.guidedChat,
+            messages: [...state.guidedChat.messages, userMessage],
+          },
+        }))
+      },
+      
       sendGuidedMessage: async (message: string, images: string[] = []) => {
         const { guidedChat } = get()
         

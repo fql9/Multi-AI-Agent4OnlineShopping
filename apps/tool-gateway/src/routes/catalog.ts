@@ -13,53 +13,6 @@ import { getXOOBAYClient } from '../services/xoobay.js';
 
 const logger = createLogger('catalog');
 
-function extractSearchTokens(input: string): string[] {
-  // The web UI often sends natural language like:
-  // "wireless charger for iPhone 15, budget $50, ship to US"
-  // We keep this search tool forgiving by extracting a small set of meaningful tokens.
-  const firstClause = input.split(',')[0]?.trim() ?? '';
-  const raw = (firstClause || input).toLowerCase();
-
-  const tokens = (raw.match(/[a-z0-9]+/g) ?? [])
-    .filter(t => t.length >= 2 && !/^\d+$/.test(t));
-
-  const stopwords = new Set([
-    'i', 'im', "i'm", 'need', 'want', 'looking', 'buy', 'purchase',
-    'a', 'an', 'the', 'for', 'my', 'with', 'and', 'or',
-    'budget', 'around', 'under', 'over', 'max', 'min',
-    'ship', 'shipping', 'deliver', 'delivery', 'to',
-    'usd', 'eur', 'gbp', 'cny', 'rmb',
-  ]);
-
-  // Common country/region codes frequently found in prompts like "ship to US"
-  // Keep this small and conservative to avoid removing meaningful 2-letter tokens.
-  const countryCodes = new Set([
-    'us', 'uk', 'de', 'fr', 'es', 'it', 'nl', 'se', 'no', 'fi', 'dk',
-    'cn', 'jp', 'kr', 'sg', 'hk', 'tw', 'au', 'ca', 'in', 'br', 'mx',
-  ]);
-
-  const deduped: string[] = [];
-  for (const t of tokens) {
-    if (stopwords.has(t)) continue;
-    if (countryCodes.has(t)) continue;
-    if (!deduped.includes(t)) deduped.push(t);
-    if (deduped.length >= 8) break; // keep SQL small
-  }
-
-  return deduped;
-}
-
-function resolveAppEnv(): string {
-  return process.env.APP_ENV ?? process.env.NODE_ENV ?? 'development';
-}
-
-function shouldAllowXoobayFallback(): boolean {
-  const flag = process.env.XOOBAY_FALLBACK_ON_EMPTY;
-  if (flag === 'true') return true;
-  if (flag === 'false') return false;
-  return resolveAppEnv() !== 'production';
-}
-
 // Product type definitions (Enhanced for AROC v0.2)
 interface OfferRow {
   id: string;
@@ -144,7 +97,8 @@ export async function catalogRoutes(app: FastifyInstance): Promise<void> {
   /**
    * catalog.search_offers
    * 
-   * Search products with keyword, category, price range filters
+   * Search products directly via XOOBAY /api-geo/product-search API
+   * Simplified flow: no PostgreSQL, direct XOOBAY API call
    */
   app.post('/search_offers', async (request: FastifyRequest, reply: FastifyReply) => {
     const body = request.body as { params?: Record<string, unknown> };
@@ -157,183 +111,97 @@ export async function catalogRoutes(app: FastifyInstance): Promise<void> {
     const priceRange = filters?.price_range as { min?: number; max?: number } | undefined;
 
     const searchQuery = (params.query as string) ?? '';
-    const categoryId = (params.category_id as string | undefined) ?? (filters?.category_id as string | undefined);
     const priceMin = (params.price_min as number | undefined) ?? priceRange?.min;
     const priceMax = (params.price_max as number | undefined) ?? priceRange?.max;
     const limit = Math.min((params.limit as number) ?? 50, 100);
     const offset = (params.offset as number) ?? 0;
+    const pageNo = Math.floor(offset / limit) + 1;
 
-    logger.info({ query: searchQuery, category_id: categoryId, limit }, 'Searching offers');
+    logger.info({ 
+      query: searchQuery, 
+      limit, 
+      offset,
+      pageNo,
+      price_min: priceMin,
+      price_max: priceMax,
+    }, 'Searching offers via XOOBAY API');
 
     try {
-      // Build SQL query
-      const conditions: string[] = [];
-      const sqlParams: unknown[] = [];
-      let paramIndex = 1;
-
-      // Keyword search (title)
-      if (searchQuery) {
-        const tokens = extractSearchTokens(searchQuery);
-        logger.info({ raw_query: searchQuery, tokens }, 'Normalized search query');
-
-        if (tokens.length === 0) {
-          conditions.push(`(title_en ILIKE $${paramIndex} OR title_zh ILIKE $${paramIndex} OR brand_name ILIKE $${paramIndex})`);
-          sqlParams.push(`%${searchQuery}%`);
-          paramIndex++;
-        } else {
-          const tokenConditions: string[] = [];
-          for (const token of tokens) {
-            tokenConditions.push(`(title_en ILIKE $${paramIndex} OR title_zh ILIKE $${paramIndex} OR brand_name ILIKE $${paramIndex})`);
-            sqlParams.push(`%${token}%`);
-            paramIndex++;
-          }
-          conditions.push(`(${tokenConditions.join(' OR ')})`);
-        }
-      }
-
-      // Category filter
-      if (categoryId) {
-        conditions.push(`category_id = $${paramIndex}`);
-        sqlParams.push(categoryId);
-        paramIndex++;
-      }
-
-      // Price range
-      if (priceMin !== undefined) {
-        conditions.push(`base_price >= $${paramIndex}`);
-        sqlParams.push(priceMin);
-        paramIndex++;
-      }
-      if (priceMax !== undefined) {
-        conditions.push(`base_price <= $${paramIndex}`);
-        sqlParams.push(priceMax);
-        paramIndex++;
-      }
-
-      const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-
-      // Query total count
-      const countSql = `SELECT COUNT(*) as total FROM agent.offers ${whereClause}`;
-      const countResult = await queryOne<{ total: string }>(countSql, sqlParams);
-      const totalCount = parseInt(countResult?.total ?? '0', 10);
-
-      // Query product IDs and scores
-      const searchSql = `
-        SELECT id, rating as score
-        FROM agent.offers
-        ${whereClause}
-        ORDER BY rating DESC, reviews_count DESC
-        LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
-      `;
-      sqlParams.push(limit, offset);
-
-      const offers = await query<{ id: string; score: number }>(searchSql, sqlParams);
-
-      // XOOBAY API integration: supplement data if results are insufficient or XOOBAY is enabled
-      let xoobayOffers: Array<{ id: string; score: number; sold_cnt?: number }> = [];
-      const xoobayEnabled = process.env.XOOBAY_ENABLED === 'true';
-      const xoobayFallbackOnEmpty = shouldAllowXoobayFallback();
-      const minResults = Math.max(limit, 10); // Minimum required results
-      const fallbackNeeded = xoobayFallbackOnEmpty && offers.length === 0;
-      const shouldUseXoobay = xoobayEnabled || fallbackNeeded;
-
-      logger.info({ 
-        xoobay_enabled: xoobayEnabled,
-        xoobay_fallback_on_empty: xoobayFallbackOnEmpty,
-        xoobay_fallback_used: fallbackNeeded,
-        offers_count: offers.length,
-        min_results: minResults,
-        has_query: !!searchQuery,
-        search_query: searchQuery
-      }, 'XOOBAY integration check');
-
-      // Call XOOBAY API if enabled and has search query, or if results are insufficient
-      if (shouldUseXoobay && (offers.length < minResults || searchQuery)) {
-        logger.info({ searchQuery, offers_count: offers.length }, 'Attempting to fetch from XOOBAY API using /api-geo/product-search');
-        try {
-          const xoobayClient = getXOOBAYClient();
-          
-          // Use the new searchProductsWithFallback which handles keyword fallback automatically
-          const xoobayResult = await xoobayClient.searchProductsWithFallback({
-            query: searchQuery || '',
-            pageNo: 1,
-            pageSize: Math.min(limit, 50), // Request appropriate page size
-          });
-          
-          logger.info({ 
-            xoobay_total: xoobayResult.total,
-            xoobay_list_count: xoobayResult.list.length,
-            page: xoobayResult.page,
-            limit: xoobayResult.limit
-          }, 'XOOBAY product-search API response received');
-          
-          // Convert XOOBAY products to offer format
-          // Using goods_id from the new API response
-          xoobayOffers = xoobayResult.list
-            .slice(0, Math.max(limit - offers.length, 0)) // Only take needed quantity
-            .map(product => ({
-              // Use goods_id for consistent numeric ID
-              id: `xoobay_${product.goods_id}`,
-              // Calculate score based on sold_cnt (popularity) - normalize to 0-5 range
-              score: Math.min(4.0 + (product.sold_cnt > 100 ? 0.5 : product.sold_cnt > 10 ? 0.3 : 0), 5.0),
-              sold_cnt: product.sold_cnt,
-            }));
-
-          logger.info({ 
-            xoobay_results: xoobayOffers.length,
-            sample_ids: xoobayOffers.slice(0, 3).map(o => o.id),
-            sample_sold_cnt: xoobayOffers.slice(0, 3).map(o => o.sold_cnt)
-          }, 'XOOBAY API results added');
-        } catch (error) {
-          logger.error({ 
-            error: error instanceof Error ? error.message : String(error),
-            stack: error instanceof Error ? error.stack : undefined
-          }, 'XOOBAY API call failed, using database results only');
-        }
-      } else {
-        logger.info({ 
-          reason: !shouldUseXoobay ? 'XOOBAY disabled' : 
-                  offers.length >= minResults && !searchQuery ? 'Enough DB results and no query' : 
-                  'Unknown reason'
-        }, 'Skipping XOOBAY API call');
-      }
-
-      // Merge results, remove duplicates
-      const allOfferIds = new Set(offers.map(o => o.id));
-      const mergedOffers = [...offers];
+      const xoobayClient = getXOOBAYClient();
       
-      for (const xoobayOffer of xoobayOffers) {
-        if (!allOfferIds.has(xoobayOffer.id)) {
-          mergedOffers.push(xoobayOffer);
-          allOfferIds.add(xoobayOffer.id);
-        }
+      // Direct call to XOOBAY /api-geo/product-search
+      const xoobayResult = await xoobayClient.searchProductsWithFallback({
+        query: searchQuery || '',
+        pageNo,
+        pageSize: limit,
+      });
+      
+      logger.info({ 
+        xoobay_total: xoobayResult.total,
+        xoobay_list_count: xoobayResult.list.length,
+        page: xoobayResult.page,
+        limit: xoobayResult.limit
+      }, 'XOOBAY product-search API response received');
+      
+      // Convert XOOBAY products to offer format
+      let offers = xoobayResult.list.map(product => {
+        // Parse price from string (e.g., "$29.99" -> 29.99)
+        const priceStr = product.money?.replace(/[^\d.-]/g, '') || '0';
+        const price = parseFloat(priceStr) || 0;
+        
+        return {
+          id: `xoobay_${product.goods_id}`,
+          // Calculate score based on sold_cnt (popularity)
+          score: Math.min(4.0 + (product.sold_cnt > 100 ? 0.5 : product.sold_cnt > 10 ? 0.3 : 0), 5.0),
+          sold_cnt: product.sold_cnt,
+          price,
+          goods_url: product.goods_url,
+        };
+      });
+
+      // Apply price filter if specified (XOOBAY API doesn't support price filtering)
+      if (priceMin !== undefined || priceMax !== undefined) {
+        offers = offers.filter(o => {
+          if (priceMin !== undefined && o.price < priceMin) return false;
+          if (priceMax !== undefined && o.price > priceMax) return false;
+          return true;
+        });
+        logger.info({
+          before_filter: xoobayResult.list.length,
+          after_filter: offers.length,
+          price_min: priceMin,
+          price_max: priceMax,
+        }, 'Price filter applied');
       }
 
-      const finalTotal = totalCount + (shouldUseXoobay ? xoobayOffers.length : 0);
+      const totalCount = xoobayResult.total;
+      const hasMore = pageNo * limit < totalCount;
 
       logger.info({ 
         query: searchQuery, 
-        db_results: offers.length,
-        xoobay_results: xoobayOffers.length,
-        total_results: mergedOffers.length, 
-        total_count: finalTotal 
+        total_results: offers.length, 
+        total_count: totalCount,
+        has_more: hasMore,
       }, 'Search completed');
 
       return reply.send(
         createSuccessResponse({
-          offer_ids: mergedOffers.map(o => o.id),
-          scores: mergedOffers.map(o => o.score / 5), // 归一化到 0-1
-          total: finalTotal,  // Frontend expects 'total' not 'total_count'
-          total_count: finalTotal,  // Keep for backward compatibility
-          has_more: offset + mergedOffers.length < finalTotal,
+          offer_ids: offers.map(o => o.id),
+          scores: offers.map(o => o.score / 5), // Normalize to 0-1
+          total: totalCount,
+          total_count: totalCount,
+          has_more: hasMore,
         }, {
-          ttl_seconds: 60, // Cache search results for 60 seconds
+          ttl_seconds: 60,
         })
       );
     } catch (error) {
-      logger.error({ error }, 'Search failed');
+      logger.error({ 
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+      }, 'XOOBAY search failed');
       return reply.status(500).send(
-        createErrorResponse('INTERNAL_ERROR', 'Failed to search offers')
+        createErrorResponse('INTERNAL_ERROR', 'Failed to search offers from XOOBAY')
       );
     }
   });
@@ -356,19 +224,12 @@ export async function catalogRoutes(app: FastifyInstance): Promise<void> {
     logger.info({ offer_id: offerId }, 'Getting offer card');
 
     try {
-      // Query product details
-      let offer = await queryOne<OfferRow>(
-        `SELECT * FROM agent.offers WHERE id = $1`,
-        [offerId]
-      );
-      const xoobayEnabled = process.env.XOOBAY_ENABLED === 'true';
-      const xoobayFallbackOnEmpty = shouldAllowXoobayFallback();
-      const shouldUseXoobay = xoobayEnabled || xoobayFallbackOnEmpty;
+      let offer: OfferRow | null = null;
       let fetchedFromXoobay = false;
 
-      // If not in database and is XOOBAY product, fetch from API
-      if (!offer && offerId.startsWith('xoobay_') && shouldUseXoobay) {
-        logger.info({ offer_id: offerId, xoobay_enabled: xoobayEnabled, xoobay_fallback_on_empty: xoobayFallbackOnEmpty }, 'Fetching from XOOBAY API');
+      // For XOOBAY products (id starts with "xoobay_"), always fetch from XOOBAY API
+      if (offerId.startsWith('xoobay_')) {
+        logger.info({ offer_id: offerId }, 'Fetching XOOBAY product from API');
         try {
           const xoobayId = offerId.replace('xoobay_', '');
           logger.info({ xoobay_id: xoobayId }, 'Calling XOOBAY getProductInfo');
@@ -443,11 +304,12 @@ export async function catalogRoutes(app: FastifyInstance): Promise<void> {
             offer_id: offerId 
           }, 'Failed to fetch from XOOBAY API');
         }
-      } else if (!offer && offerId.startsWith('xoobay_')) {
-        logger.warn({ 
-          offer_id: offerId, 
-          xoobay_enabled: process.env.XOOBAY_ENABLED 
-        }, 'XOOBAY product requested but XOOBAY is disabled');
+      } else {
+        // Non-XOOBAY products: query from database
+        offer = await queryOne<OfferRow>(
+          `SELECT * FROM agent.offers WHERE id = $1`,
+          [offerId]
+        );
       }
 
       if (!offer) {

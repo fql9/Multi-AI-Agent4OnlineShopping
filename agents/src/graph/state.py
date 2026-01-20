@@ -62,6 +62,7 @@ class AgentState(TypedDict):
     # ========================================
     current_step: str
     needs_user_input: bool
+    needs_clarification: bool  # Intent Agent 请求澄清
     user_confirmation: dict | None
 
     # ========================================
