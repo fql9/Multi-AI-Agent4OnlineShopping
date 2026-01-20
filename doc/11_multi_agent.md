@@ -31,15 +31,15 @@
 | Agent | 职责 | 模型 | 可调用工具 |
 |-------|------|------|------------|
 | **Orchestrator** | 任务拆解、路由、预算编排 | GPT-4o-mini | 无（纯逻辑） |
-| **Intent Agent** | 解析用户意图 → Mission 结构化 + 产品类型提取 + 购买上下文 | GPT-4o-mini | identity.* |
+| **Intent Agent** | 解析用户意图 → Mission 结构化 + **产品类型分类** + 购买上下文 | GPT-4o-mini | identity.* |
 | **Candidate Agent** | 图谱约束 + 检索召回 + **LLM 相关性过滤** | GPT-4o-mini | catalog.*, knowledge.* |
 | **Verifier Agent** | 对 TopN 调实时工具核验 | GPT-4o | pricing.*, shipping.*, tax.*, compliance.* |
 | **Plan Agent** | 生成方案 + **AI 推荐理由** | GPT-4o-mini | - |
 | **Execution Agent** | 生成 Draft Order | GPT-4o-mini | cart.*, checkout.*, evidence.* |
 
-#### Intent Agent 增强（v0.7.0）
+#### Intent Agent 增强（v0.8.0）
 
-Intent Agent 现在执行两阶段处理：
+Intent Agent 现在执行**三阶段处理**：
 
 1. **预处理阶段**（`INTENT_PREPROCESS_PROMPT`）:
    - 语言检测（zh/en/ja/es 等）
@@ -47,10 +47,29 @@ Intent Agent 现在执行两阶段处理：
    - 英文翻译（便于下游匹配）
    - 澄清判断（是否需要追问）
 
-2. **意图解析阶段**（`INTENT_PROMPT`）:
+2. **产品类型分类阶段**（`PRODUCT_TYPE_CLASSIFICATION_PROMPT`）:
+   - 15+ 大类分类（Electronics, Clothing, Home, Beauty, Sports 等）
+   - 细分子类识别（如 Electronics → Chargers → USB-C Charger）
+   - 提取搜索关键词列表
+   - 支持多语言产品名翻译
+
+3. **意图解析阶段**（`INTENT_PROMPT`）:
    - 提取 `primary_product_type`（用户原语言）
    - 提取 `primary_product_type_en`（英文翻译，用于严格匹配）
    - 提取 `purchase_context`（场景、收礼人、预算敏感度等）
+
+**产品类型分类体系**:
+
+```
+Electronics: charger, cable, earphones, laptop, phone_case, ...
+Clothing: dress, blazer, shirt, pants, shoes, ...
+Home: furniture, bedding, kitchen, decor, ...
+Beauty: skincare, makeup, fragrance, ...
+Sports: fitness, outdoor, sportswear, ...
+Toys: educational, building, dolls, ...
+Food: snacks, beverages, health_supplements, ...
+... (15+ categories)
+```
 
 #### Candidate Agent 相关性过滤（v0.7.0）
 

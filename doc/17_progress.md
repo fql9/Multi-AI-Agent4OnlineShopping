@@ -6,7 +6,7 @@
 
 ## 当前版本
 
-**v0.7.0** (2026-01-10) - 智能产品过滤与 AI 推荐理由
+**v0.8.0** (2026-01-19) - 产品类型分类系统与 XOOBAY 默认开启
 
 ---
 
@@ -111,9 +111,11 @@
 | Agent Prompts | Intent/Verifier/Plan/Compliance/Payment/Relevance 提示词 | `agents/src/llm/prompts.py` |
 | 输出 Schemas | Pydantic 结构化输出模型 | `agents/src/llm/schemas.py` |
 | Intent 预处理 | 语言检测 + 归一化 + 翻译 | `INTENT_PREPROCESS_PROMPT` |
+| **产品类型分类** | **15+ 类别分类系统** | `PRODUCT_TYPE_CLASSIFICATION_PROMPT` |
 | 产品类型过滤 | 严格相关性验证 | `CANDIDATE_RELEVANCE_PROMPT` |
 | AI 推荐理由 | 个性化推荐生成 | `AI_RECOMMENDATION_PROMPT` |
 | 购买上下文 | 场景/收礼人/预算敏感度提取 | `PurchaseContext` schema |
+| **产品分类 Schema** | **精确产品分类结构** | `ProductTypeClassification` schema |
 
 ### 🛡️ Compliance Agent
 
@@ -222,6 +224,28 @@
 ---
 
 ## 变更日志
+
+### 2026-01-19 (v0.8.0) - 产品类型分类系统与 XOOBAY 默认开启
+
+- ✅ **产品类型分类系统**:
+  - 添加完整的产品分类体系（15+ 大类：电子/服装/家居等）
+  - 新增 `ProductTypeClassification` schema 用于精确分类
+  - 新增 `PRODUCT_TYPE_CLASSIFICATION_PROMPT` 提示词
+  - Intent 节点现在执行两阶段分类：大类 → 子类 → 搜索关键词
+- ✅ **XOOBAY 集成增强**:
+  - 默认启用 `XOOBAY_ENABLED=true`（数据库为空时必须）
+  - 新增 `XOOBAY_FALLBACK_ON_EMPTY` 开发标志
+  - 改进 xoobay 服务的错误处理
+- ✅ **Intent 解析增强**:
+  - 扩展意图节点的产品类型检测和验证
+  - 添加模糊查询的 fallback 分类
+  - 改进多语言产品名翻译
+- ✅ **Agent 状态增强**:
+  - AgentState 新增 `needs_clarification` 字段
+- ✅ **前端澄清支持**:
+  - shopping store 添加澄清消息处理
+- ✅ **端口标准化**:
+  - 所有服务端口统一为 28xxx 系列
 
 ### 2026-01-10 (v0.7.0) - 智能产品过滤与 AI 推荐理由
 
