@@ -151,6 +151,24 @@ export type ThinkingStep = {
   timestamp: number
 }
 
+// Intent Agent 推理步骤
+export type IntentReasoningStep = {
+  step: string
+  content: string
+  type: 'analyzing' | 'extracting' | 'building' | 'result'
+}
+
+// Intent Agent 推理过程
+export type IntentReasoning = {
+  steps: IntentReasoningStep[]
+  detected_language: string
+  extracted_product: string
+  extracted_country: string
+  extracted_budget: string
+  search_query_original: string
+  search_query_en: string
+}
+
 // Agent 步骤
 export type AgentStep = {
   id: string
@@ -264,6 +282,7 @@ interface ShoppingState {
   orderState: OrderState
   query: string
   mission: Mission | null
+  intentReasoning: IntentReasoning | null  // Intent Agent 推理过程（用于前端展示）
   agentSteps: AgentStep[]
   currentStepIndex: number
   isStreaming: boolean
@@ -708,6 +727,7 @@ export const useShoppingStore = create<ShoppingState>()(
       orderState: 'IDLE' as OrderState,
       query: '',
       mission: null,
+      intentReasoning: null,
       agentSteps: createInitialAgentSteps(),
       currentStepIndex: -1,
       isStreaming: false,
@@ -826,56 +846,23 @@ export const useShoppingStore = create<ShoppingState>()(
           }
         }
         
-        // 解析意图（优先使用已提取的 mission）
+        // 一句话模式：不发送 mission，让后端 Intent Agent（使用 LLM）来解析
+        // 这样可以正确处理多语言（中文、日文等）的用户输入
         const state = get()
-        const baseMission = state.mission ? { ...state.mission } : parseMission(query)
-        const budgetFromInputs = state.priceMax ?? state.priceMin
-        const finalBudget = budgetFromInputs ?? baseMission.budget_amount ?? null
-
-        const mission: Mission = {
-          ...baseMission,
-          destination_country: state.destinationCountry || baseMission.destination_country,
-          budget_currency: state.currency || baseMission.budget_currency,
-          budget_amount: finalBudget !== null
-            ? sanitizeNonNegativeNumber(finalBudget, typeof baseMission.budget_amount === 'number' ? baseMission.budget_amount : 0)
-            : null,
-          quantity: Math.max(1, sanitizeNonNegativeInt(state.quantity || baseMission.quantity, 1)),
-        }
-
-        set({ mission, orderState: 'MISSION_READY', isStreaming: true })
         
-        // 构建请求
-        const preferenceLines: string[] = []
-        const missionState = get().mission || mission
-
-        if (missionState?.destination_country) preferenceLines.push(`Ship to: ${missionState.destination_country}`)
-        if (missionState?.budget_currency) preferenceLines.push(`Currency: ${missionState.budget_currency}`)
-
-        const budgetDisplay = missionState?.budget_amount
-        if (budgetDisplay !== null && budgetDisplay !== undefined) {
-          preferenceLines.push(`Budget (max): ${budgetDisplay} ${missionState.budget_currency || 'USD'}`)
-        } else if (get().priceMin !== null || get().priceMax !== null) {
-          const min = get().priceMin !== null ? String(get().priceMin) : ''
-          const max = get().priceMax !== null ? String(get().priceMax) : ''
-          preferenceLines.push(`Desired price range: ${min}-${max} ${get().currency || 'USD'}`.trim())
-        }
-
-        if (missionState?.quantity) preferenceLines.push(`Quantity: ${missionState.quantity}`)
-
-        const structuredMission = missionState
-          ? `\n\nStructured mission (do not ignore):\n- Product: ${missionState.search_query || query}\n- Destination: ${missionState.destination_country}\n- Budget: ${missionState.budget_amount ?? 'N/A'} ${missionState.budget_currency || 'USD'}\n- Quantity: ${missionState.quantity}\n`
-          : ''
-
-        const composedMessage = preferenceLines.length
-          ? `${query}\n\nPreferences:\n${preferenceLines.map((l) => `- ${l}`).join('\n')}${structuredMission}`
-          : `${query}${structuredMission}`
-
-        const missionToSend = missionState && Object.keys(missionState).length > 0 ? missionState : undefined
+        // 只有当 mission 来自 Guided Chat（已经过 LLM 处理）时才发送
+        // 一句话模式下 state.mission 应该是 null
+        const missionFromGuidedChat = state.guidedChat.extractedMission
         
+        set({ orderState: 'MISSION_READY', isStreaming: true })
+        
+        // 构建请求 - 一句话模式下只发送用户原始消息
+        // 让后端 Intent Agent 用 LLM 解析意图、国家、预算等
         const chatRequest: api.ChatRequest = {
-          message: composedMessage,
+          message: query,
           session_id: get().sessionId || undefined,
-          mission: missionToSend,
+          // 只有 Guided Chat 提取的 mission 才发送（已经过 LLM 处理）
+          mission: missionFromGuidedChat || undefined,
         }
         
         // 声明 signalApiComplete 用于通知动画完成（在非流式回退路径中使用）
@@ -930,6 +917,16 @@ export const useShoppingStore = create<ShoppingState>()(
           }
             
           set({ sessionId: response.session_id })
+            
+            // 首先存储 Intent Agent 推理过程（无论后续是否有错误）
+            if (response.intent_reasoning) {
+              console.log('[DEBUG] Received intent_reasoning:', response.intent_reasoning)
+              set({
+                intentReasoning: response.intent_reasoning as IntentReasoning,
+              })
+            } else {
+              console.log('[DEBUG] No intent_reasoning in response')
+            }
             
             // 处理响应错误
             if (response.error) {
@@ -1270,6 +1267,7 @@ export const useShoppingStore = create<ShoppingState>()(
         orderState: 'IDLE',
         query: '',
         mission: null,
+        intentReasoning: null,
         agentSteps: createInitialAgentSteps(),
         currentStepIndex: -1,
         isStreaming: false,

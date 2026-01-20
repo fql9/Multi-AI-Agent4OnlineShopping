@@ -489,6 +489,125 @@ export class XOOBAYClient {
   }
 
   /**
+   * Search products with bilingual support (Chinese + English)
+   * 
+   * XOOBAY is a Chinese e-commerce platform, so Chinese queries work better.
+   * This method tries:
+   * 1. Original language query (e.g., Chinese "黑色夹克")
+   * 2. English query as fallback (e.g., "black jacket")
+   * 3. Individual keywords from both queries
+   * 
+   * Results are merged and deduplicated.
+   */
+  async searchProductsBilingual(params: {
+    queryOriginal: string;  // 原始语言查询（如中文）
+    queryEn: string;        // 英文查询
+    pageNo?: number;
+    pageSize?: number;
+    lang?: string;
+  }): Promise<XOOBAYProductSearchResponse> {
+    const { queryOriginal, queryEn, pageNo = 1, pageSize = 20, lang = this.lang } = params;
+    
+    logger.info({ 
+      queryOriginal, 
+      queryEn,
+      pageNo,
+      pageSize,
+    }, 'Starting bilingual search');
+
+    // 检测原始查询是否包含中文
+    const hasChinese = queryOriginal && /[\u4e00-\u9fff]/.test(queryOriginal);
+    
+    // 策略 1: 优先使用中文查询（对 XOOBAY 效果最好）
+    let result: XOOBAYProductSearchResponse = { list: [], total: 0, page: pageNo, limit: pageSize };
+    
+    if (hasChinese && queryOriginal) {
+      logger.info({ query: queryOriginal }, 'Trying Chinese query first');
+      result = await this.searchProducts({ query: queryOriginal, pageNo, pageSize, lang });
+      
+      if (result.list.length > 0) {
+        logger.info({ 
+          query: queryOriginal, 
+          count: result.list.length 
+        }, 'Chinese query succeeded');
+        return result;
+      }
+    }
+    
+    // 策略 2: 如果中文查询没结果，尝试英文查询
+    if (result.list.length === 0 && queryEn) {
+      logger.info({ query: queryEn }, 'Trying English query');
+      result = await this.searchProducts({ query: queryEn, pageNo, pageSize, lang });
+      
+      if (result.list.length > 0) {
+        logger.info({ 
+          query: queryEn, 
+          count: result.list.length 
+        }, 'English query succeeded');
+        return result;
+      }
+    }
+    
+    // 策略 3: 如果仍然没结果，尝试从中文查询中提取单个关键词
+    if (result.list.length === 0 && hasChinese && queryOriginal) {
+      // 中文分词：提取可能的产品关键词
+      // 常见的产品词汇
+      const chineseProductKeywords = [
+        '夹克', '外套', '大衣', '风衣', '棉服', '羽绒服', '卫衣', '毛衣',
+        '衬衫', 'T恤', '短袖', '长袖', '背心', '马甲',
+        '裤子', '牛仔裤', '休闲裤', '运动裤', '短裤', '半裙', '连衣裙',
+        '鞋子', '运动鞋', '皮鞋', '靴子', '凉鞋', '拖鞋',
+        '包', '背包', '手提包', '钱包', '手表', '眼镜', '帽子',
+        '手机', '充电器', '耳机', '数据线', '保护壳',
+      ];
+      
+      for (const keyword of chineseProductKeywords) {
+        if (queryOriginal.includes(keyword)) {
+          logger.info({ keyword }, 'Trying extracted Chinese keyword');
+          result = await this.searchProducts({ query: keyword, pageNo, pageSize, lang });
+          if (result.list.length > 0) {
+            logger.info({ keyword, count: result.list.length }, 'Chinese keyword search succeeded');
+            return result;
+          }
+        }
+      }
+    }
+    
+    // 策略 4: 从英文查询中提取核心产品词
+    if (result.list.length === 0 && queryEn) {
+      const englishWords = queryEn.toLowerCase().split(/\s+/);
+      const coreProductWords = [
+        'jacket', 'coat', 'blazer', 'sweater', 'hoodie', 'shirt', 'blouse',
+        'pants', 'jeans', 'shorts', 'skirt', 'dress', 'gown',
+        'shoes', 'boots', 'sneakers', 'sandals', 'heels',
+        'bag', 'backpack', 'purse', 'wallet', 'watch', 'glasses', 'hat',
+        'phone', 'charger', 'headphones', 'earbuds', 'cable', 'case',
+      ];
+      
+      // 从后往前尝试（最后一个词通常是核心产品类型）
+      for (let i = englishWords.length - 1; i >= 0 && result.list.length === 0; i--) {
+        const word = englishWords[i];
+        if (coreProductWords.includes(word)) {
+          logger.info({ word }, 'Trying core English product word');
+          result = await this.searchProducts({ query: word, pageNo, pageSize, lang });
+          if (result.list.length > 0) {
+            logger.info({ word, count: result.list.length }, 'English keyword search succeeded');
+            return result;
+          }
+        }
+      }
+    }
+    
+    // 如果所有策略都失败了，返回空结果
+    logger.warn({ 
+      queryOriginal, 
+      queryEn 
+    }, 'Bilingual search found no results');
+    
+    return result;
+  }
+
+  /**
    * Batch get product details with concurrency control
    */
   async batchGetProductInfo(

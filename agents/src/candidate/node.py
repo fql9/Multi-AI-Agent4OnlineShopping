@@ -36,89 +36,70 @@ async def candidate_node(state: AgentState) -> AgentState:
                 "current_step": "candidate",
             }
 
-        # 优先使用英语翻译后的搜索查询（search_query_en），以获得更好的搜索结果
-        # 如果没有英语翻译，则使用原始 search_query
+        # 提取中英文搜索关键词
+        # XOOBAY 是中文电商平台，优先使用原始语言（中文）搜索效果更好
         search_query_en = mission.get("search_query_en", "").strip()
         original_query = mission.get("search_query", "").strip()
+        primary_type = mission.get("primary_product_type", "").strip()
+        primary_type_en = mission.get("primary_product_type_en", "").strip()
         
-        # 构建搜索查询 - 优先级：
-        # 1. 使用 search_query_en（英语翻译，搜索效果最好）
-        # 2. 使用 primary_product_type_en（英语产品类型）
-        # 3. 使用原始 search_query（可能是非英语）
-        # 4. 从硬性约束中提取产品类型关键词
-        # 5. 作为最后手段，尝试从原始查询中提取关键词
+        # 构建搜索查询 - 双语策略
+        # query_original: 原始语言查询（对 XOOBAY 等中文平台效果好）
+        # query_en: 英文查询（用于后备搜索和过滤）
+        query_original = ""
+        query_en = ""
         
-        search_query = ""
-        keywords = []
+        # 步骤 1: 确定原始语言查询
+        if original_query and _is_meaningful_query(original_query):
+            query_original = original_query
+        elif primary_type:
+            query_original = primary_type
         
-        # 优先使用英语翻译后的搜索查询
+        # 步骤 2: 确定英文查询
         if search_query_en and _is_meaningful_query(search_query_en):
-            search_query = search_query_en
-            keywords = [search_query_en]
-            logger.debug(
-                "candidate_node.using_search_query_en",
-                search_query=search_query,
-            )
-        # 其次使用英语产品类型
-        elif mission.get("primary_product_type_en"):
-            primary_type_en = mission.get("primary_product_type_en", "").strip()
-            search_query = primary_type_en
-            keywords = [primary_type_en]
-            logger.debug(
-                "candidate_node.using_primary_product_type_en",
-                primary_product_type_en=search_query,
-            )
-        # 再次使用原始查询（可能是非英语）
-        elif original_query and _is_meaningful_query(original_query):
-            # 直接使用 search_query，它应该已经是用户想要搜索的产品关键词
-            search_query = original_query
-            keywords = [original_query]
-            logger.debug(
-                "candidate_node.using_original_search_query",
-                search_query=search_query,
-            )
-        else:
-            # 从硬性约束中提取主要关键词
+            query_en = search_query_en
+        elif primary_type_en:
+            query_en = primary_type_en
+        
+        # 步骤 3: 如果没有任何查询，从约束中提取
+        if not query_original and not query_en:
+            keywords = []
             for constraint in mission.get("hard_constraints", []):
                 value = constraint.get("value", "")
                 constraint_type = constraint.get("type", "")
-                # 跳过布尔值、操作符
                 if value and value.lower() not in ("true", "false", "eq", "gt", "lt"):
-                    # 优先添加产品类别和关键特征
                     if constraint_type in ("category", "product_type"):
-                        keywords.insert(0, value)  # 类别放最前面
+                        keywords.insert(0, value)
                     elif constraint_type in ("feature", "rugged"):
                         keywords.append(value)
             
-            # 如果从约束中提取到了关键词，使用它们
             if keywords:
-                search_query = " ".join(keywords[:4])
-                logger.debug(
-                    "candidate_node.extracted_keywords_from_constraints",
-                    keywords=keywords,
-                )
-            else:
-                # 最后尝试从原始查询中提取关键词（支持多语言）
-                search_query = _extract_search_keywords(original_query)
-                keywords = [search_query] if search_query else []
-                logger.debug(
-                    "candidate_node.extracted_from_original_query",
-                    search_query=search_query,
-                )
+                query_original = " ".join(keywords[:4])
+                query_en = query_original  # 可能是英文
+        
+        # 步骤 4: 最后尝试从原始查询提取
+        if not query_original and not query_en:
+            extracted = _extract_search_keywords(original_query)
+            if extracted:
+                query_original = extracted
+                query_en = extracted
         
         # 确保有一个有效的搜索查询
-        if not search_query:
-            search_query = "product"
+        if not query_original and not query_en:
+            query_original = "product"
+            query_en = "product"
 
-        logger.debug(
-            "candidate_node.search_final_query",
-            search_query=search_query,
-            keywords=keywords,
+        logger.info(
+            "candidate_node.search_queries",
+            query_original=query_original,
+            query_en=query_en,
         )
 
-        # 调用搜索工具 - 增加召回数量以便生成更多方案
+        # 调用搜索工具 - 传递双语查询
+        # tool-gateway 会优先使用原始语言查询搜索 XOOBAY
         search_result = await search_offers(
-            query=search_query.strip(),
+            query=query_en.strip() if query_en else query_original.strip(),
+            query_original=query_original.strip() if query_original else None,
             category_id=None,
             price_max=mission.get("budget_amount"),
             limit=50,  # 召回 50 个候选，以便有更多选择生成多个 plan
@@ -166,7 +147,7 @@ async def candidate_node(state: AgentState) -> AgentState:
         logger.info("candidate_node.fetched_candidates", count=len(candidates))
 
         # Optional color filter: only apply when explicit color tokens exist.
-        color_query = search_query_en or original_query
+        color_query = query_en or query_original
         color_tokens = _extract_color_tokens(color_query)
         if color_tokens:
             filtered_candidates = [
@@ -247,7 +228,7 @@ async def candidate_node(state: AgentState) -> AgentState:
         tool_calls = state.get("tool_calls", [])
         tool_calls.append({
             "tool_name": "catalog.search_offers",
-            "request": {"query": search_query},
+            "request": {"query": query_en, "query_original": query_original},
             "response_summary": {"count": len(offer_ids)},
             "called_at": _now_iso(),
         })

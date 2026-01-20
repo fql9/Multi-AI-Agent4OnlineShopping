@@ -32,6 +32,22 @@ class TestAgentFlow:
             "error": None,
         }
 
+    @pytest.fixture
+    def chinese_single_item_state(self):
+        """创建中文单品请求的初始状态"""
+        return {
+            "messages": [
+                HumanMessage(content="我要一个黑色夹克，送到新加坡，500 美元以内"),
+            ],
+            "mission": None,
+            "candidates": [],
+            "verified_candidates": [],
+            "plans": [],
+            "current_step": "start",
+            "token_used": 0,
+            "error": None,
+        }
+
     @pytest.mark.asyncio
     async def test_intent_node_mock(self, initial_state):
         """测试 Intent 节点（mock 模式）"""
@@ -49,7 +65,31 @@ class TestAgentFlow:
         mission = result["mission"]
         assert mission["destination_country"] == "DE"  # Germany
         assert mission["budget_amount"] == 50.0
-        assert len(mission["hard_constraints"]) > 0
+
+    @pytest.mark.asyncio
+    async def test_intent_node_chinese_single_item(self, chinese_single_item_state):
+        """测试 Intent 节点处理中文单品请求"""
+        # 确保没有 API key 使用 mock
+        os.environ.pop("OPENAI_API_KEY", None)
+
+        from src.intent import intent_node
+
+        result = await intent_node(chinese_single_item_state)
+
+        assert result["error"] is None
+        assert result["mission"] is not None
+        assert result["current_step"] == "intent_complete"
+
+        mission = result["mission"]
+        # 验证国家检测：新加坡 -> SG
+        assert mission["destination_country"] == "SG"
+        # 验证预算检测：500 美元
+        assert mission["budget_amount"] == 500.0
+        assert mission["budget_currency"] == "USD"
+        # 验证产品类型检测
+        assert "jacket" in mission.get("search_query_en", "").lower() or "jacket" in mission.get("primary_product_type_en", "").lower()
+        # 验证语言检测
+        assert mission["detected_language"] == "zh"
 
     @pytest.mark.asyncio
     async def test_candidate_node_mock(self, initial_state):

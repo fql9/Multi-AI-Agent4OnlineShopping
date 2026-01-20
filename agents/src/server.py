@@ -116,12 +116,31 @@ class ChatRequest(BaseModel):
     mission: dict | None = Field(None, description="已提取的 Mission（可选，若提供则跳过 Intent Agent）")
 
 
+class IntentReasoningStepModel(BaseModel):
+    """Intent Agent 推理步骤"""
+    step: str
+    content: str
+    type: str  # analyzing, extracting, building, result
+
+
+class IntentReasoningModel(BaseModel):
+    """Intent Agent 推理过程"""
+    steps: list[IntentReasoningStepModel] = []
+    detected_language: str = ""
+    extracted_product: str = ""
+    extracted_country: str = ""
+    extracted_budget: str = ""
+    search_query_original: str = ""
+    search_query_en: str = ""
+
+
 class ChatResponse(BaseModel):
     """聊天响应"""
     session_id: str
     current_step: str
     message: str | None = None
     mission: dict | None = None
+    intent_reasoning: IntentReasoningModel | None = None  # Intent Agent 推理过程
     candidates: list[dict] = []
     verified_candidates: list[dict] = []
     plans: list[dict] = []
@@ -231,6 +250,7 @@ async def chat(request: ChatRequest):
         initial_state: AgentState = {
             "messages": [HumanMessage(content=request.message)],
             "mission": mission_to_use,  # 可能为 None 或已提取并翻译的 mission
+            "intent_reasoning": None,  # Intent Agent 推理过程
             "candidates": [],
             "verified_candidates": [],
             "plans": [],
@@ -244,6 +264,7 @@ async def chat(request: ChatRequest):
             "token_used": session.token_used,
             "current_step": "start",
             "needs_user_input": False,
+            "needs_clarification": False,  # Intent Agent 请求澄清
             "user_confirmation": None,
             "error": None,
             "error_code": None,
@@ -268,11 +289,38 @@ async def chat(request: ChatRequest):
         )
         
         # 构建响应
+        # 转换 intent_reasoning
+        intent_reasoning_data = result.get("intent_reasoning")
+        logger.info(
+            "chat.intent_reasoning",
+            has_data=intent_reasoning_data is not None,
+            steps_count=len(intent_reasoning_data.get("steps", [])) if intent_reasoning_data else 0,
+        )
+        intent_reasoning_model = None
+        if intent_reasoning_data:
+            intent_reasoning_model = IntentReasoningModel(
+                steps=[
+                    IntentReasoningStepModel(
+                        step=s.get("step", ""),
+                        content=s.get("content", ""),
+                        type=s.get("type", ""),
+                    )
+                    for s in intent_reasoning_data.get("steps", [])
+                ],
+                detected_language=intent_reasoning_data.get("detected_language", ""),
+                extracted_product=intent_reasoning_data.get("extracted_product", ""),
+                extracted_country=intent_reasoning_data.get("extracted_country", ""),
+                extracted_budget=intent_reasoning_data.get("extracted_budget", ""),
+                search_query_original=intent_reasoning_data.get("search_query_original", ""),
+                search_query_en=intent_reasoning_data.get("search_query_en", ""),
+            )
+        
         return ChatResponse(
             session_id=session.session_id,
             current_step=result.get("current_step", "unknown"),
             message=_extract_message(result),
             mission=result.get("mission"),
+            intent_reasoning=intent_reasoning_model,
             candidates=result.get("candidates", []),
             verified_candidates=result.get("verified_candidates", []),
             plans=result.get("plans", []),

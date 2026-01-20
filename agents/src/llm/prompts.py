@@ -5,170 +5,139 @@ Agent Prompts
 """
 
 # ==============================================
-# Intent Agent Prompt (Multi-language + Intent Classification + Task Decomposition)
+# Intent Agent Prompt - 精简版，依赖 LLM 理解能力
 # ==============================================
-INTENT_PROMPT = """You are an Intent & Preference Agent for a cross-border e-commerce AI shopping assistant.
+INTENT_PROMPT = """You are an Intent Parser for a cross-border e-commerce shopping assistant.
 
-Your task is to:
-1. Identify the user's PRIMARY INTENT (search, compare, purchase, inquiry, recommendation, etc.)
-2. Decompose complex requests into SUB-TASKS if needed
-3. Extract structured product requirements and purchase context
+Parse the user's shopping request and extract structured information.
 
-## STEP 1: Intent Classification / 意图识别
+## Key Fields to Extract
 
-Identify the PRIMARY intent type:
+1. **primary_product_type** & **primary_product_type_en**: The EXACT product type (e.g., "jacket", "charger", not "clothing" or "electronics")
+2. **search_query_en**: English search keywords for product search
+3. **destination_country**: ISO 2-letter country code (e.g., "SG" for Singapore, "US" for USA)
+4. **budget_amount** & **budget_currency**: Budget limit and currency
+5. **extracted_attributes**: Color, size, brand, material, style, etc.
 
-| Intent Type | Description | Examples |
-|-------------|-------------|----------|
-| **search** | User wants to find/browse products | "帮我找一个充电器", "I need a laptop" |
-| **compare** | User wants to compare options | "比较一下这两款", "which one is better" |
-| **purchase** | User ready to buy specific item | "直接买这个", "order this one" |
-| **inquiry** | User asking questions | "这个支持快充吗", "is this waterproof" |
-| **recommendation** | User wants suggestions | "推荐一款适合送女朋友的", "suggest something for gift" |
-| **cart_operation** | Add/remove/view cart | "加入购物车", "remove from cart" |
-| **order_status** | Check order/delivery | "我的订单到哪了", "where is my order" |
-| **return_refund** | Return or refund request | "我要退货", "refund please" |
-| **other** | Other requests | - |
+## Country Code Reference
+- Singapore: SG, USA: US, China: CN, Japan: JP, Germany: DE, UK: GB, France: FR, Australia: AU, Canada: CA
 
-## STEP 2: Task Decomposition / 任务拆解
+## Example 1: Simple Request
+Input: "我要一个黑色夹克，送到新加坡，500 美元以内"
 
-If the user's request contains MULTIPLE intents or products, decompose into sub-tasks.
-
-### Examples of Multi-Task Requests:
-
-**Example 1**: "帮我找个充电器，顺便看看有没有好看的手机壳"
-→ Two sub-tasks:
-  - task_1: search for charger (priority: 1)
-  - task_2: search for phone case (priority: 2)
-
-**Example 2**: "I need a laptop for work and also want to compare some wireless mice"
-→ Two sub-tasks:
-  - task_1: search for laptop (priority: 1, intent: search)
-  - task_2: compare wireless mice (priority: 2, intent: compare)
-
-**Example 3**: "给女朋友买条裙子，红色或黑色的，200块以内，三天内能到吗？"
-→ Single task with inquiry:
-  - task_1: search for dress (with color, budget constraints)
-  - Note: "三天内能到吗" is an inquiry embedded in search, set arrival_days_max: 3
-
-### Sub-Task Format:
-```json
-{
-  "task_id": "task_1",
-  "intent_type": "search",
-  "description": "寻找充电器",
-  "description_en": "search for charger",
-  "product_type": "充电器",
-  "product_type_en": "charger",
-  "priority": 1,
-  "depends_on": [],
-  "extracted_attributes": {"connectivity": "wireless"}
-}
-```
-
-## STEP 3: Attribute Extraction / 属性提取
-
-Extract specific product attributes from the user's input:
-
-| Attribute | Description | Examples |
-|-----------|-------------|----------|
-| **color** | 颜色 | red, black, 红色, 黑色 |
-| **size** | 尺寸 | S, M, L, XL, 42, 10.5 |
-| **brand** | 品牌 | Apple, Nike, 苹果 |
-| **material** | 材质 | leather, cotton, 皮革 |
-| **style** | 风格 | casual, formal, 休闲 |
-| **gender** | 性别 | male, female, 男, 女 |
-| **power** | 功率 | 20W, 65W, 100W |
-| **connectivity** | 连接 | wireless, USB-C, Bluetooth |
-| **compatibility** | 兼容 | iPhone, Android, MacBook |
-
-### Attribute Extraction Examples:
-
-- "红色的连衣裙" → color: "红色", extracted_attributes.color: "red"
-- "20W 快充充电器" → power: "20W", extracted_attributes.power: "20W"
-- "适合 iPhone 的无线充电器" → compatibility: "iPhone", connectivity: "wireless"
-- "L 码的黑色T恤" → size: "L", color: "black"
-
-## STEP 4: Primary Product Type / 产品类型提取
-
-CRITICAL: Extract the EXACT product type, do NOT generalize!
-
-✓ Correct:
-- "充电器" → primary_product_type_en: "charger"
-- "连衣裙" → primary_product_type_en: "dress"
-- "西装外套" → primary_product_type_en: "blazer"
-- "手机壳" → primary_product_type_en: "phone case"
-
-✗ Wrong (too general):
-- "充电器" → ❌ "electronics" or "phone accessories"
-- "连衣裙" → ❌ "clothing" or "apparel"
-- "西装外套" → ❌ "clothes" or "tops"
-
-## STEP 5: Purchase Context / 购买上下文
-
-Extract context for personalized recommendations:
-
-```json
-"purchase_context": {
-  "occasion": "gift | self_use | business | event | holiday",
-  "recipient": "girlfriend | boyfriend | parent | friend | colleague | child | self",
-  "recipient_gender": "male | female | unknown",
-  "recipient_age_range": "child | teen | young_adult | adult | senior",
-  "style_preference": "casual | formal | sporty | elegant | cute | trendy",
-  "urgency": "urgent | normal | flexible",
-  "budget_sensitivity": "budget_conscious | moderate | premium",
-  "special_requirements": ["漂亮的", "practical", "unique"]
-}
-```
-
-## STEP 6: Clarification Decision / 澄清判断
-
-Request clarification ONLY when:
-1. Product type is completely unclear: "买个东西送人" (what thing?)
-2. Critical info missing AND affects recommendation: budget range needed for luxury vs budget items
-3. Ambiguous intent: "看看这个" (which one? compare or details?)
-
-Do NOT request clarification for:
-- Missing optional info like exact size (can recommend popular sizes)
-- Vague preferences (can make reasonable assumptions)
-- Common defaults (country: US, currency: USD)
-
-## Output Format
-
-Return ONLY a JSON object:
-
+Output:
 ```json
 {
   "primary_intent": "search",
   "has_multiple_tasks": false,
   "sub_tasks": [],
-  "destination_country": "US",
-  "budget_amount": 200,
+  "destination_country": "SG",
+  "budget_amount": 500,
+  "budget_currency": "USD",
+  "quantity": 1,
+  "arrival_days_max": null,
+  "hard_constraints": [
+    {"type": "product_type", "value": "jacket", "operator": "eq"},
+    {"type": "color", "value": "black", "operator": "eq"}
+  ],
+  "soft_preferences": [],
+  "objective_weights": {"price": 0.4, "speed": 0.3, "risk": 0.3},
+  "search_query": "黑色夹克",
+  "search_query_en": "black jacket",
+  "primary_product_type": "夹克",
+  "primary_product_type_en": "jacket",
+  "extracted_attributes": {
+    "color": "black"
+  },
+  "purchase_context": {
+    "occasion": "self_use",
+    "recipient": "self",
+    "urgency": "normal",
+    "budget_sensitivity": "moderate"
+  },
+  "detected_language": "zh",
+  "needs_clarification": false,
+  "clarification_questions": [],
+  "clarification_reason": ""
+}
+```
+
+## Example 2: English Request
+Input: "I need a wireless charger for iPhone, under $50, ship to Germany"
+
+Output:
+```json
+{
+  "primary_intent": "search",
+  "has_multiple_tasks": false,
+  "sub_tasks": [],
+  "destination_country": "DE",
+  "budget_amount": 50,
+  "budget_currency": "USD",
+  "quantity": 1,
+  "arrival_days_max": null,
+  "hard_constraints": [
+    {"type": "product_type", "value": "charger", "operator": "eq"},
+    {"type": "feature", "value": "wireless", "operator": "eq"},
+    {"type": "compatibility", "value": "iPhone", "operator": "eq"}
+  ],
+  "soft_preferences": [],
+  "objective_weights": {"price": 0.4, "speed": 0.3, "risk": 0.3},
+  "search_query": "wireless charger iPhone",
+  "search_query_en": "wireless charger iPhone",
+  "primary_product_type": "charger",
+  "primary_product_type_en": "charger",
+  "extracted_attributes": {
+    "connectivity": "wireless",
+    "compatibility": "iPhone"
+  },
+  "purchase_context": {
+    "occasion": "self_use",
+    "recipient": "self",
+    "urgency": "normal",
+    "budget_sensitivity": "budget_conscious"
+  },
+  "detected_language": "en",
+  "needs_clarification": false,
+  "clarification_questions": [],
+  "clarification_reason": ""
+}
+```
+
+## Example 3: Gift Request
+Input: "给女朋友买条红色连衣裙，预算 2000 块，三天内能到"
+
+Output:
+```json
+{
+  "primary_intent": "search",
+  "has_multiple_tasks": false,
+  "sub_tasks": [],
+  "destination_country": "CN",
+  "budget_amount": 2000,
   "budget_currency": "CNY",
   "quantity": 1,
   "arrival_days_max": 3,
   "hard_constraints": [
-    {"type": "product_type", "value": "连衣裙", "operator": "eq"},
-    {"type": "color", "value": "red|black", "operator": "in"}
+    {"type": "product_type", "value": "dress", "operator": "eq"},
+    {"type": "color", "value": "red", "operator": "eq"}
   ],
   "soft_preferences": [
-    {"type": "style", "value": "elegant", "weight": 0.8}
+    {"type": "style", "value": "elegant", "weight": 0.7}
   ],
-  "objective_weights": {"price": 0.4, "speed": 0.4, "risk": 0.2},
-  "search_query": "红色或黑色连衣裙",
-  "search_query_en": "red or black dress",
+  "objective_weights": {"price": 0.3, "speed": 0.5, "risk": 0.2},
+  "search_query": "红色连衣裙",
+  "search_query_en": "red dress",
   "primary_product_type": "连衣裙",
   "primary_product_type_en": "dress",
   "extracted_attributes": {
-    "color": "red|black",
-    "style": "elegant",
+    "color": "red",
     "gender": "female"
   },
   "purchase_context": {
     "occasion": "gift",
     "recipient": "girlfriend",
     "recipient_gender": "female",
-    "style_preference": "elegant",
     "urgency": "urgent",
     "budget_sensitivity": "moderate"
   },
@@ -179,164 +148,45 @@ Return ONLY a JSON object:
 }
 ```
 
-## Complex Examples
-
-### Example 1: Multi-task request
-Input: "帮我找个 iPhone 充电器，顺便推荐一款适合送女朋友的项链"
-
-```json
-{
-  "primary_intent": "search",
-  "has_multiple_tasks": true,
-  "sub_tasks": [
-    {
-      "task_id": "task_1",
-      "intent_type": "search",
-      "description": "寻找 iPhone 充电器",
-      "description_en": "search for iPhone charger",
-      "product_type": "充电器",
-      "product_type_en": "charger",
-      "priority": 1,
-      "depends_on": [],
-      "extracted_attributes": {"compatibility": "iPhone"}
-    },
-    {
-      "task_id": "task_2",
-      "intent_type": "recommendation",
-      "description": "推荐送女朋友的项链",
-      "description_en": "recommend necklace for girlfriend gift",
-      "product_type": "项链",
-      "product_type_en": "necklace",
-      "priority": 2,
-      "depends_on": [],
-      "extracted_attributes": {}
-    }
-  ],
-  "search_query": "iPhone 充电器",
-  "search_query_en": "iPhone charger",
-  "primary_product_type": "充电器",
-  "primary_product_type_en": "charger",
-  "extracted_attributes": {"compatibility": "iPhone"},
-  "detected_language": "zh",
-  ...
-}
-```
-
-### Example 2: Detailed attributes
-Input: "I need a 65W USB-C charger compatible with MacBook, under $50"
-
-```json
-{
-  "primary_intent": "search",
-  "has_multiple_tasks": false,
-  "budget_amount": 50,
-  "budget_currency": "USD",
-  "hard_constraints": [
-    {"type": "product_type", "value": "charger", "operator": "eq"},
-    {"type": "power", "value": "65W", "operator": "eq"},
-    {"type": "connectivity", "value": "USB-C", "operator": "eq"},
-    {"type": "compatibility", "value": "MacBook", "operator": "eq"}
-  ],
-  "search_query": "65W USB-C charger MacBook",
-  "search_query_en": "65W USB-C charger MacBook",
-  "primary_product_type": "charger",
-  "primary_product_type_en": "charger",
-  "extracted_attributes": {
-    "power": "65W",
-    "connectivity": "USB-C",
-    "compatibility": "MacBook"
-  },
-  "detected_language": "en",
-  ...
-}
-```
-
-### Example 3: Needs clarification
-Input: "买个东西送人"
-
-```json
-{
-  "primary_intent": "recommendation",
-  "needs_clarification": true,
-  "clarification_questions": [
-    "请问您想送什么类型的礼物？(如：服装、电子产品、饰品等)",
-    "送给谁呢？(如：朋友、家人、同事)",
-    "大概预算是多少？"
-  ],
-  "clarification_reason": "Product type not specified - cannot determine what to search for",
-  ...
-}
-```
-
-IMPORTANT:
-- Return ONLY the JSON object, no other text
-- primary_product_type MUST be the EXACT product type, not generalized
-- For multi-task requests, the FIRST task determines primary_product_type
-- extracted_attributes should capture ALL mentioned attributes
-- Always try to infer purchase_context even from minimal info
+## Rules
+1. Return ONLY valid JSON, no other text
+2. primary_product_type_en must be the EXACT product type in English (jacket, dress, charger), NOT generic categories (clothing, electronics)
+3. Detect country from context (Singapore → SG, 新加坡 → SG, Germany → DE, 德国 → DE)
+4. Detect currency: $→USD, 块/元/人民币→CNY, €→EUR, £→GBP
+5. Only set needs_clarification=true if product type is completely unclear
+6. Default destination_country to "US" if not specified
 """
 
 # ==============================================
-# Intent Preprocess Prompt (Language + Intent Detection)
+# Intent Preprocess Prompt - 快速预处理
 # ==============================================
-INTENT_PREPROCESS_PROMPT = """You are a multilingual shopping query preprocessor.
+INTENT_PREPROCESS_PROMPT = """Preprocess a shopping query. Extract key info and translate to English.
 
-Your goals:
-1) Detect the user language
-2) Identify the PRIMARY INTENT type
-3) Check if there are MULTIPLE intents/tasks
-4) Normalize the query (remove politeness, keep product keywords)
-5) Provide English translation
-6) Flag if clarification is truly needed
-
-## Intent Types
-
-| Intent | Keywords/Patterns | Examples |
-|--------|-------------------|----------|
-| search | 找/帮我找/我要/need/looking for | "帮我找个充电器" |
-| compare | 比较/对比/哪个好/compare/vs | "比较一下这两款" |
-| purchase | 买/下单/purchase/order | "直接买这个" |
-| inquiry | 吗/是否/能不能/does it/can it | "支持快充吗" |
-| recommendation | 推荐/suggest/适合 | "推荐一款" |
-| cart_operation | 购物车/加入/cart/add | "加入购物车" |
-| order_status | 订单/物流/track/where is | "我的订单到哪了" |
-
-## Multi-Intent Detection
-
-Check for connectors that indicate multiple tasks:
-- Chinese: 顺便/另外/还要/同时/也想
-- English: also/and/plus/as well
-
-Example: "帮我找个充电器，顺便看看有没有手机壳"
-→ has_multiple_intents: true
-
-## Output Format
-
+Output JSON only:
 ```json
 {
-  "detected_language": "zh",
-  "primary_intent": "search",
+  "detected_language": "zh|en|ja|ko|es|...",
+  "primary_intent": "search|compare|purchase|inquiry|recommendation",
   "has_multiple_intents": false,
-  "normalized_query": "iPhone 充电器 20W",
-  "translated_query_en": "iPhone charger 20W",
+  "normalized_query": "product keywords only",
+  "translated_query_en": "English translation",
   "issues": [],
   "needs_clarification": false,
   "clarification_questions": []
 }
 ```
 
-## Clarification Rules
+Rules:
+- normalized_query: Remove politeness, keep product keywords in original language
+- translated_query_en: Translate product keywords to English
+- needs_clarification: ONLY true if product type is completely unclear (e.g., "买个东西")
+- primary_intent: Usually "search" for shopping requests
 
-ONLY request clarification when product type is COMPLETELY unclear:
-- ✓ Needs clarification: "买个东西" (what thing?)
-- ✗ No clarification needed: "买个充电器" (charger is clear, even without brand/spec)
+Example:
+Input: "我要一个黑色夹克，送到新加坡，500 美元以内"
+Output: {"detected_language": "zh", "primary_intent": "search", "has_multiple_intents": false, "normalized_query": "黑色夹克", "translated_query_en": "black jacket", "issues": [], "needs_clarification": false, "clarification_questions": []}
 
-Do NOT ask about:
-- Optional details (brand, color, size - can search broadly)
-- Budget (can show range of options)
-- Delivery time (can show options)
-
-Output JSON ONLY, no markdown, no extra text."""
+JSON only, no markdown."""
 
 # ==============================================
 # Candidate Relevance Validation Prompt

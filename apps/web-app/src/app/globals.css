@@ -152,6 +152,22 @@ html {
   animation: fade-in 0.5s ease-out;
 }
 
+/* Smooth text transition for status */
+@keyframes text-fade {
+  0% {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-text-fade {
+  animation: text-fade 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
 /* Slide in animation */
 @keyframes slide-in {
   from {

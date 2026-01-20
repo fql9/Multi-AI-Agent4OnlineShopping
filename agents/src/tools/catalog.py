@@ -1,6 +1,6 @@
 """
 Catalog tools - 商品搜索与检索
-Enhanced with KG support
+Enhanced with KG support and bilingual search
 """
 
 from typing import Any
@@ -10,6 +10,7 @@ from .base import MOCK_MODE, call_tool, mock_response
 
 async def search_offers(
     query: str,
+    query_original: str | None = None,
     destination_country: str = "US",
     category_id: str | None = None,
     price_min: float | None = None,
@@ -21,10 +22,11 @@ async def search_offers(
     user_id: str | None = None,
 ) -> dict[str, Any]:
     """
-    catalog.search_offers - 搜索商品
+    catalog.search_offers - 搜索商品（支持双语搜索）
 
     Args:
-        query: 搜索关键词
+        query: 搜索关键词（英文）
+        query_original: 原始语言搜索关键词（如中文），优先用于 XOOBAY 等中文平台
         destination_country: 目的国
         category_id: 类目 ID（可选）
         price_min: 最低价格
@@ -65,15 +67,23 @@ async def search_offers(
         if price_max is not None:
             filters["price_range"]["max"] = price_max
 
+    # 构建参数，支持双语搜索
+    params: dict[str, Any] = {
+        "query": query,
+        "filters": filters,
+        "sort": sort,
+        "limit": limit,
+    }
+    
+    # 如果有原始语言查询（如中文），传递给 tool-gateway
+    # tool-gateway 会优先使用原始语言搜索 XOOBAY 等中文电商平台
+    if query_original:
+        params["query_original"] = query_original
+
     return await call_tool(
         mcp_server="core",
         tool_name="catalog.search_offers",
-        params={
-            "query": query,
-            "filters": filters,
-            "sort": sort,
-            "limit": limit,
-        },
+        params=params,
         user_id=user_id,
     )
 

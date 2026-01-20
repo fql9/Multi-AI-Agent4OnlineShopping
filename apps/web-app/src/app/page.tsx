@@ -27,7 +27,7 @@ import {
   User,
 } from 'lucide-react'
 import Image from 'next/image'
-import { useShoppingStore, type TaxEstimate, type ComplianceRisk, type GuidedChatMessage } from '@/store/shopping'
+import { useShoppingStore, type TaxEstimate, type ComplianceRisk, type GuidedChatMessage, type IntentReasoning } from '@/store/shopping'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -424,6 +424,8 @@ export default function Home() {
   const [chatImages, setChatImages] = useState<string[]>([])
   const [thinkingCollapsed, setThinkingCollapsed] = useState(false)
   const userToggledThinking = useRef(false) // Track if user manually toggled
+  const [thinkingStatus, setThinkingStatus] = useState(0) // 0-3 for different status texts
+  const thinkingStatuses = ['Thinking', 'Searching', 'Analysing', 'Planning']
   const chatContainerRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const chatInputRef = useRef<HTMLTextAreaElement | null>(null)
@@ -434,6 +436,9 @@ export default function Home() {
   const intentThoughts = intentStep?.thinkingSteps?.slice(-3) ?? []
   const candidateToolCalls = candidateStep?.toolCalls ?? []
   const verifierToolCalls = verifierStep?.toolCalls ?? []
+  
+  // Intent Agent 推理过程（来自后端 LLM 真实推理）
+  const intentReasoning = store.intentReasoning
 
   const hasPlans = store.plans.length > 0 && store.orderState === 'TOTAL_COMPUTED'
   const isConfirmation =
@@ -472,6 +477,18 @@ export default function Home() {
       userToggledThinking.current = false
     }
   }, [store.orderState])
+
+  // Cycle through thinking statuses with smooth animation
+  useEffect(() => {
+    if (!isProcessing) {
+      setThinkingStatus(0)
+      return
+    }
+    const interval = setInterval(() => {
+      setThinkingStatus((prev) => (prev + 1) % 4)
+    }, 2000) // Change every 2 seconds
+    return () => clearInterval(interval)
+  }, [isProcessing])
 
   const handleChatSubmit = useCallback(
     async (e: React.FormEvent) => {
@@ -785,20 +802,20 @@ export default function Home() {
                     "w-4 h-4 transition-transform duration-200",
                     thinkingCollapsed ? "rotate-0" : "rotate-90"
                   )} />
-                  <span className="font-medium">
-                    {isProcessing ? '思考中' : '已完成'} {(() => {
-                      // 优先根据 agentSteps 的 completed 状态计算完成步骤数
-                      const completedSteps = store.agentSteps.filter(s => s.status === 'completed').length
-                      if (completedSteps > 0) return completedSteps
-                      // 如果没有完成的步骤，fallback 到旧逻辑
-                      return Math.max(1, intentThoughts.length + candidateToolCalls.length + (verifierToolCalls.length > 0 ? 1 : 0))
-                    })()} 步
-                  </span>
-                  {isProcessing && (
-                    <Loader2 className="w-3.5 h-3.5 text-[#20b8cd] animate-spin ml-1" />
-                  )}
-                  {hasPlans && !isProcessing && (
-                    <CheckCircle className="w-3.5 h-3.5 text-green-500 ml-1" />
+                  {isProcessing ? (
+                    <span className="font-medium inline-flex items-center min-w-[100px]">
+                      <span 
+                        key={thinkingStatus}
+                        className="inline-block animate-text-fade"
+                      >
+                        {thinkingStatuses[thinkingStatus]}...
+                      </span>
+                    </span>
+                  ) : (
+                    <>
+                      <span className="font-medium">Done</span>
+                      <CheckCircle className="w-3.5 h-3.5 text-green-500 ml-1" />
+                    </>
                   )}
                 </button>
 
@@ -815,7 +832,57 @@ export default function Home() {
                         <p className="text-sm text-[#2d3436] leading-relaxed">
                           我将分析您的需求并搜索「{store.query || '商品'}」相关信息。
                         </p>
-                        {intentThoughts.length > 0 && (
+                        
+                        {/* Intent Agent 推理过程（来自后端 LLM 真实推理） */}
+                        {intentReasoning && intentReasoning.steps.length > 0 && (
+                          <div className="mt-3 space-y-2 bg-[#f9f9f7] rounded-lg p-3 border border-[#e8e8e6]">
+                            <p className="text-xs font-medium text-[#5a5a58] mb-2">🧠 AI 思考过程</p>
+                            {intentReasoning.steps.map((step, idx) => (
+                              <div key={idx} className="flex items-start gap-2">
+                                <span className={cn(
+                                  "w-5 h-5 rounded-full flex items-center justify-center text-[10px] flex-shrink-0 mt-0.5",
+                                  step.type === 'analyzing' && "bg-blue-100 text-blue-600",
+                                  step.type === 'extracting' && "bg-amber-100 text-amber-600",
+                                  step.type === 'building' && "bg-purple-100 text-purple-600",
+                                  step.type === 'result' && "bg-green-100 text-green-600",
+                                )}>
+                                  {idx + 1}
+                                </span>
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-xs font-medium text-[#4a4a48]">{step.step}</p>
+                                  <p className="text-xs text-[#6b6c6c] mt-0.5">{step.content}</p>
+                                </div>
+                              </div>
+                            ))}
+                            
+                            {/* 提取结果摘要 */}
+                            {intentReasoning.extracted_product && (
+                              <div className="mt-3 pt-2 border-t border-[#e8e8e6] flex flex-wrap gap-2">
+                                <span className="inline-flex items-center px-2 py-1 bg-white rounded text-[11px] text-[#5a5a58] border border-[#e0e0de]">
+                                  🏷️ {intentReasoning.extracted_product}
+                                </span>
+                                {intentReasoning.extracted_country && (
+                                  <span className="inline-flex items-center px-2 py-1 bg-white rounded text-[11px] text-[#5a5a58] border border-[#e0e0de]">
+                                    📍 {intentReasoning.extracted_country}
+                                  </span>
+                                )}
+                                {intentReasoning.extracted_budget && intentReasoning.extracted_budget !== 'N/A USD' && (
+                                  <span className="inline-flex items-center px-2 py-1 bg-white rounded text-[11px] text-[#5a5a58] border border-[#e0e0de]">
+                                    💰 {intentReasoning.extracted_budget}
+                                  </span>
+                                )}
+                                {intentReasoning.detected_language && (
+                                  <span className="inline-flex items-center px-2 py-1 bg-white rounded text-[11px] text-[#5a5a58] border border-[#e0e0de]">
+                                    🌐 {intentReasoning.detected_language === 'zh' ? '中文' : intentReasoning.detected_language}
+                                  </span>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                        
+                        {/* 回退到旧的 intentThoughts（兼容模拟模式） */}
+                        {!intentReasoning && intentThoughts.length > 0 && (
                           <div className="mt-3 space-y-1">
                             {intentThoughts.slice(0, 3).map((thought) => (
                               <p key={thought.id} className="text-xs text-[#6b6c6c]">

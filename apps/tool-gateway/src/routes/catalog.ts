@@ -98,19 +98,20 @@ export async function catalogRoutes(app: FastifyInstance): Promise<void> {
    * catalog.search_offers
    * 
    * Search products directly via XOOBAY /api-geo/product-search API
-   * Simplified flow: no PostgreSQL, direct XOOBAY API call
+   * Supports bilingual search: query_original (Chinese) is preferred for XOOBAY
    */
   app.post('/search_offers', async (request: FastifyRequest, reply: FastifyReply) => {
     const body = request.body as { params?: Record<string, unknown> };
     const params = body.params ?? {};
 
     // Support two parameter formats:
-    // 1. Flat format: {query, category_id, price_min, price_max, limit}
-    // 2. Nested format: {query, filters: {category_id, price_range: {min, max}}, limit}
+    // 1. Flat format: {query, query_original, category_id, price_min, price_max, limit}
+    // 2. Nested format: {query, query_original, filters: {category_id, price_range: {min, max}}, limit}
     const filters = params.filters as Record<string, unknown> | undefined;
     const priceRange = filters?.price_range as { min?: number; max?: number } | undefined;
 
     const searchQuery = (params.query as string) ?? '';
+    const queryOriginal = (params.query_original as string) ?? '';  // 原始语言查询（如中文）
     const priceMin = (params.price_min as number | undefined) ?? priceRange?.min;
     const priceMax = (params.price_max as number | undefined) ?? priceRange?.max;
     const limit = Math.min((params.limit as number) ?? 50, 100);
@@ -119,6 +120,7 @@ export async function catalogRoutes(app: FastifyInstance): Promise<void> {
 
     logger.info({ 
       query: searchQuery, 
+      query_original: queryOriginal,
       limit, 
       offset,
       pageNo,
@@ -129,9 +131,11 @@ export async function catalogRoutes(app: FastifyInstance): Promise<void> {
     try {
       const xoobayClient = getXOOBAYClient();
       
-      // Direct call to XOOBAY /api-geo/product-search
-      const xoobayResult = await xoobayClient.searchProductsWithFallback({
-        query: searchQuery || '',
+      // XOOBAY 是中文电商平台，优先使用原始语言（中文）查询
+      // 如果没有 query_original，再使用 query（英文）
+      const xoobayResult = await xoobayClient.searchProductsBilingual({
+        queryOriginal: queryOriginal || '',
+        queryEn: searchQuery || '',
         pageNo,
         pageSize: limit,
       });
