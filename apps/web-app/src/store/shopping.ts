@@ -197,7 +197,7 @@ export type UserProfile = {
   }
 }
 
-// Guided Chat types
+// Chat message types
 export type GuidedChatMessage = {
   id: string
   role: 'user' | 'assistant'
@@ -205,17 +205,6 @@ export type GuidedChatMessage = {
   images?: string[]  // base64 encoded
   isStreaming?: boolean
   timestamp: string
-}
-
-export type GuidedChatState = {
-  sessionId: string | null
-  messages: GuidedChatMessage[]
-  turnCount: number
-  maxTurns: number
-  isStreaming: boolean
-  streamingContent: string
-  readyToSearch: boolean
-  extractedMission: Mission | null
 }
 
 function sanitizeNonNegativeNumber(value: number, fallback: number): number {
@@ -251,8 +240,6 @@ function normalizeUrlMaybe(url: string): string {
   return `https://www.xoobay.com/${trimmed}`
 }
 
-// Chat Mode Type
-export type ChatMode = 'multi' | 'single'
 
 // Store 状态
 interface ShoppingState {
@@ -272,11 +259,8 @@ interface ShoppingState {
   isAgentConnected: boolean
   isToolGatewayConnected: boolean
   
-  // Chat Mode: 'multi' = 多轮对话模式, 'single' = 一句话模式
-  chatMode: ChatMode
-  
-  // Guided Chat State (pre-agent conversation)
-  guidedChat: GuidedChatState
+  // 单轮对话消息（仅保留一次对话模式）
+  chatMessages: GuidedChatMessage[]
   
   // 订单状态
   orderState: OrderState
@@ -335,15 +319,9 @@ interface ShoppingState {
   checkConnection: () => Promise<void>
   resetClarificationAttempts: () => void
   
-  // Chat Mode Actions
-  setChatMode: (mode: ChatMode) => void
-  
-  // Guided Chat Actions
+  // Chat Actions
   addUserMessage: (message: string, images?: string[]) => void
-  sendGuidedMessage: (message: string, images?: string[]) => Promise<void>
-  confirmGuidedChat: () => void
-  updateGuidedChatMission: (mission: Mission) => void
-  resetGuidedChat: () => void
+  clearChatMessages: () => void
 }
 
 // ========================================
@@ -689,18 +667,6 @@ function parseMission(query: string): Mission {
 // Store
 // ========================================
 
-// Initial guided chat state
-const createInitialGuidedChatState = (): GuidedChatState => ({
-  sessionId: null,
-  messages: [],
-  turnCount: 0,
-  maxTurns: 10,
-  isStreaming: false,
-  streamingContent: '',
-  readyToSearch: false,
-  extractedMission: null,
-})
-
 export const useShoppingStore = create<ShoppingState>()(
   persist(
     (set, get) => ({
@@ -717,11 +683,8 @@ export const useShoppingStore = create<ShoppingState>()(
       isAgentConnected: false,
       isToolGatewayConnected: false,
       
-      // Chat Mode
-      chatMode: 'multi' as ChatMode,
-      
-      // Guided Chat State
-      guidedChat: createInitialGuidedChatState(),
+      // Chat Messages (single-turn mode)
+      chatMessages: [],
       
       // 订单状态
       orderState: 'IDLE' as OrderState,
@@ -786,7 +749,6 @@ export const useShoppingStore = create<ShoppingState>()(
       setOrderState: (orderState) => set({ orderState }),
       setError: (error, code = null) => set({ error, errorCode: code }),
       
-      setChatMode: (mode) => set({ chatMode: mode }),
 
       addThinkingStep: (stepIndex, thinking) => set((state) => ({
         agentSteps: state.agentSteps.map((s, i) => 
@@ -846,23 +808,12 @@ export const useShoppingStore = create<ShoppingState>()(
           }
         }
         
-        // 一句话模式：不发送 mission，让后端 Intent Agent（使用 LLM）来解析
-        // 这样可以正确处理多语言（中文、日文等）的用户输入
-        const state = get()
-        
-        // 只有当 mission 来自 Guided Chat（已经过 LLM 处理）时才发送
-        // 一句话模式下 state.mission 应该是 null
-        const missionFromGuidedChat = state.guidedChat.extractedMission
-        
+        // 单轮模式：只发送用户原始消息，让后端 Intent Agent 解析
         set({ orderState: 'MISSION_READY', isStreaming: true })
         
-        // 构建请求 - 一句话模式下只发送用户原始消息
-        // 让后端 Intent Agent 用 LLM 解析意图、国家、预算等
         const chatRequest: api.ChatRequest = {
           message: query,
           session_id: get().sessionId || undefined,
-          // 只有 Guided Chat 提取的 mission 才发送（已经过 LLM 处理）
-          mission: missionFromGuidedChat || undefined,
         }
         
         // 声明 signalApiComplete 用于通知动画完成（在非流式回退路径中使用）
@@ -943,6 +894,7 @@ export const useShoppingStore = create<ShoppingState>()(
                   orderState: 'IDLE',
                   query: '',
                   mission: null,
+                  intentReasoning: null,
                   agentSteps: createInitialAgentSteps(),
                   currentStepIndex: -1,
                   isStreaming: false,
@@ -959,8 +911,8 @@ export const useShoppingStore = create<ShoppingState>()(
                   error: '未找到商品 / No Products Found',
                   errorCode: 'NO_PRODUCTS_FOUND',
                   lastAgentMessage: undefined,
-                  // 同时重置 guided chat
-                  guidedChat: createInitialGuidedChatState(),
+                  // 同时重置聊天记录
+                  chatMessages: [],
                 })
                 return
               }
@@ -1268,6 +1220,7 @@ export const useShoppingStore = create<ShoppingState>()(
         query: '',
         mission: null,
         intentReasoning: null,
+        chatMessages: [],
         agentSteps: createInitialAgentSteps(),
         currentStepIndex: -1,
         isStreaming: false,
@@ -1288,9 +1241,8 @@ export const useShoppingStore = create<ShoppingState>()(
 
       resetClarificationAttempts: () => set({ clarificationAttempts: 0 }),
 
-      // Guided Chat Actions
+      // Chat Actions (single-turn only)
       addUserMessage: (message: string, images: string[] = []) => {
-        // 仅添加用户消息到聊天记录，不触发 AI 响应（用于一句话模式）
         const userMessage: GuidedChatMessage = {
           id: `msg_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
           role: 'user',
@@ -1300,157 +1252,11 @@ export const useShoppingStore = create<ShoppingState>()(
         }
         
         set((state) => ({
-          guidedChat: {
-            ...state.guidedChat,
-            messages: [...state.guidedChat.messages, userMessage],
-          },
+          chatMessages: [...state.chatMessages, userMessage],
         }))
       },
       
-      sendGuidedMessage: async (message: string, images: string[] = []) => {
-        const { guidedChat } = get()
-        
-        // Check turn limit
-        if (guidedChat.turnCount >= guidedChat.maxTurns) {
-          set({ error: 'Maximum conversation turns reached. Please proceed with current information or start over.' })
-          return
-        }
-        
-        // Add user message immediately
-        const userMessage: GuidedChatMessage = {
-          id: `msg_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
-          role: 'user',
-          content: message,
-          images,
-          timestamp: new Date().toISOString(),
-        }
-        
-        // Add placeholder for assistant response
-        const assistantPlaceholder: GuidedChatMessage = {
-          id: `msg_${Date.now()}_${Math.random().toString(36).substr(2, 4)}_assistant`,
-          role: 'assistant',
-          content: '',
-          isStreaming: true,
-          timestamp: new Date().toISOString(),
-        }
-        
-        set((state) => ({
-          guidedChat: {
-            ...state.guidedChat,
-            messages: [...state.guidedChat.messages, userMessage, assistantPlaceholder],
-            isStreaming: true,
-            streamingContent: '',
-          },
-        }))
-        
-        try {
-          // Use streaming API
-          let fullContent = ''
-          let sessionId = guidedChat.sessionId
-          let turnCount = guidedChat.turnCount
-          let readyToSearch = false
-          let extractedMission: Mission | null = null
-          
-          for await (const chunk of api.streamGuidedChat({
-            message,
-            images,
-            session_id: sessionId || undefined,
-          })) {
-            if (chunk.type === 'text' && chunk.content) {
-              fullContent += chunk.content
-              
-              // Update streaming content
-              set((state) => ({
-                guidedChat: {
-                  ...state.guidedChat,
-                  streamingContent: fullContent,
-                  messages: state.guidedChat.messages.map((m) =>
-                    m.id === assistantPlaceholder.id
-                      ? { ...m, content: fullContent }
-                      : m
-                  ),
-                },
-              }))
-            } else if (chunk.type === 'done' && chunk.data) {
-              sessionId = chunk.data.session_id || sessionId
-              turnCount = chunk.data.turn_count || turnCount + 1
-              readyToSearch = chunk.data.ready_to_search || false
-              if (chunk.data.extracted_mission) {
-                extractedMission = chunk.data.extracted_mission as unknown as Mission
-              }
-            } else if (chunk.type === 'mission' && chunk.data) {
-              extractedMission = chunk.data as unknown as Mission
-            } else if (chunk.type === 'error') {
-              set({ error: chunk.content || 'Unknown error in guided chat' })
-            }
-          }
-          
-          // Finalize the message
-          set((state) => ({
-            guidedChat: {
-              ...state.guidedChat,
-              sessionId,
-              turnCount,
-              isStreaming: false,
-              streamingContent: '',
-              readyToSearch,
-              extractedMission,
-              messages: state.guidedChat.messages.map((m) =>
-                m.id === assistantPlaceholder.id
-                  ? { ...m, content: fullContent, isStreaming: false }
-                  : m
-              ),
-            },
-          }))
-          
-        } catch (err) {
-          const errorMsg = err instanceof Error ? err.message : 'Unknown error'
-          set({
-            error: `Guided chat error: ${errorMsg}`,
-            guidedChat: {
-              ...get().guidedChat,
-              isStreaming: false,
-              messages: get().guidedChat.messages.filter((m) => m.id !== assistantPlaceholder.id),
-            },
-          })
-        }
-      },
-
-      confirmGuidedChat: () => {
-        const { guidedChat } = get()
-        
-        if (!guidedChat.extractedMission) {
-          set({ error: 'No mission extracted yet. Please continue the conversation.' })
-          return
-        }
-        
-        // Transfer extracted mission to main flow
-        set({
-          mission: guidedChat.extractedMission,
-          query: guidedChat.extractedMission.search_query || '',
-          destinationCountry: guidedChat.extractedMission.destination_country || '',
-          currency: guidedChat.extractedMission.budget_currency || 'USD',
-          priceMax: guidedChat.extractedMission.budget_amount ?? null,
-          priceMin: null,
-          quantity: guidedChat.extractedMission.quantity || 1,
-          orderState: 'MISSION_READY',
-        })
-      },
-
-      updateGuidedChatMission: (mission: Mission) => {
-        set((state) => ({
-          guidedChat: {
-            ...state.guidedChat,
-            extractedMission: mission,
-          },
-        }))
-      },
-
-      resetGuidedChat: () => {
-        set({
-          guidedChat: createInitialGuidedChatState(),
-        })
-      },
+      clearChatMessages: () => set({ chatMessages: [] }),
     }),
     {
       name: 'shopping-store',

@@ -23,7 +23,6 @@ import {
   ImagePlus,
   X,
   RotateCcw,
-  MessageCircle,
   User,
 } from 'lucide-react'
 import Image from 'next/image'
@@ -416,10 +415,6 @@ export default function Home() {
   const [viewMode, setViewMode] = useState<'cards' | 'table'>('cards')
   const [followUpQuery, setFollowUpQuery] = useState('')
   
-  // 使用 store 中的 chatMode
-  const chatMode = store.chatMode
-  const setChatMode = store.setChatMode
-
   const [chatInput, setChatInput] = useState('')
   const [chatImages, setChatImages] = useState<string[]>([])
   const [thinkingCollapsed, setThinkingCollapsed] = useState(false)
@@ -445,8 +440,7 @@ export default function Home() {
     (store.orderState === 'DRAFT_ORDER_CREATED' || store.orderState === 'WAIT_USER_PAYMENT_CONFIRMATION') &&
     !!store.draftOrder
   const isProcessing = store.orderState !== 'IDLE' && !hasPlans && !isConfirmation
-  const isLanding = store.orderState === 'IDLE' && store.guidedChat.messages.length === 0
-  const showConfirmToSearch = chatMode === 'multi' && store.guidedChat.readyToSearch && store.orderState === 'IDLE'
+  const isLanding = store.orderState === 'IDLE' && store.chatMessages.length === 0
 
   useEffect(() => {
     // NOTE: avoid depending on entire zustand store object (changes often)
@@ -457,7 +451,7 @@ export default function Home() {
     if (chatContainerRef.current) {
       chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight
     }
-  }, [store.guidedChat.messages, store.guidedChat.streamingContent, hasPlans, isProcessing, isConfirmation])
+  }, [store.chatMessages, hasPlans, isProcessing, isConfirmation])
 
   // Auto-expand when processing starts, auto-collapse when plans are ready
   // But respect user's manual toggle choice
@@ -500,17 +494,13 @@ export default function Home() {
       const images = [...chatImages]
       setChatInput('')
       setChatImages([])
-      if (chatMode === 'single') {
-        // 一句话模式：先显示用户消息，再启动 agent
-        store.addUserMessage(message, images)
-        store.setQuery(message)
-        store.setOrderState('MISSION_READY')
-        await store.startAgentProcess()
-        return
-      }
-      await store.sendGuidedMessage(message, images)
+      // 单轮模式：先显示用户消息，再启动 agent
+      store.addUserMessage(message, images)
+      store.setQuery(message)
+      store.setOrderState('MISSION_READY')
+      await store.startAgentProcess()
     },
-    [chatInput, chatImages, chatMode, store],
+    [chatInput, chatImages, store],
   )
 
   const handleImageUpload = useCallback(
@@ -540,10 +530,6 @@ export default function Home() {
     [chatImages.length, store.orderState],
   )
 
-  const handleConfirmChat = useCallback(() => {
-    store.confirmGuidedChat()
-    store.startAgentProcess()
-  }, [store])
 
   const handleFollowUpSubmit = useCallback(
     async (e: React.FormEvent) => {
@@ -566,7 +552,6 @@ export default function Home() {
 
   const handleReset = useCallback(() => {
     store.reset()
-    store.resetGuidedChat()
     setChatInput('')
     setChatImages([])
     setFollowUpQuery('')
@@ -612,7 +597,7 @@ export default function Home() {
                         }
                       }}
                       placeholder="告诉我你想买什么，我来帮你全球比价、找同款、推荐最优方案..."
-                      disabled={store.guidedChat.isStreaming || store.orderState !== 'IDLE'}
+                      disabled={store.isStreaming || store.orderState !== 'IDLE'}
                       className="min-h-[60px] resize-none text-base bg-transparent border-0 focus-visible:ring-0 px-0 text-[#2d3436] placeholder:text-[#9a9a98]"
                     />
                   </div>
@@ -637,53 +622,8 @@ export default function Home() {
                     </div>
                   )}
 
-                  {/* Bottom Bar with Mode Icons and Action Icons */}
-                  <div className="flex items-center justify-between px-3 py-3">
-                    {/* Left: Mode Selection Icons */}
-                    <TooltipProvider>
-                      <div className="flex items-center rounded-xl bg-[#f5f5f3] p-1">
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <button
-                              type="button"
-                              onClick={() => setChatMode('multi')}
-                              className={cn(
-                                'w-10 h-10 rounded-lg flex items-center justify-center transition-colors',
-                                chatMode === 'multi'
-                                  ? 'bg-white text-[#20b8cd] shadow-sm'
-                                  : 'text-[#6b6c6c] hover:text-[#2d3436]',
-                              )}
-                            >
-                              <MessageCircle className="w-5 h-5" />
-                            </button>
-                          </TooltipTrigger>
-                          <TooltipContent side="top">
-                            多轮对话：通过追问澄清需求
-                          </TooltipContent>
-                        </Tooltip>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <button
-                              type="button"
-                              onClick={() => setChatMode('single')}
-                              className={cn(
-                                'w-10 h-10 rounded-lg flex items-center justify-center transition-colors',
-                                chatMode === 'single'
-                                  ? 'bg-white text-[#20b8cd] shadow-sm'
-                                  : 'text-[#6b6c6c] hover:text-[#2d3436]',
-                              )}
-                            >
-                              <Sparkles className="w-5 h-5" />
-                            </button>
-                          </TooltipTrigger>
-                          <TooltipContent side="top">
-                            一句话模式：直接启动意图推理
-                          </TooltipContent>
-                        </Tooltip>
-                      </div>
-                    </TooltipProvider>
-
-                    {/* Right: Utility Icons */}
+                  {/* Bottom Bar with Action Icons */}
+                  <div className="flex items-center justify-end px-3 py-3">
                     <TooltipProvider>
                       <div className="flex items-center gap-1">
                         <input
@@ -699,7 +639,7 @@ export default function Home() {
                             <button
                               type="button"
                               onClick={() => fileInputRef.current?.click()}
-                              disabled={chatImages.length >= 4 || store.guidedChat.isStreaming || store.orderState !== 'IDLE'}
+                              disabled={chatImages.length >= 4 || store.isStreaming || store.orderState !== 'IDLE'}
                               className="w-10 h-10 rounded-xl flex items-center justify-center text-[#6b6c6c] hover:bg-[#f5f5f3] hover:text-[#2d3436] transition-colors disabled:opacity-50"
                             >
                               <ImagePlus className="w-5 h-5" />
@@ -712,10 +652,10 @@ export default function Home() {
 
                         <button
                           type="submit"
-                          disabled={store.orderState !== 'IDLE' || (!chatInput.trim() && chatImages.length === 0) || store.guidedChat.isStreaming}
+                          disabled={store.orderState !== 'IDLE' || (!chatInput.trim() && chatImages.length === 0) || store.isStreaming}
                           className="w-10 h-10 rounded-xl flex items-center justify-center bg-[#20b8cd] text-white hover:bg-[#1aa3b6] transition-colors disabled:opacity-50"
                         >
-                          {store.guidedChat.isStreaming ? (
+                          {store.isStreaming ? (
                             <Loader2 className="w-5 h-5 animate-spin" />
                           ) : (
                             <Send className="w-5 h-5" />
@@ -752,34 +692,18 @@ export default function Home() {
           ) : (
             <>
               <div ref={chatContainerRef} className="pb-40 space-y-4">
-                {store.guidedChat.messages.length === 0 && !isProcessing && (
+                {store.chatMessages.length === 0 && !isProcessing && (
                   <div className="text-sm text-[#6b6c6c] leading-relaxed">
                     你好！我是你的 Shopping Copilot，帮你全球比价、找同款、推荐最优购买方案。告诉我你想买什么，也可以上传商品图片让我帮你找同款！
                   </div>
                 )}
 
-                {store.guidedChat.messages.map((msg) => (
+                {store.chatMessages.map((msg) => (
                   <ChatBubble key={msg.id} message={msg} />
                 ))}
 
-                {store.guidedChat.isStreaming &&
-                  store.guidedChat.messages.length > 0 &&
-                  !store.guidedChat.messages[store.guidedChat.messages.length - 1]?.isStreaming && (
-                    <div className="text-xs text-[#9a9a98]">AI is typing…</div>
-                  )}
-
-                {showConfirmToSearch && (
-                  <div className="mt-3 flex flex-col items-center gap-2 text-center">
-                    <span className="text-sm text-[#5a5a58]">I can proceed to find plans based on your chat.</span>
-                    <Button
-                      onClick={handleConfirmChat}
-                      disabled={store.guidedChat.isStreaming}
-                      rightIcon={<ChevronRight className="w-4 h-4" />}
-                      className="mx-auto"
-                    >
-                      Confirm and continue
-                    </Button>
-                  </div>
+                {store.isStreaming && store.chatMessages.length > 0 && (
+                  <div className="text-xs text-[#9a9a98]">AI is thinking…</div>
                 )}
 
             {(isProcessing || hasPlans) && (
@@ -1381,7 +1305,7 @@ export default function Home() {
                         }
                       }}
                       placeholder={store.orderState === 'IDLE' ? '继续对话或输入新的购物需求...' : '处理中，请等待完成后继续'}
-                      disabled={store.guidedChat.isStreaming || store.orderState !== 'IDLE'}
+                      disabled={store.isStreaming || store.orderState !== 'IDLE'}
                       className="min-h-[44px] max-h-[120px] resize-none text-sm bg-transparent border-0 focus-visible:ring-0 px-0"
                     />
                   </div>
@@ -1393,7 +1317,7 @@ export default function Home() {
                           <button
                             type="button"
                             onClick={() => fileInputRef.current?.click()}
-                            disabled={chatImages.length >= 4 || store.guidedChat.isStreaming || store.orderState !== 'IDLE'}
+                            disabled={chatImages.length >= 4 || store.isStreaming || store.orderState !== 'IDLE'}
                             className="w-9 h-9 rounded-lg flex items-center justify-center text-[#6b6c6c] hover:bg-[#f5f5f3] hover:text-[#2d3436] transition-colors disabled:opacity-50"
                           >
                             <ImagePlus className="w-5 h-5" />
@@ -1405,10 +1329,10 @@ export default function Home() {
 
                     <button
                       type="submit"
-                      disabled={store.orderState !== 'IDLE' || (!chatInput.trim() && chatImages.length === 0) || store.guidedChat.isStreaming}
+                      disabled={store.orderState !== 'IDLE' || (!chatInput.trim() && chatImages.length === 0) || store.isStreaming}
                       className="w-9 h-9 rounded-lg flex items-center justify-center bg-[#20b8cd] text-white hover:bg-[#1aa3b6] transition-colors disabled:opacity-50"
                     >
-                      {store.guidedChat.isStreaming ? (
+                      {store.isStreaming ? (
                         <Loader2 className="w-5 h-5 animate-spin" />
                       ) : (
                         <Send className="w-5 h-5" />
