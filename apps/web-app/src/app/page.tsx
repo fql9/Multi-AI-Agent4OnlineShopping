@@ -425,10 +425,8 @@ export default function Home() {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const chatInputRef = useRef<HTMLTextAreaElement | null>(null)
 
-  const intentStep = store.agentSteps.find((step) => step.id === 'intent')
   const candidateStep = store.agentSteps.find((step) => step.id === 'candidate')
   const verifierStep = store.agentSteps.find((step) => step.id === 'verifier')
-  const intentThoughts = intentStep?.thinkingSteps?.slice(-3) ?? []
   const candidateToolCalls = candidateStep?.toolCalls ?? []
   const verifierToolCalls = verifierStep?.toolCalls ?? []
   
@@ -757,62 +755,13 @@ export default function Home() {
                           我将分析您的需求并搜索「{store.query || '商品'}」相关信息。
                         </p>
                         
-                        {/* Intent Agent 推理过程（来自后端 LLM 真实推理） */}
-                        {intentReasoning && intentReasoning.steps.length > 0 && (
-                          <div className="mt-3 space-y-2 bg-[#f9f9f7] rounded-lg p-3 border border-[#e8e8e6]">
-                            <p className="text-xs font-medium text-[#5a5a58] mb-2">🧠 AI 思考过程</p>
-                            {intentReasoning.steps.map((step, idx) => (
-                              <div key={idx} className="flex items-start gap-2">
-                                <span className={cn(
-                                  "w-5 h-5 rounded-full flex items-center justify-center text-[10px] flex-shrink-0 mt-0.5",
-                                  step.type === 'analyzing' && "bg-blue-100 text-blue-600",
-                                  step.type === 'extracting' && "bg-amber-100 text-amber-600",
-                                  step.type === 'building' && "bg-purple-100 text-purple-600",
-                                  step.type === 'result' && "bg-green-100 text-green-600",
-                                )}>
-                                  {idx + 1}
-                                </span>
-                                <div className="flex-1 min-w-0">
-                                  <p className="text-xs font-medium text-[#4a4a48]">{step.step}</p>
-                                  <p className="text-xs text-[#6b6c6c] mt-0.5">{step.content}</p>
-                                </div>
-                              </div>
-                            ))}
-                            
-                            {/* 提取结果摘要 */}
-                            {intentReasoning.extracted_product && (
-                              <div className="mt-3 pt-2 border-t border-[#e8e8e6] flex flex-wrap gap-2">
-                                <span className="inline-flex items-center px-2 py-1 bg-white rounded text-[11px] text-[#5a5a58] border border-[#e0e0de]">
-                                  🏷️ {intentReasoning.extracted_product}
-                                </span>
-                                {intentReasoning.extracted_country && (
-                                  <span className="inline-flex items-center px-2 py-1 bg-white rounded text-[11px] text-[#5a5a58] border border-[#e0e0de]">
-                                    📍 {intentReasoning.extracted_country}
-                                  </span>
-                                )}
-                                {intentReasoning.extracted_budget && intentReasoning.extracted_budget !== 'N/A USD' && (
-                                  <span className="inline-flex items-center px-2 py-1 bg-white rounded text-[11px] text-[#5a5a58] border border-[#e0e0de]">
-                                    💰 {intentReasoning.extracted_budget}
-                                  </span>
-                                )}
-                                {intentReasoning.detected_language && (
-                                  <span className="inline-flex items-center px-2 py-1 bg-white rounded text-[11px] text-[#5a5a58] border border-[#e0e0de]">
-                                    🌐 {intentReasoning.detected_language === 'zh' ? '中文' : intentReasoning.detected_language}
-                                  </span>
-                                )}
-                              </div>
+                        {/* Intent Agent 思维链（简化版，类似 DeepSeek 风格） */}
+                        {intentReasoning && intentReasoning.thinking && (
+                          <div className="mt-3 bg-[#f9f9f7] rounded-lg p-3 border border-[#e8e8e6]">
+                            <p className="text-xs text-[#6b6c6c] leading-relaxed">{intentReasoning.thinking}</p>
+                            {intentReasoning.summary && (
+                              <p className="mt-2 text-xs font-medium text-[#5a5a58]">{intentReasoning.summary}</p>
                             )}
-                          </div>
-                        )}
-                        
-                        {/* 回退到旧的 intentThoughts（兼容模拟模式） */}
-                        {!intentReasoning && intentThoughts.length > 0 && (
-                          <div className="mt-3 space-y-1">
-                            {intentThoughts.slice(0, 3).map((thought) => (
-                              <p key={thought.id} className="text-xs text-[#6b6c6c]">
-                                - {thought.text}
-                              </p>
-                            ))}
                           </div>
                         )}
                       </div>

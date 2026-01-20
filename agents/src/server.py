@@ -116,22 +116,14 @@ class ChatRequest(BaseModel):
     mission: dict | None = Field(None, description="已提取的 Mission（可选，若提供则跳过 Intent Agent）")
 
 
-class IntentReasoningStepModel(BaseModel):
-    """Intent Agent 推理步骤"""
-    step: str
-    content: str
-    type: str  # analyzing, extracting, building, result
-
-
 class IntentReasoningModel(BaseModel):
-    """Intent Agent 推理过程"""
-    steps: list[IntentReasoningStepModel] = []
-    detected_language: str = ""
-    extracted_product: str = ""
-    extracted_country: str = ""
-    extracted_budget: str = ""
-    search_query_original: str = ""
-    search_query_en: str = ""
+    """
+    Intent Agent 思维链（简化版）
+    
+    仅包含简洁的思考文本，类似 DeepSeek 的思维链风格。
+    """
+    thinking: str = ""  # 简洁的思维链文本（2-3句话）
+    summary: str = ""   # 提取结果摘要（如：产品、目的地、预算）
 
 
 class ChatResponse(BaseModel):
@@ -289,30 +281,18 @@ async def chat(request: ChatRequest):
         )
         
         # 构建响应
-        # 转换 intent_reasoning
+        # 转换 intent_reasoning（简化版，只有 thinking 和 summary）
         intent_reasoning_data = result.get("intent_reasoning")
         logger.info(
             "chat.intent_reasoning",
             has_data=intent_reasoning_data is not None,
-            steps_count=len(intent_reasoning_data.get("steps", [])) if intent_reasoning_data else 0,
+            thinking_len=len(intent_reasoning_data.get("thinking", "")) if intent_reasoning_data else 0,
         )
         intent_reasoning_model = None
         if intent_reasoning_data:
             intent_reasoning_model = IntentReasoningModel(
-                steps=[
-                    IntentReasoningStepModel(
-                        step=s.get("step", ""),
-                        content=s.get("content", ""),
-                        type=s.get("type", ""),
-                    )
-                    for s in intent_reasoning_data.get("steps", [])
-                ],
-                detected_language=intent_reasoning_data.get("detected_language", ""),
-                extracted_product=intent_reasoning_data.get("extracted_product", ""),
-                extracted_country=intent_reasoning_data.get("extracted_country", ""),
-                extracted_budget=intent_reasoning_data.get("extracted_budget", ""),
-                search_query_original=intent_reasoning_data.get("search_query_original", ""),
-                search_query_en=intent_reasoning_data.get("search_query_en", ""),
+                thinking=intent_reasoning_data.get("thinking", ""),
+                summary=intent_reasoning_data.get("summary", ""),
             )
         
         return ChatResponse(

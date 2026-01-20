@@ -151,22 +151,14 @@ export type ThinkingStep = {
   timestamp: number
 }
 
-// Intent Agent 推理步骤
-export type IntentReasoningStep = {
-  step: string
-  content: string
-  type: 'analyzing' | 'extracting' | 'building' | 'result'
-}
-
-// Intent Agent 推理过程
+/**
+ * Intent Agent 思维链（简化版）
+ * 
+ * 仅包含简洁的思考文本，类似 DeepSeek 的思维链风格。
+ */
 export type IntentReasoning = {
-  steps: IntentReasoningStep[]
-  detected_language: string
-  extracted_product: string
-  extracted_country: string
-  extracted_budget: string
-  search_query_original: string
-  search_query_en: string
+  thinking: string  // 简洁的思维链文本（2-3句话）
+  summary: string   // 提取结果摘要（如：🏷️ 产品 · 📍 国家 · 💰 预算）
 }
 
 // Agent 步骤

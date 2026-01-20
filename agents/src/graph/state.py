@@ -7,22 +7,14 @@ from typing import Annotated, TypedDict
 from langgraph.graph.message import add_messages
 
 
-class IntentReasoningStep(TypedDict):
-    """Intent Agent 推理步骤"""
-    step: str  # 步骤名称
-    content: str  # 步骤内容
-    type: str  # 类型: analyzing, extracting, building, result
-
-
 class IntentReasoning(TypedDict):
-    """Intent Agent 推理过程"""
-    steps: list[IntentReasoningStep]  # 推理步骤列表
-    detected_language: str  # 检测到的语言
-    extracted_product: str  # 提取的产品类型
-    extracted_country: str  # 提取的目的国
-    extracted_budget: str  # 提取的预算
-    search_query_original: str  # 原始语言搜索词
-    search_query_en: str  # 英文搜索词
+    """
+    Intent Agent 思维链（简化版）
+    
+    仅包含一段简洁的思考文本，类似 DeepSeek 的思维链风格。
+    """
+    thinking: str  # 简洁的思维链文本（2-3句话）
+    summary: str   # 提取结果摘要（如：产品、目的地、预算）
 
 
 class AgentState(TypedDict):

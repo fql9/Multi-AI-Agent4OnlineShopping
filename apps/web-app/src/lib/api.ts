@@ -41,22 +41,14 @@ export interface ChatRequest {
   mission?: MissionSpec  // 已提取的 mission（从 Guided Chat），若存在则跳过 Intent Agent
 }
 
-// Intent Agent 推理步骤
-export interface IntentReasoningStep {
-  step: string  // 步骤名称
-  content: string  // 步骤内容
-  type: 'analyzing' | 'extracting' | 'building' | 'result'  // 类型
-}
-
-// Intent Agent 推理过程
+/**
+ * Intent Agent 思维链（简化版）
+ * 
+ * 仅包含简洁的思考文本，类似 DeepSeek 的思维链风格。
+ */
 export interface IntentReasoning {
-  steps: IntentReasoningStep[]  // 推理步骤列表
-  detected_language: string  // 检测到的语言
-  extracted_product: string  // 提取的产品类型
-  extracted_country: string  // 提取的目的国
-  extracted_budget: string  // 提取的预算
-  search_query_original: string  // 原始语言搜索词
-  search_query_en: string  // 英文搜索词
+  thinking: string  // 简洁的思维链文本（2-3句话）
+  summary: string   // 提取结果摘要（如：🏷️ 产品 · 📍 国家 · 💰 预算）
 }
 
 export interface ChatResponse {

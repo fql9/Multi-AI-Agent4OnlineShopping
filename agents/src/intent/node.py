@@ -11,7 +11,7 @@ import structlog
 from langchain_core.messages import AIMessage, HumanMessage
 
 from ..config import get_settings
-from ..graph.state import AgentState, IntentReasoning, IntentReasoningStep
+from ..graph.state import AgentState, IntentReasoning
 from ..llm.client import call_llm_and_parse
 from ..llm.prompts import INTENT_PREPROCESS_PROMPT, INTENT_PROMPT
 from ..llm.schemas import IntentPreprocessResult, MissionParseResult
@@ -24,28 +24,16 @@ async def intent_node(state: AgentState) -> AgentState:
     Intent Agent 节点
     
     使用 LLM 解析用户意图并生成结构化 MissionSpec。
-    
-    流程：
-    1. 检查是否已有 mission（避免重复解析）
-    2. 提取用户消息
-    3. 调用 LLM 进行意图解析
-    4. 构建 Mission 字典返回
-    
-    注意：必须配置有效的 OPENAI_API_KEY，不支持 mock 模式。
+    输出简洁的思维链文本（类似 DeepSeek 风格）。
     """
     settings = get_settings()
     
-    # 收集推理步骤
-    reasoning_steps: list[IntentReasoningStep] = []
-    
-    # 如果已有 mission，直接返回（但确保推理过程可展示）
+    # 如果已有 mission，直接返回
     if state.get("mission") is not None:
         logger.debug("intent_node.skip", reason="mission already exists")
         mission = state.get("mission") or {}
-        messages = state.get("messages", [])
-        user_message = _extract_user_message(messages)
         if not state.get("intent_reasoning"):
-            intent_reasoning = _build_intent_reasoning_from_mission(mission, user_message)
+            intent_reasoning = _build_intent_reasoning(mission)
             return {
                 **state,
                 "intent_reasoning": intent_reasoning,
@@ -54,7 +42,6 @@ async def intent_node(state: AgentState) -> AgentState:
         return {**state, "current_step": "intent_complete"}
 
     try:
-        # 获取用户消息
         messages = state.get("messages", [])
         user_message = _extract_user_message(messages)
         
@@ -62,33 +49,21 @@ async def intent_node(state: AgentState) -> AgentState:
             return _error_response(state, "No user message found", "INVALID_ARGUMENT")
 
         logger.info("intent_node.start", message=user_message[:100])
-        
-        # 推理步骤 1: 分析用户输入
-        reasoning_steps.append({
-            "step": "分析用户输入",
-            "content": f"正在分析您的购物需求：「{user_message[:50]}{'...' if len(user_message) > 50 else ''}」",
-            "type": "analyzing",
-        })
 
-        # 检查是否有 API Key，没有则报错
         if not settings.openai_api_key:
             logger.error("intent_node.no_api_key", msg="OPENAI_API_KEY is required")
             return _error_response(
                 state, 
-                "LLM API key is not configured. Please set OPENAI_API_KEY environment variable.", 
+                "LLM API key is not configured.", 
                 "LLM_NOT_CONFIGURED"
             )
 
-        # 调用 LLM 解析意图（可选的预处理 + 主解析）
-        result, preprocess_info = await _llm_parse_intent_with_reasoning(user_message, messages, reasoning_steps)
+        # 调用 LLM 解析意图
+        result, preprocess_info = await _llm_parse_intent(user_message, messages)
         
         if result is None:
             logger.error("intent_node.llm_failed", msg="LLM parsing returned None")
-            return _error_response(
-                state,
-                "Failed to parse user intent. LLM returned no result.",
-                "LLM_PARSE_FAILED"
-            )
+            return _error_response(state, "Failed to parse user intent.", "LLM_PARSE_FAILED")
 
         # 检查是否需要澄清
         if result.needs_clarification:
@@ -101,26 +76,14 @@ async def intent_node(state: AgentState) -> AgentState:
         # 构建 Mission 字典
         mission_dict = _build_mission_dict(result, user_message)
         
-        # 推理步骤 4: 生成结构化任务
-        reasoning_steps.append({
-            "step": "生成结构化任务",
-            "content": f"已生成购物任务：搜索「{mission_dict.get('search_query_en', '')}」，预算 {mission_dict.get('budget_amount', 'N/A')} {mission_dict.get('budget_currency', 'USD')}",
-            "type": "result",
-        })
-        
-        # 构建 IntentReasoning
-        intent_reasoning = _build_intent_reasoning_from_mission(
-            mission_dict,
-            user_message,
-            reasoning_steps=reasoning_steps,
-        )
+        # 构建简洁的思维链
+        intent_reasoning = _build_intent_reasoning(mission_dict, preprocess_info, user_message)
 
         logger.info(
             "intent_node.complete",
             product_type=mission_dict.get("primary_product_type_en"),
             country=mission_dict.get("destination_country"),
             budget=mission_dict.get("budget_amount"),
-            reasoning_steps=len(reasoning_steps),
         )
 
         return {
@@ -175,13 +138,12 @@ def _clarification_response(
     }
 
 
-async def _llm_parse_intent_with_reasoning(
+async def _llm_parse_intent(
     user_message: str, 
     messages: list,
-    reasoning_steps: list[IntentReasoningStep],
 ) -> tuple[MissionParseResult | None, dict]:
     """
-    使用 LLM 解析用户意图，同时收集推理步骤
+    使用 LLM 解析用户意图
     
     两阶段处理：
     1. 预处理（可选）：语言检测、归一化、翻译
@@ -191,9 +153,9 @@ async def _llm_parse_intent_with_reasoning(
         Tuple of (MissionParseResult, preprocess_info_dict)
     """
     preprocess_info_dict = {}
+    preprocess_info = ""
     
     # 阶段一：预处理（快速，可失败）
-    preprocess_info = ""
     try:
         preprocess_result = await call_llm_and_parse(
             messages=[
@@ -206,7 +168,6 @@ async def _llm_parse_intent_with_reasoning(
         )
         
         if preprocess_result:
-            # 如果预处理就需要澄清，构造一个需要澄清的结果
             if preprocess_result.needs_clarification:
                 return MissionParseResult(
                     needs_clarification=True,
@@ -227,21 +188,8 @@ async def _llm_parse_intent_with_reasoning(
                 "translated_query_en": preprocess_result.translated_query_en,
             }
             
-            # 推理步骤 2: 提取关键信息
-            reasoning_steps.append({
-                "step": "提取关键信息",
-                "content": f"检测语言：{preprocess_result.detected_language}，产品关键词：「{preprocess_result.normalized_query}」→「{preprocess_result.translated_query_en}」",
-                "type": "extracting",
-            })
-            
     except Exception as e:
         logger.debug("intent_node.preprocess_skipped", error=str(e))
-        # 预处理失败时添加一个通用的推理步骤
-        reasoning_steps.append({
-            "step": "提取关键信息",
-            "content": "正在从用户输入中提取产品类型、目的地和预算信息...",
-            "type": "extracting",
-        })
 
     # 阶段二：主解析
     prompt_messages = [
@@ -255,13 +203,6 @@ async def _llm_parse_intent_with_reasoning(
             prompt_messages.insert(-1, {"role": "user", "content": msg.content})
         elif isinstance(msg, AIMessage):
             prompt_messages.insert(-1, {"role": "assistant", "content": msg.content})
-    
-    # 推理步骤 3: 构建任务规格
-    reasoning_steps.append({
-        "step": "构建任务规格",
-        "content": "正在构建结构化的购物任务规格（MissionSpec）...",
-        "type": "building",
-    })
 
     result = await call_llm_and_parse(
         messages=prompt_messages,
@@ -344,64 +285,63 @@ def _build_mission_dict(result: MissionParseResult, user_message: str) -> dict[s
     }
 
 
-def _format_budget_from_mission(mission: dict) -> str:
+def _format_budget(mission: dict) -> str:
     """格式化预算信息"""
     amount = mission.get("budget_amount")
     currency = mission.get("budget_currency", "USD")
     if amount is None:
-        return f"N/A {currency}"
+        return "不限"
     return f"{amount} {currency}"
 
 
-def _build_intent_reasoning_from_mission(
+def _build_intent_reasoning(
     mission: dict,
-    user_message: str,
-    reasoning_steps: list[IntentReasoningStep] | None = None,
+    preprocess_info: dict | None = None,
+    user_message: str = "",
 ) -> IntentReasoning:
     """
-    从 mission 构建 IntentReasoning（用于前端展示）
-    当 mission 已存在但 intent_reasoning 缺失时使用
+    构建简洁的思维链（类似 DeepSeek 风格）
+    
+    生成 2-3 句话的思考过程，简洁明了。
     """
-    search_query_original = mission.get("search_query", "")
-    search_query_en = mission.get("search_query_en", "") or search_query_original
-    product_type = mission.get("primary_product_type_en", "") or mission.get("primary_product_type", "") or search_query_en
+    product_type = mission.get("primary_product_type_en", "") or mission.get("primary_product_type", "") or mission.get("search_query_en", "")
     destination_country = mission.get("destination_country", "US")
-    budget_display = _format_budget_from_mission(mission)
-    detected_language = mission.get("detected_language", "en")
-
-    if reasoning_steps is None:
-        display_message = user_message or search_query_original or search_query_en or "您的购物需求"
-        reasoning_steps = [
-            {
-                "step": "分析用户输入",
-                "content": f"正在分析您的购物需求：「{display_message[:50]}{'...' if len(display_message) > 50 else ''}」",
-                "type": "analyzing",
-            },
-            {
-                "step": "提取关键信息",
-                "content": f"产品关键词：{product_type}，目的地：{destination_country}，预算：{budget_display}",
-                "type": "extracting",
-            },
-            {
-                "step": "构建任务规格",
-                "content": "正在构建结构化的购物任务规格（MissionSpec）...",
-                "type": "building",
-            },
-            {
-                "step": "生成结构化任务",
-                "content": f"已生成购物任务：搜索「{search_query_en}」，预算 {budget_display}",
-                "type": "result",
-            },
-        ]
-
+    budget_display = _format_budget(mission)
+    search_query_en = mission.get("search_query_en", "") or product_type
+    
+    # 构建简洁的思维链文本（类似 DeepSeek 风格）
+    thinking_parts = []
+    
+    # 理解需求
+    if user_message:
+        short_msg = user_message[:30] + "..." if len(user_message) > 30 else user_message
+        thinking_parts.append(f"理解需求：用户想要购买「{short_msg}」")
+    
+    # 提取关键信息
+    if preprocess_info and preprocess_info.get("normalized_query"):
+        thinking_parts.append(f"关键词提取：{preprocess_info['normalized_query']} → {search_query_en}")
+    else:
+        thinking_parts.append(f"产品识别：{product_type}")
+    
+    # 任务构建
+    thinking_parts.append(f"已构建搜索任务，目标市场 {destination_country}，预算 {budget_display}。")
+    
+    thinking = " ".join(thinking_parts)
+    
+    # 构建简洁的摘要（用于快速展示）
+    summary_parts = []
+    if product_type:
+        summary_parts.append(f"🏷️ {product_type}")
+    if destination_country:
+        summary_parts.append(f"📍 {destination_country}")
+    if budget_display != "不限":
+        summary_parts.append(f"💰 {budget_display}")
+    
+    summary = " · ".join(summary_parts) if summary_parts else "购物任务已就绪"
+    
     return {
-        "steps": reasoning_steps,
-        "detected_language": detected_language,
-        "extracted_product": product_type,
-        "extracted_country": destination_country,
-        "extracted_budget": budget_display,
-        "search_query_original": search_query_original,
-        "search_query_en": search_query_en,
+        "thinking": thinking,
+        "summary": summary,
     }
 
 
