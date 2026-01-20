@@ -125,6 +125,24 @@ class IntentReasoningModel(BaseModel):
     thinking: str = ""  # 简洁的思维链文本（2-3句话）
 
 
+def _extract_thinking_text(intent_reasoning_data) -> str:
+    """
+    安全地从 intent_reasoning 数据中提取 thinking 文本。
+    
+    intent_reasoning 可能是：
+    - dict: {"thinking": "..."}
+    - str: 直接的思维链文本
+    - None: 无数据
+    """
+    if intent_reasoning_data is None:
+        return ""
+    if isinstance(intent_reasoning_data, str):
+        return intent_reasoning_data
+    if isinstance(intent_reasoning_data, dict):
+        return intent_reasoning_data.get("thinking", "")
+    return ""
+
+
 class ChatResponse(BaseModel):
     """聊天响应"""
     session_id: str
@@ -282,15 +300,16 @@ async def chat(request: ChatRequest):
         # 构建响应
         # 转换 intent_reasoning（简化版，只有 thinking 和 summary）
         intent_reasoning_data = result.get("intent_reasoning")
+        thinking_text = _extract_thinking_text(intent_reasoning_data)
         logger.info(
             "chat.intent_reasoning",
             has_data=intent_reasoning_data is not None,
-            thinking_len=len(intent_reasoning_data.get("thinking", "")) if intent_reasoning_data else 0,
+            thinking_len=len(thinking_text),
         )
         intent_reasoning_model = None
-        if intent_reasoning_data:
+        if thinking_text:
             intent_reasoning_model = IntentReasoningModel(
-                thinking=intent_reasoning_data.get("thinking", ""),
+                thinking=thinking_text,
             )
         
         return ChatResponse(
@@ -437,15 +456,17 @@ async def chat_stream(request: ChatRequest):
                     if not intent_reasoning_sent:
                         intent_reasoning = output.get("intent_reasoning")
                         if intent_reasoning:
-                            reasoning_event = StreamEventModel(
-                                type="intent_reasoning",
-                                agent="intent",
-                                data={"thinking": intent_reasoning.get("thinking", "")},
-                                timestamp=int(time.time() * 1000),
-                            )
-                            yield f"data: {json.dumps(reasoning_event.model_dump())}\n\n"
-                            await asyncio.sleep(0)
-                            intent_reasoning_sent = True
+                            thinking_text = _extract_thinking_text(intent_reasoning)
+                            if thinking_text:
+                                reasoning_event = StreamEventModel(
+                                    type="intent_reasoning",
+                                    agent="intent",
+                                    data={"thinking": thinking_text},
+                                    timestamp=int(time.time() * 1000),
+                                )
+                                yield f"data: {json.dumps(reasoning_event.model_dump())}\n\n"
+                                await asyncio.sleep(0)
+                                intent_reasoning_sent = True
                     
                     agent_id = agent_name_map.get(event_name)
                     if agent_id:
@@ -473,10 +494,11 @@ async def chat_stream(request: ChatRequest):
             
             # 构建最终响应
             intent_reasoning_data = result.get("intent_reasoning")
+            final_thinking_text = _extract_thinking_text(intent_reasoning_data)
             intent_reasoning_model = None
-            if intent_reasoning_data:
+            if final_thinking_text:
                 intent_reasoning_model = IntentReasoningModel(
-                    thinking=intent_reasoning_data.get("thinking", ""),
+                    thinking=final_thinking_text,
                 )
             
             final_response = ChatResponse(
