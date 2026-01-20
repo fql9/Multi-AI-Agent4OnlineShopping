@@ -233,6 +233,9 @@ function normalizeUrlMaybe(url: string): string {
   return `https://www.xoobay.com/${trimmed}`
 }
 
+// Chat Mode Type
+export type ChatMode = 'multi' | 'single'
+
 // Store 状态
 interface ShoppingState {
   // 用户
@@ -250,6 +253,9 @@ interface ShoppingState {
   // 连接状态
   isAgentConnected: boolean
   isToolGatewayConnected: boolean
+  
+  // Chat Mode: 'multi' = 多轮对话模式, 'single' = 一句话模式
+  chatMode: ChatMode
   
   // Guided Chat State (pre-agent conversation)
   guidedChat: GuidedChatState
@@ -310,6 +316,9 @@ interface ShoppingState {
   checkConnection: () => Promise<void>
   resetClarificationAttempts: () => void
   
+  // Chat Mode Actions
+  setChatMode: (mode: ChatMode) => void
+  
   // Guided Chat Actions
   sendGuidedMessage: (message: string, images?: string[]) => Promise<void>
   confirmGuidedChat: () => void
@@ -339,6 +348,128 @@ const defaultConfirmationItems: ConfirmationItem[] = [
 
 // Helper: 延迟函数
 const delay = (ms: number) => new Promise(r => setTimeout(r, ms))
+
+// Helper: Agent ID 到 index 的映射
+const agentIdToIndex: Record<string, number> = {
+  intent: 0,
+  candidate: 1,
+  verifier: 2,
+  plan: 3,
+  execution: 4,
+}
+
+// Helper: 处理流式 Agent 事件
+async function processAgentStream(
+  get: () => ShoppingState,
+  set: (partial: Partial<ShoppingState> | ((state: ShoppingState) => Partial<ShoppingState>)) => void,
+  addThinkingStep: (stepIndex: number, thinking: ThinkingStep) => void,
+  addToolCall: (stepIndex: number, toolCall: ToolCall) => void,
+  updateToolCall: (stepIndex: number, toolId: string, updates: Partial<ToolCall>) => void,
+  request: api.ChatRequest,
+): Promise<api.ChatResponse | null> {
+  try {
+    let finalResponse: api.ChatResponse | null = null
+    
+    for await (const event of api.streamAgentProcess(request)) {
+      const agentIndex = event.agent ? agentIdToIndex[event.agent] ?? -1 : -1
+      
+      switch (event.type) {
+        case 'agent_start':
+          if (agentIndex >= 0) {
+            set((state) => ({
+              currentStepIndex: agentIndex,
+              agentSteps: state.agentSteps.map((s, i) => 
+                i === agentIndex ? { ...s, status: 'running' } : s
+              ),
+            }))
+          }
+          break
+          
+        case 'thinking':
+          if (agentIndex >= 0 && event.data?.thinking_text) {
+            const thinking: ThinkingStep = {
+              id: event.data.thinking_id || `thinking-${Date.now()}`,
+              text: event.data.thinking_text,
+              type: event.data.thinking_type || 'thinking',
+              timestamp: event.timestamp || Date.now(),
+            }
+            addThinkingStep(agentIndex, thinking)
+            set({ currentThinkingStep: event.data.thinking_text })
+          }
+          break
+          
+        case 'tool_call':
+          if (agentIndex >= 0 && event.data?.tool_id) {
+            const toolCall: ToolCall = {
+              id: event.data.tool_id,
+              name: event.data.tool_name || 'unknown',
+              input: event.data.tool_input || '',
+              output: '',  // Will be filled by tool_result event
+              duration: 0, // Will be filled by tool_result event
+              status: 'running',
+            }
+            addToolCall(agentIndex, toolCall)
+          }
+          break
+          
+        case 'tool_result':
+          if (agentIndex >= 0 && event.data?.tool_id) {
+            updateToolCall(agentIndex, event.data.tool_id, {
+              output: event.data.tool_output,
+              status: event.data.tool_status || 'success',
+              duration: event.data.tool_duration,
+            })
+          }
+          break
+          
+        case 'agent_complete':
+          if (agentIndex >= 0) {
+            set((state) => ({
+              agentSteps: state.agentSteps.map((s, i) => 
+                i === agentIndex ? {
+                  ...s,
+                  status: 'completed',
+                  output: event.data?.agent_output,
+                  tokenUsed: event.data?.agent_tokens,
+                  duration: event.data?.agent_duration,
+                } : s
+              ),
+              totalTokens: state.totalTokens + (event.data?.agent_tokens || 0),
+            }))
+          }
+          break
+          
+        case 'plans':
+          if (event.data?.plans) {
+            // Will be processed with final response
+          }
+          break
+          
+        case 'error':
+          set({
+            error: event.data?.error_message || 'Unknown error',
+            errorCode: event.data?.error_code || null,
+          })
+          return null
+          
+        case 'done':
+          if (event.data?.final_response) {
+            finalResponse = event.data.final_response
+          }
+          if (event.data?.session_id) {
+            set({ sessionId: event.data.session_id })
+          }
+          break
+      }
+    }
+    
+    return finalResponse
+  } catch (error) {
+    // If streaming fails (e.g., 404), return null to fall back to non-streaming
+    console.log('[DEBUG] Streaming failed, will fall back to non-streaming:', error)
+    return null
+  }
+}
 
 // Helper: 在 real API 模式下模拟 Agent 进度展示
 // apiCompleteSignal: 当真实 API 返回时会 resolve 的 Promise
@@ -566,6 +697,9 @@ export const useShoppingStore = create<ShoppingState>()(
       isAgentConnected: false,
       isToolGatewayConnected: false,
       
+      // Chat Mode
+      chatMode: 'multi' as ChatMode,
+      
       // Guided Chat State
       guidedChat: createInitialGuidedChatState(),
       
@@ -630,6 +764,8 @@ export const useShoppingStore = create<ShoppingState>()(
       setMission: (mission) => set({ mission, orderState: 'MISSION_READY' }),
       setOrderState: (orderState) => set({ orderState }),
       setError: (error, code = null) => set({ error, errorCode: code }),
+      
+      setChatMode: (mode) => set({ chatMode: mode }),
 
       addThinkingStep: (stepIndex, thinking) => set((state) => ({
         agentSteps: state.agentSteps.map((s, i) => 
@@ -705,74 +841,84 @@ export const useShoppingStore = create<ShoppingState>()(
           quantity: Math.max(1, sanitizeNonNegativeInt(state.quantity || baseMission.quantity, 1)),
         }
 
-        set({ mission, orderState: 'MISSION_READY' })
+        set({ mission, orderState: 'MISSION_READY', isStreaming: true })
         
-        // 调用后端 Agent（Real API）
-        // 创建一个可以从外部 resolve 的信号，用于通知动画 API 已完成
+        // 构建请求
+        const preferenceLines: string[] = []
+        const missionState = get().mission || mission
+
+        if (missionState?.destination_country) preferenceLines.push(`Ship to: ${missionState.destination_country}`)
+        if (missionState?.budget_currency) preferenceLines.push(`Currency: ${missionState.budget_currency}`)
+
+        const budgetDisplay = missionState?.budget_amount
+        if (budgetDisplay !== null && budgetDisplay !== undefined) {
+          preferenceLines.push(`Budget (max): ${budgetDisplay} ${missionState.budget_currency || 'USD'}`)
+        } else if (get().priceMin !== null || get().priceMax !== null) {
+          const min = get().priceMin !== null ? String(get().priceMin) : ''
+          const max = get().priceMax !== null ? String(get().priceMax) : ''
+          preferenceLines.push(`Desired price range: ${min}-${max} ${get().currency || 'USD'}`.trim())
+        }
+
+        if (missionState?.quantity) preferenceLines.push(`Quantity: ${missionState.quantity}`)
+
+        const structuredMission = missionState
+          ? `\n\nStructured mission (do not ignore):\n- Product: ${missionState.search_query || query}\n- Destination: ${missionState.destination_country}\n- Budget: ${missionState.budget_amount ?? 'N/A'} ${missionState.budget_currency || 'USD'}\n- Quantity: ${missionState.quantity}\n`
+          : ''
+
+        const composedMessage = preferenceLines.length
+          ? `${query}\n\nPreferences:\n${preferenceLines.map((l) => `- ${l}`).join('\n')}${structuredMission}`
+          : `${query}${structuredMission}`
+
+        const missionToSend = missionState && Object.keys(missionState).length > 0 ? missionState : undefined
+        
+        const chatRequest: api.ChatRequest = {
+          message: composedMessage,
+          session_id: get().sessionId || undefined,
+          mission: missionToSend,
+        }
+        
+        // 声明 signalApiComplete 用于通知动画完成（在非流式回退路径中使用）
         let signalApiComplete: () => void = () => {}
-        const apiCompleteSignal = new Promise<void>((resolve) => {
-          signalApiComplete = resolve
-        })
         
-        // 启动进度模拟 - 在后台运行 API 调用的同时展示进度
-        // 最后一步会等待 apiCompleteSignal 才标记为完成
-        const progressPromise = simulateAgentProgress(get, set, addThinkingStep, addToolCall, updateToolCall, apiCompleteSignal)
-          
         try {
-          let response: api.ChatResponse
-            
-          try {
-            const preferenceLines: string[] = []
-            const missionState = get().mission || mission
-
-            if (missionState?.destination_country) preferenceLines.push(`Ship to: ${missionState.destination_country}`)
-            if (missionState?.budget_currency) preferenceLines.push(`Currency: ${missionState.budget_currency}`)
-
-            const budgetDisplay = missionState?.budget_amount
-            if (budgetDisplay !== null && budgetDisplay !== undefined) {
-              preferenceLines.push(`Budget (max): ${budgetDisplay} ${missionState.budget_currency || 'USD'}`)
-            } else if (get().priceMin !== null || get().priceMax !== null) {
-              const min = get().priceMin !== null ? String(get().priceMin) : ''
-              const max = get().priceMax !== null ? String(get().priceMax) : ''
-              preferenceLines.push(`Desired price range: ${min}-${max} ${get().currency || 'USD'}`.trim())
-            }
-
-            if (missionState?.quantity) preferenceLines.push(`Quantity: ${missionState.quantity}`)
-
-            // 将结构化 mission 也附加到消息，确保后端 LLM 拿到准确信息
-            const structuredMission = missionState
-              ? `\n\nStructured mission (do not ignore):\n- Product: ${missionState.search_query || query}\n- Destination: ${missionState.destination_country}\n- Budget: ${missionState.budget_amount ?? 'N/A'} ${missionState.budget_currency || 'USD'}\n- Quantity: ${missionState.quantity}\n`
-              : ''
-
-            const composedMessage = preferenceLines.length
-              ? `${query}\n\nPreferences:\n${preferenceLines.map((l) => `- ${l}`).join('\n')}${structuredMission}`
-              : `${query}${structuredMission}`
-
-            // 如果已有从 Guided Chat 提取的 mission，直接传给后端（跳过 Intent Agent）
-            const missionToSend = missionState && Object.keys(missionState).length > 0 ? missionState : undefined
-            
-            response = await api.sendChatMessage({
-              message: composedMessage,
-              session_id: get().sessionId || undefined,
-              mission: missionToSend,
-            })
-          } catch (err) {
-            // 如果是 404 错误（Session not found），清除 session 并重试
-            if (err instanceof api.ApiError && err.status === 404) {
-              set({ sessionId: null })
-              response = await api.sendChatMessage({
-                message: query,
-              })
-            } else {
-              throw err
-            }
-          }
+          let response: api.ChatResponse | null = null
           
-          // API 已返回，通知动画可以完成最后一步
-          signalApiComplete()
+          // 尝试使用流式 API（如果后端支持）
+          console.log('[DEBUG] Trying streaming agent process...')
+          response = await processAgentStream(get, set, addThinkingStep, addToolCall, updateToolCall, chatRequest)
+          
+          // 如果流式 API 失败或返回 null，回退到模拟进度 + 普通 API
+          if (!response) {
+            console.log('[DEBUG] Streaming not available, falling back to simulated progress...')
             
-          // 等待进度模拟完成（最后一步收到信号后会立即完成）
-          await progressPromise
+            // 创建一个可以从外部 resolve 的信号，用于通知动画 API 已完成
+            const apiCompleteSignal = new Promise<void>((resolve) => {
+              signalApiComplete = resolve
+            })
+            
+            // 启动进度模拟 - 在后台运行 API 调用的同时展示进度
+            const progressPromise = simulateAgentProgress(get, set, addThinkingStep, addToolCall, updateToolCall, apiCompleteSignal)
+            
+            try {
+              response = await api.sendChatMessage(chatRequest)
+            } catch (err) {
+              // 如果是 404 错误（Session not found），清除 session 并重试
+              if (err instanceof api.ApiError && err.status === 404) {
+                set({ sessionId: null })
+                response = await api.sendChatMessage({
+                  message: query,
+                })
+              } else {
+                throw err
+              }
+            }
+            
+            // API 已返回，通知动画可以完成最后一步
+            signalApiComplete()
+            
+            // 等待进度模拟完成
+            await progressPromise
+          }
             
           // 如果响应中包含 session 错误，也处理
           if (response.error?.includes('Session not found') || response.error_code === 'SESSION_NOT_FOUND') {

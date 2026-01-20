@@ -103,8 +103,8 @@ async def get_offer_card(
             "spu_id": f"spu_{offer_id[3:]}",
             "merchant_id": "m_001",
             "titles": [
-                {"lang": "en", "text": f"Test Product {offer_id}"},
-                {"lang": "zh", "text": f"测试商品 {offer_id}"},
+                {"locale": "en", "lang": "en", "text": f"Test Product {offer_id}"},
+                {"locale": "zh", "lang": "zh", "text": f"测试商品 {offer_id}"},
             ],
             "brand": {
                 "name": "TestBrand",

@@ -1,54 +1,42 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState, useCallback, type ReactNode } from 'react'
-import { 
-  ShoppingCart, Bot, Package, CheckCircle, Loader2, Send, 
-  Sparkles, AlertTriangle, Info, Shield, Truck, Receipt,
-  ChevronRight, Clock, Zap, Terminal, Brain, Wrench,
-  ChevronDown, ChevronUp, Activity, Layers,
-  LayoutGrid, Table2, ArrowUpDown, Star, DollarSign,
-  ExternalLink, Store, ImagePlus, X, RotateCcw, MessageCircle,
-  User
+import { useEffect, useRef, useState, useCallback } from 'react'
+import {
+  ShoppingCart,
+  CheckCircle,
+  Loader2,
+  Send,
+  Sparkles,
+  AlertTriangle,
+  Info,
+  Shield,
+  Receipt,
+  Search,
+  ChevronRight,
+  Clock,
+  LayoutGrid,
+  Table2,
+  ArrowUpDown,
+  Star,
+  ExternalLink,
+  Store,
+  ImagePlus,
+  X,
+  RotateCcw,
+  MessageCircle,
+  User,
 } from 'lucide-react'
 import Image from 'next/image'
-import * as api from '@/lib/api'
-import { useShoppingStore, type Mission, type OrderState, type TaxEstimate, type ComplianceRisk, type ThinkingStep, type ToolCall, type AgentStep, type GuidedChatMessage } from '@/store/shopping'
+import { useShoppingStore, type TaxEstimate, type ComplianceRisk, type GuidedChatMessage } from '@/store/shopping'
 import { Checkbox } from '@/components/ui/checkbox'
-import { Progress } from '@/components/ui/progress'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent } from '@/components/ui/card'
 import { Textarea } from '@/components/ui/textarea'
-import { Input } from '@/components/ui/input'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
-import { Skeleton, SkeletonCard, SkeletonAgentStep } from '@/components/ui/skeleton'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 
-// 状态机步骤映射
-const STATE_LABELS: Record<OrderState, { label: string; step: number }> = {
-  'IDLE': { label: 'Ready', step: 0 },
-  'WAITING_USER_INPUT': { label: 'Need Info', step: 0 },
-  'MISSION_READY': { label: 'Mission Created', step: 1 },
-  'CANDIDATES_READY': { label: 'Products Found', step: 2 },
-  'VERIFIED_TOPN_READY': { label: 'Verified', step: 3 },
-  'PLAN_SELECTED': { label: 'Plan Selected', step: 4 },
-  'CART_READY': { label: 'Cart Ready', step: 5 },
-  'SHIPPING_SELECTED': { label: 'Shipping Selected', step: 6 },
-  'TOTAL_COMPUTED': { label: 'Total Computed', step: 7 },
-  'DRAFT_ORDER_CREATED': { label: 'Draft Order', step: 8 },
-  'WAIT_USER_PAYMENT_CONFIRMATION': { label: 'Awaiting Confirmation', step: 9 },
-  'PAID': { label: 'Paid', step: 10 },
-}
-
-// 思考类型图标和颜色 - Light theme
-const thinkingTypeConfig = {
-  thinking: { icon: Brain, color: 'text-primary-600', bg: 'bg-primary-50', label: 'Thinking' },
-  decision: { icon: Sparkles, color: 'text-warning-600', bg: 'bg-warning-50', label: 'Decision' },
-  action: { icon: Zap, color: 'text-accent-600', bg: 'bg-accent-50', label: 'Action' },
-  result: { icon: CheckCircle, color: 'text-success-600', bg: 'bg-success-50', label: 'Result' },
-}
-
-// 税费置信度颜色 - Light theme
 function getTaxConfidenceColor(confidence: TaxEstimate['confidence']) {
   switch (confidence) {
     case 'high': return 'text-success-600'
@@ -57,7 +45,6 @@ function getTaxConfidenceColor(confidence: TaxEstimate['confidence']) {
   }
 }
 
-// 合规风险图标
 function getComplianceIcon(type: ComplianceRisk['type']) {
   switch (type) {
     case 'battery': return '🔋'
@@ -70,14 +57,13 @@ function getComplianceIcon(type: ComplianceRisk['type']) {
   }
 }
 
-// 产品图片组件 - 支持真实图片和 emoji 后备
-function ProductImage({ 
-  imageUrl, 
-  fallbackEmoji, 
-  alt, 
+function ProductImage({
+  imageUrl,
+  fallbackEmoji,
+  alt,
   size = 'md',
-  className = ''
-}: { 
+  className = '',
+}: {
   imageUrl?: string
   fallbackEmoji: string
   alt: string
@@ -85,55 +71,45 @@ function ProductImage({
   className?: string
 }) {
   const [imgError, setImgError] = useState(false)
-  
+
   const sizeClasses = {
     sm: 'w-10 h-10',
     md: 'w-16 h-16',
     lg: 'w-20 h-20',
-    xl: 'w-24 h-24'
+    xl: 'w-24 h-24',
   }
-  
+
   const emojiSizes = {
     sm: 'text-2xl',
     md: 'text-4xl',
     lg: 'text-5xl',
-    xl: 'text-6xl'
+    xl: 'text-6xl',
   }
-  
+
   if (!imageUrl || imgError) {
     return (
-      <div className={cn(
-        "flex items-center justify-center rounded-xl bg-surface-100",
-        sizeClasses[size],
-        className
-      )}>
+      <div className={cn('flex items-center justify-center rounded-xl bg-surface-100', sizeClasses[size], className)}>
         <span className={emojiSizes[size]}>{fallbackEmoji}</span>
       </div>
     )
   }
-  
+
   return (
-    <div className={cn(
-      "relative rounded-xl overflow-hidden bg-white border border-surface-200",
-      sizeClasses[size],
-      className
-    )}>
+    <div className={cn('relative rounded-xl overflow-hidden bg-white border border-surface-200', sizeClasses[size], className)}>
       <Image
         src={imageUrl}
         alt={alt}
         fill
         className="object-cover"
         onError={() => setImgError(true)}
-        unoptimized // 允许外部图片
+        unoptimized
       />
     </div>
   )
 }
 
-// 产品链接按钮
 function ProductLink({ url, storeName }: { url?: string; storeName?: string }) {
   if (!url) return null
-  
   return (
     <a
       href={url}
@@ -149,329 +125,65 @@ function ProductLink({ url, storeName }: { url?: string; storeName?: string }) {
   )
 }
 
-// 思考步骤组件 - Light theme
-function ThinkingStepItem({ step, isLatest }: { step: ThinkingStep; isLatest: boolean }) {
-  const config = thinkingTypeConfig[step.type]
-  const Icon = config.icon
-  
-  return (
-    <div className={cn(
-      "flex items-start gap-3 py-2.5 px-3 rounded-xl transition-all duration-300 border",
-      isLatest && "animate-slide-in",
-      config.bg,
-      "border-transparent"
-    )}>
-      <div className={cn("mt-0.5", config.color)}>
-        <Icon className="w-4 h-4" />
-      </div>
-      <div className="flex-1 min-w-0">
-        <span className={cn("text-sm font-medium", config.color)}>{step.text}</span>
-      </div>
-      <Badge variant="default" className="text-xs">
-        {config.label}
-      </Badge>
-    </div>
-  )
-}
-
-// 工具调用组件 - Light theme
-function ToolCallItem({ tool }: { tool: ToolCall }) {
-  const [expanded, setExpanded] = useState(false)
-  
-  return (
-    <div className="border border-surface-200 rounded-xl overflow-hidden bg-white shadow-sm">
-      <button
-        onClick={() => setExpanded(!expanded)}
-        className="w-full flex items-center gap-3 p-3 hover:bg-surface-50 transition-colors"
-      >
-        <div className={cn(
-          "w-7 h-7 rounded-lg flex items-center justify-center",
-          tool.status === 'success' ? "bg-success-100" : 
-          tool.status === 'running' ? "bg-primary-100" : "bg-surface-100"
-        )}>
-          {tool.status === 'running' ? (
-            <Loader2 className="w-3.5 h-3.5 text-primary-600 animate-spin" />
-          ) : tool.status === 'success' ? (
-            <CheckCircle className="w-3.5 h-3.5 text-success-600" />
-          ) : (
-            <Terminal className="w-3.5 h-3.5 text-surface-500" />
-          )}
-        </div>
-        <code className="text-sm text-primary-600 font-mono flex-1 text-left truncate">
-          {tool.name}
-        </code>
-        {tool.duration > 0 && (
-          <span className="text-xs text-surface-400 font-medium">{tool.duration}ms</span>
-        )}
-        {expanded ? (
-          <ChevronUp className="w-4 h-4 text-surface-400" />
-        ) : (
-          <ChevronDown className="w-4 h-4 text-surface-400" />
-        )}
-      </button>
-      
-      {expanded && (
-        <div className="border-t border-surface-100 p-3 space-y-3 animate-expand bg-surface-50">
-          <div>
-            <span className="text-xs text-surface-500 font-medium block mb-1.5">Input:</span>
-            <pre className="text-xs text-surface-700 bg-white p-2.5 rounded-lg overflow-x-auto font-mono border border-surface-200">
-              {tool.input}
-            </pre>
-          </div>
-          {tool.output && (
-            <div>
-              <span className="text-xs text-surface-500 font-medium block mb-1.5">Output:</span>
-              <pre className="text-xs text-success-700 bg-success-50 p-2.5 rounded-lg overflow-x-auto font-mono border border-success-100">
-                {tool.output}
-              </pre>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  )
-}
-
-function getInitials(name?: string) {
-  if (!name) return 'U'
-  const parts = name.trim().split(/\s+/).slice(0, 2)
-  return parts.map(p => p[0]?.toUpperCase() || '').join('') || 'U'
-}
-
-function UserAvatar({ name, avatarUrl }: { name?: string; avatarUrl?: string }) {
-  if (avatarUrl) {
-    return (
-      <div className="relative w-9 h-9 rounded-full overflow-hidden border border-surface-200 bg-white">
-        <Image
-          src={avatarUrl}
-          alt={name ? `${name} avatar` : 'User avatar'}
-          fill
-          className="object-cover"
-          unoptimized
-        />
-      </div>
-    )
-  }
-
-  return (
-    <div className="w-9 h-9 rounded-full bg-surface-100 border border-surface-200 flex items-center justify-center">
-      <span className="text-xs font-semibold text-surface-600">{getInitials(name)}</span>
-    </div>
-  )
-}
-
-type FeaturedProduct = {
-  id: string
-  title: string
-  imageUrl: string
-}
-
-function clamp(n: number, min: number, max: number) {
-  return Math.max(min, Math.min(max, n))
-}
-
-function DockProductShowcase() {
-  const [items, setItems] = useState<FeaturedProduct[]>([])
-  const [activeIndex, setActiveIndex] = useState(0)
-  const [mouseX, setMouseX] = useState<number | null>(null)
-  const [hovering, setHovering] = useState(false)
-  const itemRefs = useRef<Array<HTMLButtonElement | null>>([])
-
-  // Fetch a small set of real product images from Tool Gateway
-  useEffect(() => {
-    let cancelled = false
-    const run = async () => {
-      try {
-        const search = await api.searchOffers({ query: 'jacket', limit: 10 })
-        const offerIds = search.ok && search.data?.offer_ids ? search.data.offer_ids.slice(0, 10) : []
-        if (!offerIds.length) return
-
-        const collected: FeaturedProduct[] = []
-        for (const id of offerIds) {
-          try {
-            const card = await api.getOfferCard(id)
-            const data = card.ok ? card.data : undefined
-            const title = data?.titles?.[0]?.text || data?.titles?.[1]?.text || id
-            const attrs = data?.attributes as { image_url?: string } | undefined
-            const imageUrl = attrs?.image_url
-            if (imageUrl) collected.push({ id, title, imageUrl })
-          } catch (e) {
-          }
-          if (collected.length >= 8) break
-        }
-
-        if (!cancelled) {
-          setItems(collected)
-          setActiveIndex(0)
-        }
-      } catch (e) {
-      }
-    }
-    run()
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
-  // Autoplay focus like a looping slideshow
-  useEffect(() => {
-    if (items.length <= 1) return
-    const t = setInterval(() => {
-      setActiveIndex((i) => (i + 1) % items.length)
-    }, 1200)
-    return () => clearInterval(t)
-  }, [items.length])
-
-  const scales = useMemo(() => {
-    if (!items.length) return []
-    return items.map((_, idx) => {
-      if (!hovering || mouseX === null) {
-        return idx === activeIndex ? 1.35 : 1.0
-      }
-      const el = itemRefs.current[idx]
-      if (!el) return 1.0
-      const rect = el.getBoundingClientRect()
-      const center = rect.left + rect.width / 2
-      const dist = Math.abs(mouseX - center)
-      const influence = clamp(1 - dist / 140, 0, 1)
-      return 1 + influence * 0.85
-    })
-  }, [items, hovering, mouseX, activeIndex])
-
-  const lifts = useMemo(() => {
-    if (!items.length) return []
-    return items.map((_, idx) => {
-      if (!hovering || mouseX === null) {
-        return idx === activeIndex ? 6 : 0
-      }
-      const el = itemRefs.current[idx]
-      if (!el) return 0
-      const rect = el.getBoundingClientRect()
-      const center = rect.left + rect.width / 2
-      const dist = Math.abs(mouseX - center)
-      const influence = clamp(1 - dist / 140, 0, 1)
-      return influence * 12
-    })
-  }, [items, hovering, mouseX, activeIndex])
-
-  if (!items.length) {
-    return (
-      <div className="w-[260px] h-20 rounded-2xl bg-gradient-to-br from-primary-500 to-accent-500 shadow-tech animate-float flex items-center justify-center">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-white/20 shimmer" />
-          <div className="w-10 h-10 rounded-xl bg-white/20 shimmer" />
-          <div className="w-10 h-10 rounded-xl bg-white/20 shimmer" />
-          <div className="w-10 h-10 rounded-xl bg-white/20 shimmer" />
-        </div>
-      </div>
-    )
-  }
-
-  return (
-    <div
-      className="w-[260px] h-20 rounded-2xl bg-gradient-to-br from-primary-500 to-accent-500 shadow-tech animate-float flex items-center justify-center px-4"
-      onMouseEnter={() => setHovering(true)}
-      onMouseLeave={() => {
-        setHovering(false)
-        setMouseX(null)
-      }}
-      onMouseMove={(e) => setMouseX(e.clientX)}
-    >
-      <div className="flex items-end justify-center gap-3">
-        {items.map((p, idx) => {
-          const s = scales[idx] ?? 1
-          const lift = lifts[idx] ?? 0
-          return (
-            <button
-              key={p.id}
-              ref={(el) => {
-                itemRefs.current[idx] = el
-              }}
-              type="button"
-              className="relative w-10 h-10 rounded-xl overflow-hidden bg-white/10 border border-white/20 shadow-sm focus:outline-none focus:ring-2 focus:ring-white/50"
-              style={{
-                transform: `translateY(${-lift}px) scale(${s})`,
-                transition: 'transform 120ms ease-out',
-              }}
-              title={p.title}
-            >
-              <Image
-                src={p.imageUrl}
-                alt={p.title}
-                fill
-                className="object-cover"
-                unoptimized
-              />
-              {/* subtle gloss */}
-              <div className="absolute inset-0 bg-gradient-to-b from-white/10 to-transparent" />
-            </button>
-          )
-        })}
-      </div>
-    </div>
-  )
-}
-
-// Chat message bubble component
-function ChatBubble({ message, isLatest }: { message: GuidedChatMessage; isLatest: boolean }) {
+function ChatBubble({ message }: { message: GuidedChatMessage }) {
   const isUser = message.role === 'user'
-  
-  return (
-    <div className={cn(
-      "flex gap-3 animate-fade-in",
-      isUser ? "justify-end" : "justify-start"
-    )}>
-      {!isUser && (
-        <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-primary-500 to-accent-500 flex items-center justify-center flex-shrink-0 shadow-md">
-          <Bot className="w-5 h-5 text-white" />
-        </div>
-      )}
-      
-      <div className={cn(
-        "max-w-[80%] rounded-2xl px-4 py-3",
-        isUser 
-          ? "bg-primary-500 text-white rounded-br-md" 
-          : "bg-white border border-surface-200 text-surface-800 rounded-bl-md shadow-sm"
-      )}>
-        {/* Display images if any */}
+  if (!isUser) {
+    // AI 消息 - 无边框，融入背景
+    return (
+      <div className="animate-fade-in text-sm text-[#2d3436] whitespace-pre-wrap leading-relaxed">
         {message.images && message.images.length > 0 && (
           <div className="flex flex-wrap gap-2 mb-2">
             {message.images.map((img, idx) => (
-              <div key={idx} className="relative w-20 h-20 rounded-lg overflow-hidden border border-surface-200">
-                <Image
-                  src={`data:image/jpeg;base64,${img}`}
-                  alt={`Uploaded image ${idx + 1}`}
-                  fill
-                  className="object-cover"
-                />
+              <div key={idx} className="relative w-20 h-20 rounded-lg overflow-hidden border border-[#e0e0de]">
+                <Image src={`data:image/jpeg;base64,${img}`} alt={`Uploaded image ${idx + 1}`} fill className="object-cover" />
               </div>
             ))}
           </div>
         )}
-        
-        <div className={cn(
-          "text-sm leading-relaxed whitespace-pre-wrap",
-          message.isStreaming && "after:content-['▊'] after:animate-pulse after:ml-0.5"
-        )}>
+        {message.content || (message.isStreaming ? '' : '...')}
+      </div>
+    )
+  }
+  // 用户消息 - 浅灰色背景
+  return (
+    <div className="flex gap-3 animate-fade-in justify-end">
+      <div
+        className={cn(
+          'max-w-[80%]',
+          'rounded-2xl rounded-br-md px-4 py-3 bg-[#f5f5f3] text-[#2d3436] border border-[#e0e0de]',
+        )}
+      >
+        {message.images && message.images.length > 0 && (
+          <div className="flex flex-wrap gap-2 mb-2">
+            {message.images.map((img, idx) => (
+              <div key={idx} className="relative w-20 h-20 rounded-lg overflow-hidden border border-[#e0e0de]">
+                <Image src={`data:image/jpeg;base64,${img}`} alt={`Uploaded image ${idx + 1}`} fill className="object-cover" />
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div
+          className={cn(
+            'text-sm leading-relaxed whitespace-pre-wrap',
+            message.isStreaming && "after:content-['▊'] after:animate-pulse after:ml-0.5",
+          )}
+        >
           {message.content || (message.isStreaming ? '' : '...')}
         </div>
       </div>
-      
-      {isUser && (
-        <div className="w-9 h-9 rounded-xl bg-surface-100 border border-surface-200 flex items-center justify-center flex-shrink-0">
-          <User className="w-5 h-5 text-surface-600" />
-        </div>
-      )}
+
+      <div className="w-9 h-9 rounded-xl bg-[#f5f5f3] border border-[#e0e0de] flex items-center justify-center flex-shrink-0">
+        <User className="w-5 h-5 text-[#6b6c6c]" />
+      </div>
     </div>
   )
 }
 
-// Image upload preview component
 function ImagePreview({ images, onRemove }: { images: string[]; onRemove: (index: number) => void }) {
   if (images.length === 0) return null
-  
   return (
-    <div className="flex flex-wrap gap-2 p-2 border-b border-surface-100">
+    <div className="flex flex-wrap gap-2 p-2 border-t border-surface-100 bg-white">
       {images.map((img, idx) => (
         <div key={idx} className="relative group">
           <div className="w-16 h-16 rounded-lg overflow-hidden border border-surface-200">
@@ -486,6 +198,7 @@ function ImagePreview({ images, onRemove }: { images: string[]; onRemove: (index
           <button
             onClick={() => onRemove(idx)}
             className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-danger-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+            type="button"
           >
             <X className="w-3 h-3" />
           </button>
@@ -495,163 +208,69 @@ function ImagePreview({ images, onRemove }: { images: string[]; onRemove: (index
   )
 }
 
-// Editable info row for mission summary
-function EditableInfoRow({ 
-  label, 
-  value, 
-  isEditing, 
-  onChange,
-  type = 'text',
-  placeholder = ''
-}: { 
-  label: string
-  value: string
-  isEditing: boolean
-  onChange: (value: string) => void
-  type?: 'text' | 'number'
-  placeholder?: string
-}) {
-  if (!isEditing) {
-    return (
-      <div className="flex flex-col gap-1 p-3 rounded-xl bg-white/70 border border-surface-200 shadow-xs">
-        <span className="text-xs font-semibold text-surface-500 uppercase tracking-wide">{label}</span>
-        <span className="text-sm text-surface-800 break-words leading-relaxed">{value || '—'}</span>
-      </div>
-    )
-  }
-  
-  return (
-    <div className="flex flex-col gap-1 p-3 rounded-xl bg-white border-2 border-primary-300 shadow-md">
-      <span className="text-xs font-semibold text-primary-600 uppercase tracking-wide">{label}</span>
-      <input
-        type={type}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-        className="text-sm text-surface-800 bg-transparent border-b border-primary-200 focus:border-primary-500 focus:outline-none py-1"
-      />
-    </div>
-  )
+function extractQueryFromInput(input?: string) {
+  if (!input) return ''
+  try {
+    const parsed = JSON.parse(input) as { query?: string; params?: { query?: string } }
+    if (parsed.query) return String(parsed.query)
+    if (parsed.params?.query) return String(parsed.params.query)
+  } catch {}
+  const match = input.match(/"query"\s*:\s*"([^"]+)"/)
+  return match?.[1] || input
 }
 
-// Read-only info row for display (used for non-editable fields)
-function InfoRow({ label, value }: { label: string; value: React.ReactNode }) {
-  return (
-    <div className="flex flex-col gap-1 p-3 rounded-xl bg-white/70 border border-surface-200 shadow-xs">
-      <span className="text-xs font-semibold text-surface-500 uppercase tracking-wide">{label}</span>
-      <span className="text-sm text-surface-800 break-words leading-relaxed">{value || '—'}</span>
-    </div>
-  )
+function truncateText(value: string, max = 64) {
+  if (value.length <= max) return value
+  return `${value.slice(0, max)}…`
 }
 
-function renderConstraints(
-  items?: Array<{ type?: string; value?: string }> | null,
-): React.ReactNode {
-  if (!items || !items.length) return '—'
-  return (
-    <div className="flex flex-wrap gap-1.5">
-      {items.map((c, idx) => (
-        <span
-          key={`${c.type}-${c.value}-${idx}`}
-          className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-surface-100 text-surface-700 text-xs border border-surface-200"
-        >
-          {c.type && <strong className="font-semibold text-surface-600">{c.type}:</strong>}
-          <span>{c.value || '—'}</span>
-        </span>
-      ))}
-    </div>
-  )
-}
-
-// Agent 步骤详情组件 - Light theme
-function AgentStepDetail({ step, isActive }: { step: AgentStep; isActive: boolean }) {
-  if (step.status === 'pending') return null
-  // 给用户一个干净的界面：不展示 LLM 逐步思考与工具调用细节
-  if (!step.output) return null
-  
-  return (
-    <div className="mt-4 animate-fade-in text-sm text-surface-600 whitespace-pre-wrap">
-      {step.output}
-    </div>
-  )
-}
-
-// 状态机进度条 - Light theme
-function StateMachineProgress({ currentState }: { currentState: OrderState }) {
-  const { step } = STATE_LABELS[currentState]
-  const progress = (step / 10) * 100
-  
-  return (
-    <Card className="mb-6">
-      <CardContent className="p-4">
-        <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-primary-100 flex items-center justify-center">
-              <Layers className="w-4 h-4 text-primary-600" />
-            </div>
-            <span className="text-sm font-medium text-surface-600">Order State Machine</span>
-          </div>
-          <Badge variant={step >= 8 ? 'success' : 'info'}>
-            {STATE_LABELS[currentState].label}
-          </Badge>
-        </div>
-        <Progress value={progress} />
-        <div className="flex justify-between mt-2 text-xs text-surface-400 font-medium">
-          <span>IDLE</span>
-          <span>DRAFT_ORDER</span>
-          <span>PAID</span>
-        </div>
-      </CardContent>
-    </Card>
-  )
-}
-
-// 对比表格组件
 type Plan = ReturnType<typeof useShoppingStore.getState>['plans'][0]
 function ComparisonTable({ plans, onSelectPlan }: { plans: Plan[]; onSelectPlan: (plan: Plan) => void }) {
   const [sortKey, setSortKey] = useState<'total' | 'price' | 'shipping' | 'delivery'>('total')
   const [sortAsc, setSortAsc] = useState(true)
-  
+
   const sortedPlans = [...plans].sort((a, b) => {
-    let aVal: number, bVal: number
+    let aVal: number
+    let bVal: number
     switch (sortKey) {
       case 'total': aVal = a.total; bVal = b.total; break
       case 'price': aVal = a.product.price; bVal = b.product.price; break
       case 'shipping': aVal = a.shipping; bVal = b.shipping; break
-      case 'delivery': 
+      case 'delivery':
         aVal = parseInt(a.deliveryDays.split('-')[0])
         bVal = parseInt(b.deliveryDays.split('-')[0])
         break
-      default: aVal = a.total; bVal = b.total
+      default:
+        aVal = a.total
+        bVal = b.total
     }
     return sortAsc ? aVal - bVal : bVal - aVal
   })
-  
+
   const handleSort = (key: typeof sortKey) => {
-    if (sortKey === key) {
-      setSortAsc(!sortAsc)
-    } else {
+    if (sortKey === key) setSortAsc(!sortAsc)
+    else {
       setSortKey(key)
       setSortAsc(true)
     }
   }
-  
+
   const SortHeader = ({ label, sortKeyName }: { label: string; sortKeyName: typeof sortKey }) => (
     <button
       onClick={() => handleSort(sortKeyName)}
       className={cn(
-        "flex items-center gap-1.5 font-semibold text-xs uppercase tracking-wide transition-colors",
-        sortKey === sortKeyName ? "text-primary-600" : "text-surface-500 hover:text-surface-700"
+        'flex items-center gap-1.5 font-semibold text-xs uppercase tracking-wide transition-colors',
+        sortKey === sortKeyName ? 'text-primary-600' : 'text-surface-500 hover:text-surface-700',
       )}
+      type="button"
     >
       {label}
-      <ArrowUpDown className={cn("w-3.5 h-3.5", sortKey === sortKeyName && "text-primary-500")} />
+      <ArrowUpDown className={cn('w-3.5 h-3.5', sortKey === sortKeyName && 'text-primary-500')} />
     </button>
   )
-  
+
   return (
     <Card className="overflow-hidden">
-      {/* Table Header */}
       <div className="grid grid-cols-12 gap-4 p-4 bg-surface-50 border-b border-surface-200">
         <div className="col-span-4 flex items-center gap-2">
           <span className="font-semibold text-xs uppercase tracking-wide text-surface-500">Product</span>
@@ -672,39 +291,30 @@ function ComparisonTable({ plans, onSelectPlan }: { plans: Plan[]; onSelectPlan:
           <SortHeader label="Total" sortKeyName="total" />
         </div>
       </div>
-      
-      {/* Table Body */}
+
       <div className="divide-y divide-surface-100">
         {sortedPlans.map((plan, idx) => (
-          <div 
+          <div
             key={plan.name + idx}
             onClick={() => onSelectPlan(plan)}
             className={cn(
-              "grid grid-cols-12 gap-4 p-4 cursor-pointer transition-all hover:bg-primary-50/50 group",
-              plan.recommended && "bg-primary-50/30"
+              'grid grid-cols-12 gap-4 p-4 cursor-pointer transition-all hover:bg-primary-50/50 group',
+              plan.recommended && 'bg-primary-50/30',
             )}
           >
-            {/* Product Info */}
             <div className="col-span-4 flex items-center gap-3">
-              <ProductImage 
-                imageUrl={plan.product.imageUrl}
-                fallbackEmoji={plan.emoji}
-                alt={plan.product.title}
-                size="sm"
-              />
+              <ProductImage imageUrl={plan.product.imageUrl} fallbackEmoji={plan.emoji} alt={plan.product.title} size="sm" />
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
                   <span className="font-semibold text-surface-800 truncate">{plan.name}</span>
-                  {plan.recommended && (
-                    <Star className="w-4 h-4 text-warning-500 fill-warning-500 flex-shrink-0" />
-                  )}
+                  {plan.recommended && <Star className="w-4 h-4 text-warning-500 fill-warning-500 flex-shrink-0" />}
                 </div>
                 <p className="text-sm text-surface-500 truncate">{plan.product.title}</p>
                 <div className="flex items-center gap-1.5 mt-1">
-                  <Badge variant={
-                    plan.type === 'cheapest' ? 'success' :
-                    plan.type === 'fastest' ? 'info' : 'warning'
-                  } className="text-[10px]">
+                  <Badge
+                    variant={plan.type === 'cheapest' ? 'success' : plan.type === 'fastest' ? 'info' : 'warning'}
+                    className="text-[10px]"
+                  >
                     {plan.type.replace('_', ' ')}
                   </Badge>
                   <span className="text-xs text-surface-400">★ {plan.product.rating}</span>
@@ -722,38 +332,28 @@ function ComparisonTable({ plans, onSelectPlan }: { plans: Plan[]; onSelectPlan:
                 </div>
               </div>
             </div>
-            
-            {/* Price */}
+
             <div className="col-span-2 flex items-center justify-center">
               <span className="font-bold text-surface-800">${plan.product.price}</span>
             </div>
-            
-            {/* Shipping */}
+
             <div className="col-span-2 flex items-center justify-center">
-              <span className={cn(
-                "font-semibold",
-                plan.shipping === 0 ? "text-success-600" : "text-surface-700"
-              )}>
+              <span className={cn('font-semibold', plan.shipping === 0 ? 'text-success-600' : 'text-surface-700')}>
                 {plan.shipping === 0 ? 'FREE' : `$${plan.shipping}`}
               </span>
             </div>
-            
-            {/* Tax */}
+
             <div className="col-span-1 flex items-center justify-center">
-              <span className={cn("font-medium text-sm", getTaxConfidenceColor(plan.tax.confidence))}>
-                ${plan.tax.amount}
-              </span>
+              <span className={cn('font-medium text-sm', getTaxConfidenceColor(plan.tax.confidence))}>${plan.tax.amount}</span>
             </div>
-            
-            {/* Delivery */}
+
             <div className="col-span-1 flex items-center justify-center">
               <div className="text-center">
                 <span className="font-medium text-surface-700 text-sm">{plan.deliveryDays}</span>
                 <span className="text-xs text-surface-400 block">days</span>
               </div>
             </div>
-            
-            {/* Total */}
+
             <div className="col-span-2 flex items-center justify-center gap-2">
               <span className="font-bold text-lg text-surface-800">${plan.total}</span>
               <ChevronRight className="w-4 h-4 text-surface-300 group-hover:text-primary-500 transition-colors" />
@@ -761,32 +361,11 @@ function ComparisonTable({ plans, onSelectPlan }: { plans: Plan[]; onSelectPlan:
           </div>
         ))}
       </div>
-      
-      {/* Table Footer - Summary */}
-      <div className="p-4 bg-surface-50 border-t border-surface-200">
-        <div className="flex items-center justify-between text-sm">
-          <div className="flex items-center gap-4">
-            <span className="text-surface-500">
-              <span className="font-semibold text-surface-700">{plans.length}</span> plans available
-            </span>
-            <span className="text-surface-300">|</span>
-            <span className="text-surface-500">
-              Price range: <span className="font-semibold text-surface-700">${Math.min(...plans.map(p => p.total))} - ${Math.max(...plans.map(p => p.total))}</span>
-            </span>
-          </div>
-          <div className="flex items-center gap-2">
-            <Star className="w-4 h-4 text-warning-500 fill-warning-500" />
-            <span className="text-surface-500">= AI Recommended</span>
-          </div>
-        </div>
-      </div>
     </Card>
   )
 }
 
-// 错误提示组件
 function ErrorAlert({ error, errorCode, onDismiss }: { error: string; errorCode?: string | null; onDismiss: () => void }) {
-  // 特殊处理"未找到商品"错误，显示更醒目的提示
   if (errorCode === 'NO_PRODUCTS_FOUND') {
     return (
       <Card className="mb-6 border-2 border-warning-300 bg-gradient-to-br from-warning-50 to-orange-50 shadow-lg animate-fade-in">
@@ -797,9 +376,7 @@ function ErrorAlert({ error, errorCode, onDismiss }: { error: string; errorCode?
             </div>
             <div className="flex-1">
               <h3 className="text-xl font-bold text-warning-800 mb-2">未找到符合条件的商品</h3>
-              <p className="text-warning-700 mb-4">
-                抱歉，我们没有找到匹配您需求的商品。请尝试以下建议：
-              </p>
+              <p className="text-warning-700 mb-4">抱歉，我们没有找到匹配您需求的商品。请尝试以下建议：</p>
               <ul className="space-y-2 text-sm text-warning-600 mb-4">
                 <li className="flex items-center gap-2">
                   <span className="w-5 h-5 rounded-full bg-warning-200 flex items-center justify-center text-xs font-bold">1</span>
@@ -824,7 +401,7 @@ function ErrorAlert({ error, errorCode, onDismiss }: { error: string; errorCode?
       </Card>
     )
   }
-  
+
   return (
     <Alert variant="danger" onClose={onDismiss} className="mb-6">
       <AlertTitle>Error {errorCode && `(${errorCode})`}</AlertTitle>
@@ -833,283 +410,881 @@ function ErrorAlert({ error, errorCode, onDismiss }: { error: string; errorCode?
   )
 }
 
-// 主页面
 export default function Home() {
   const store = useShoppingStore()
-  const [currentView, setCurrentView] = useState<'input' | 'processing' | 'plans' | 'confirmation'>('input')
-  const [expandedStep, setExpandedStep] = useState<number | null>(null)
+
   const [viewMode, setViewMode] = useState<'cards' | 'table'>('cards')
   const [followUpQuery, setFollowUpQuery] = useState('')
   
-  // Chat state
+  // 使用 store 中的 chatMode
+  const chatMode = store.chatMode
+  const setChatMode = store.setChatMode
+
   const [chatInput, setChatInput] = useState('')
   const [chatImages, setChatImages] = useState<string[]>([])
+  const [thinkingCollapsed, setThinkingCollapsed] = useState(false)
+  const userToggledThinking = useRef(false) // Track if user manually toggled
   const chatContainerRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const chatInputRef = useRef<HTMLTextAreaElement | null>(null)
-  
-  // Editable mission state
-  const [isEditingMission, setIsEditingMission] = useState(false)
-  const [editableMission, setEditableMission] = useState<{
-    search_query: string
-    primary_product_type: string
-    destination_country: string
-    budget_amount: string
-    budget_currency: string
-    quantity: string
-  }>({
-    search_query: '',
-    primary_product_type: '',
-    destination_country: '',
-    budget_amount: '',
-    budget_currency: 'USD',
-    quantity: '1',
-  })
 
-  // 检查连接状态
+  const intentStep = store.agentSteps.find((step) => step.id === 'intent')
+  const candidateStep = store.agentSteps.find((step) => step.id === 'candidate')
+  const verifierStep = store.agentSteps.find((step) => step.id === 'verifier')
+  const intentThoughts = intentStep?.thinkingSteps?.slice(-3) ?? []
+  const candidateToolCalls = candidateStep?.toolCalls ?? []
+  const verifierToolCalls = verifierStep?.toolCalls ?? []
+
+  const hasPlans = store.plans.length > 0 && store.orderState === 'TOTAL_COMPUTED'
+  const isConfirmation =
+    (store.orderState === 'DRAFT_ORDER_CREATED' || store.orderState === 'WAIT_USER_PAYMENT_CONFIRMATION') &&
+    !!store.draftOrder
+  const isProcessing = store.orderState !== 'IDLE' && !hasPlans && !isConfirmation
+  const isLanding = store.orderState === 'IDLE' && store.guidedChat.messages.length === 0
+  const showConfirmToSearch = chatMode === 'multi' && store.guidedChat.readyToSearch && store.orderState === 'IDLE'
+
   useEffect(() => {
-    store.checkConnection()
-  }, [store])
+    // NOTE: avoid depending on entire zustand store object (changes often)
+    useShoppingStore.getState().checkConnection()
+  }, [])
 
-  // 根据状态切换视图
-  useEffect(() => {
-    if (store.orderState === 'IDLE') {
-      setCurrentView('input')
-    } else if (store.orderState === 'WAITING_USER_INPUT') {
-      // 保持在 processing 视图，显示内联输入框
-      setCurrentView('processing')
-    } else if (store.orderState === 'DRAFT_ORDER_CREATED' || store.orderState === 'WAIT_USER_PAYMENT_CONFIRMATION') {
-      setCurrentView('confirmation')
-    } else if (store.plans.length > 0 && store.orderState === 'TOTAL_COMPUTED') {
-      setCurrentView('plans')
-    } else {
-      setCurrentView('processing')
-    }
-  }, [store.orderState, store.plans.length])
-
-  // 自动展开当前运行的步骤
-  useEffect(() => {
-    if (store.currentStepIndex >= 0) {
-      setExpandedStep(store.currentStepIndex)
-    }
-  }, [store.currentStepIndex])
-
-  // Scroll chat to bottom when new messages arrive
   useEffect(() => {
     if (chatContainerRef.current) {
       chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight
     }
-  }, [store.guidedChat.messages, store.guidedChat.streamingContent])
+  }, [store.guidedChat.messages, store.guidedChat.streamingContent, hasPlans, isProcessing, isConfirmation])
 
-  const handleChatSubmit = useCallback(async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!chatInput.trim() && chatImages.length === 0) return
-    
-    const message = chatInput.trim()
-    const images = [...chatImages]
-    
-    // Clear input immediately
-    setChatInput('')
-    setChatImages([])
-    
-    // Send to guided chat
-    await store.sendGuidedMessage(message, images)
-  }, [chatInput, chatImages, store])
-
-  const handleImageUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files
-    if (!files) return
-    
-    Array.from(files).forEach((file) => {
-      if (!file.type.startsWith('image/')) return
-      if (chatImages.length >= 4) return // Max 4 images
-      
-      const reader = new FileReader()
-      reader.onload = (event) => {
-        const base64 = (event.target?.result as string)?.split(',')[1]
-        if (base64) {
-          setChatImages((prev) => [...prev, base64].slice(0, 4))
-        }
-      }
-      reader.readAsDataURL(file)
-    })
-    
-    // Reset input
-    if (fileInputRef.current) {
-      fileInputRef.current.value = ''
+  // Auto-expand when processing starts, auto-collapse when plans are ready
+  // But respect user's manual toggle choice
+  useEffect(() => {
+    if (isProcessing && thinkingCollapsed && !userToggledThinking.current) {
+      // Expand when processing starts (unless user manually collapsed)
+      setThinkingCollapsed(false)
+    } else if (hasPlans && !thinkingCollapsed && !userToggledThinking.current) {
+      // Collapse when plans are ready (unless user manually expanded)
+      setThinkingCollapsed(true)
     }
-  }, [chatImages.length])
+  }, [isProcessing, hasPlans, thinkingCollapsed])
+
+  // Reset manual toggle flag when starting a new process
+  useEffect(() => {
+    if (store.orderState === 'IDLE') {
+      userToggledThinking.current = false
+    }
+  }, [store.orderState])
+
+  const handleChatSubmit = useCallback(
+    async (e: React.FormEvent) => {
+      e.preventDefault()
+      if (store.orderState !== 'IDLE') return
+      if (!chatInput.trim() && chatImages.length === 0) return
+
+      const message = chatInput.trim()
+      const images = [...chatImages]
+      setChatInput('')
+      setChatImages([])
+      if (chatMode === 'single') {
+        store.setQuery(message)
+        store.setOrderState('MISSION_READY')
+        await store.startAgentProcess()
+        return
+      }
+      await store.sendGuidedMessage(message, images)
+    },
+    [chatInput, chatImages, chatMode, store],
+  )
+
+  const handleImageUpload = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      if (store.orderState !== 'IDLE') return
+      const files = e.target.files
+      if (!files) return
+
+      Array.from(files).forEach((file) => {
+        if (!file.type.startsWith('image/')) return
+        if (chatImages.length >= 4) return
+
+        const reader = new FileReader()
+        reader.onload = (event) => {
+          const base64 = (event.target?.result as string)?.split(',')[1]
+          if (base64) {
+            setChatImages((prev) => [...prev, base64].slice(0, 4))
+          }
+        }
+        reader.readAsDataURL(file)
+      })
+
+      if (fileInputRef.current) {
+        fileInputRef.current.value = ''
+      }
+    },
+    [chatImages.length, store.orderState],
+  )
 
   const handleConfirmChat = useCallback(() => {
     store.confirmGuidedChat()
-    setCurrentView('processing')
     store.startAgentProcess()
   }, [store])
 
-  const handleSubmit = useCallback(async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!store.query.trim()) {
-      return
-    }
-    store.setOrderState('MISSION_READY')
-    setCurrentView('processing')
-    await store.startAgentProcess()
-  }, [store])
+  const handleFollowUpSubmit = useCallback(
+    async (e: React.FormEvent) => {
+      e.preventDefault()
+      if (!followUpQuery.trim()) return
+      store.setQuery(followUpQuery)
+      setFollowUpQuery('')
+      store.setOrderState('MISSION_READY')
+      await store.startAgentProcess()
+    },
+    [followUpQuery, store],
+  )
 
-  // 处理 Agent 追问时的用户回复
-  const handleFollowUpSubmit = useCallback(async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!followUpQuery.trim()) return
-    
-    // 将追加输入设置为新的 query
-    store.setQuery(followUpQuery)
-    setFollowUpQuery('')
-    store.setOrderState('MISSION_READY')
-    await store.startAgentProcess()
-  }, [followUpQuery, store])
-
-  const handleSelectPlan = useCallback((plan: typeof store.plans[0]) => {
-    store.selectPlan(plan)
-    setCurrentView('confirmation')
-  }, [store])
+  const handleSelectPlan = useCallback(
+    (plan: typeof store.plans[0]) => {
+      store.selectPlan(plan)
+    },
+    [store],
+  )
 
   const handleReset = useCallback(() => {
     store.reset()
     store.resetGuidedChat()
     setChatInput('')
     setChatImages([])
-    setCurrentView('input')
-    setExpandedStep(null)
+    setFollowUpQuery('')
+    setViewMode('cards')
   }, [store])
 
-  const toggleStepExpansion = useCallback((index: number) => {
-    setExpandedStep(prev => prev === index ? null : index)
-  }, [])
-
   return (
-    <main className="min-h-screen bg-gradient-to-br from-surface-50 via-white to-surface-100">
-      {/* Background patterns */}
-      <div className="fixed inset-0 gradient-mesh pointer-events-none" />
-      <div className="fixed inset-0 circuit-pattern pointer-events-none" />
-
-      {/* Header - Light tech theme */}
-      <header className="relative border-b border-surface-200 bg-white/80 backdrop-blur-xl shadow-sm">
-        <div className="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-primary-500 to-accent-500 flex items-center justify-center shadow-lg shadow-primary-500/20">
-              <Bot className="w-6 h-6 text-white" />
-            </div>
-            <div>
-              <h1 className="text-xl font-bold gradient-text">AI Shopping Agent</h1>
-              <p className="text-xs text-surface-500 font-medium">Shopping like prompting!</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-3">
-            <UserAvatar name={store.user?.name} avatarUrl={store.user?.avatarUrl} />
-          </div>
-        </div>
-      </header>
-
-      <div className="relative max-w-4xl mx-auto px-4 py-8 pb-28">
-        {/* Error Alert */}
+    <main className="min-h-screen bg-[#f8f8f6]">
+      <div className={cn(
+        "relative mx-auto px-4",
+        isLanding ? "max-w-3xl py-0" : "max-w-4xl py-6 pb-32"
+      )}>
         {store.error && (
-          <ErrorAlert 
-            error={store.error} 
+          <ErrorAlert
+            error={store.error}
             errorCode={store.errorCode}
             onDismiss={() => store.setError(null)}
           />
         )}
-        
-        {/* State Machine Progress */}
-        {currentView !== 'input' && (
-          <StateMachineProgress currentState={store.orderState} />
-        )}
 
-        {/* Input View - Chat-based Interface */}
-        {currentView === 'input' && (
-          <div className="animate-fade-in flex flex-col min-h-[500px]">
-            {/* Header */}
-            <div className="text-center mb-4 flex-shrink-0">
-              <div className="flex justify-center mb-3">
-                <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-primary-500 to-accent-500 flex items-center justify-center shadow-tech">
-                  <MessageCircle className="w-6 h-6 text-white" />
-                </div>
+        <div className="space-y-4">
+          {isLanding ? (
+            <div className="min-h-screen flex flex-col items-center justify-center gap-8">
+              {/* Logo and Title - Perplexity Style */}
+              <div className="flex items-center gap-2">
+                <span className="text-4xl md:text-5xl font-light text-[#2d3436] tracking-tight">AI Shopping</span>
+                <span className="text-4xl md:text-5xl font-medium text-[#20b8cd] tracking-tight">Agent</span>
               </div>
-              <h2 className="text-xl md:text-2xl font-bold text-surface-800 mb-1">
-                Chat with AI Shopping Assistant
-              </h2>
-              <p className="text-surface-500 text-xs md:text-sm max-w-md mx-auto">
-                Tell me what you&apos;re looking for! I&apos;ll ask a few questions to help find the perfect product.
-              </p>
-              
-              {/* Turn counter */}
-              <div className="flex items-center justify-center gap-2 mt-2">
-                <Badge variant="default" className="text-xs">
-                  {store.guidedChat.turnCount} / {store.guidedChat.maxTurns} turns
-                </Badge>
-                {store.guidedChat.readyToSearch && (
-                  <Badge variant="success" className="text-xs animate-pulse">
-                    ✓ Ready to search
-                  </Badge>
-                )}
+
+              {/* Main Input Box - Perplexity Style */}
+              <form onSubmit={handleChatSubmit} className="w-full">
+                <div className="rounded-2xl border border-[#e0e0de] bg-white shadow-sm overflow-hidden">
+                  {/* Text Input */}
+                  <div className="px-4 pt-4 pb-2">
+                    <Textarea
+                      ref={chatInputRef}
+                      value={chatInput}
+                      onChange={(e) => setChatInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && !e.shiftKey) {
+                          e.preventDefault()
+                          handleChatSubmit(e)
+                        }
+                      }}
+                      placeholder="询问任何事。输入 @ 以提及和 / 以使用快捷方式。"
+                      disabled={store.guidedChat.isStreaming || store.orderState !== 'IDLE'}
+                      className="min-h-[60px] resize-none text-base bg-transparent border-0 focus-visible:ring-0 px-0 text-[#2d3436] placeholder:text-[#9a9a98]"
+                    />
+                  </div>
+
+                  {/* Uploaded Images Preview */}
+                  {chatImages.length > 0 && (
+                    <div className="px-4 pb-2 flex flex-wrap gap-2">
+                      {chatImages.map((img, idx) => (
+                        <div key={idx} className="relative group">
+                          <div className="relative w-14 h-14 rounded-lg overflow-hidden border border-[#e0e0de] bg-[#f5f5f3]">
+                            <Image src={`data:image/jpeg;base64,${img}`} alt={`Upload ${idx + 1}`} fill className="object-cover" />
+                          </div>
+                          <button
+                            onClick={() => setChatImages((prev) => prev.filter((_, i) => i !== idx))}
+                            className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                            type="button"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Bottom Bar with Mode Icons and Action Icons */}
+                  <div className="flex items-center justify-between px-3 py-3">
+                    {/* Left: Mode Selection Icons */}
+                    <TooltipProvider>
+                      <div className="flex items-center rounded-xl bg-[#f5f5f3] p-1">
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button
+                              type="button"
+                              onClick={() => setChatMode('multi')}
+                              className={cn(
+                                'w-10 h-10 rounded-lg flex items-center justify-center transition-colors',
+                                chatMode === 'multi'
+                                  ? 'bg-white text-[#20b8cd] shadow-sm'
+                                  : 'text-[#6b6c6c] hover:text-[#2d3436]',
+                              )}
+                            >
+                              <MessageCircle className="w-5 h-5" />
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent side="top">
+                            多轮对话：通过追问澄清需求
+                          </TooltipContent>
+                        </Tooltip>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button
+                              type="button"
+                              onClick={() => setChatMode('single')}
+                              className={cn(
+                                'w-10 h-10 rounded-lg flex items-center justify-center transition-colors',
+                                chatMode === 'single'
+                                  ? 'bg-white text-[#20b8cd] shadow-sm'
+                                  : 'text-[#6b6c6c] hover:text-[#2d3436]',
+                              )}
+                            >
+                              <Sparkles className="w-5 h-5" />
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent side="top">
+                            一句话模式：直接启动意图推理
+                          </TooltipContent>
+                        </Tooltip>
+                      </div>
+                    </TooltipProvider>
+
+                    {/* Right: Utility Icons */}
+                    <TooltipProvider>
+                      <div className="flex items-center gap-1">
+                        <input
+                          ref={fileInputRef}
+                          type="file"
+                          accept="image/*"
+                          multiple
+                          onChange={handleImageUpload}
+                          className="hidden"
+                        />
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button
+                              type="button"
+                              onClick={() => fileInputRef.current?.click()}
+                              disabled={chatImages.length >= 4 || store.guidedChat.isStreaming || store.orderState !== 'IDLE'}
+                              className="w-10 h-10 rounded-xl flex items-center justify-center text-[#6b6c6c] hover:bg-[#f5f5f3] hover:text-[#2d3436] transition-colors disabled:opacity-50"
+                            >
+                              <ImagePlus className="w-5 h-5" />
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent side="top">
+                            上传图片 (最多4张)
+                          </TooltipContent>
+                        </Tooltip>
+
+                        <button
+                          type="submit"
+                          disabled={store.orderState !== 'IDLE' || (!chatInput.trim() && chatImages.length === 0) || store.guidedChat.isStreaming}
+                          className="w-10 h-10 rounded-xl flex items-center justify-center bg-[#20b8cd] text-white hover:bg-[#1aa3b6] transition-colors disabled:opacity-50"
+                        >
+                          {store.guidedChat.isStreaming ? (
+                            <Loader2 className="w-5 h-5 animate-spin" />
+                          ) : (
+                            <Send className="w-5 h-5" />
+                          )}
+                        </button>
+                      </div>
+                    </TooltipProvider>
+                  </div>
+                </div>
+              </form>
+
+              {/* Quick Start Buttons - Shopping Related */}
+              <div className="flex flex-wrap justify-center gap-3">
+                {[
+                  { icon: <ShoppingCart className="w-4 h-4" />, label: '帮我比价', query: '帮我找最便宜的iPhone 15' },
+                  { icon: <Search className="w-4 h-4" />, label: '找同款', query: '帮我找这张图片的同款商品' },
+                  { icon: <Star className="w-4 h-4" />, label: '礼物推荐', query: '送给妈妈的生日礼物推荐' },
+                ].map((item) => (
+                  <button
+                    key={item.label}
+                    onClick={() => {
+                      setChatInput(item.query)
+                      chatInputRef.current?.focus()
+                    }}
+                    className="flex items-center gap-2 px-4 py-2.5 rounded-full border border-[#e0e0de] bg-white text-[#5a5a58] hover:bg-[#f5f5f3] hover:text-[#2d3436] hover:border-[#d0d0ce] transition-colors text-sm shadow-sm"
+                    type="button"
+                  >
+                    {item.icon}
+                    <span>{item.label}</span>
+                  </button>
+                ))}
               </div>
             </div>
+          ) : (
+            <>
+              <div ref={chatContainerRef} className="pb-40 space-y-4">
+                {store.guidedChat.messages.length === 0 && !isProcessing && (
+                  <div className="text-sm text-[#6b6c6c] leading-relaxed">
+                    Hi! I&apos;m your AI shopping assistant. What would you like to buy today? Feel free to share images too!
+                  </div>
+                )}
 
-            {/* Chat messages area */}
-            <Card className="flex-1 flex flex-col overflow-hidden mb-4 min-h-[280px] max-h-[50vh]">
-              <div 
-                ref={chatContainerRef}
-                className="flex-1 overflow-y-auto p-3 md:p-4 space-y-3"
-              >
-                {/* Welcome message if no messages */}
-                {store.guidedChat.messages.length === 0 && (
-                  <div className="flex gap-2 md:gap-3">
-                    <div className="w-8 h-8 md:w-9 md:h-9 rounded-xl bg-gradient-to-br from-primary-500 to-accent-500 flex items-center justify-center flex-shrink-0 shadow-md">
-                      <Bot className="w-4 h-4 md:w-5 md:h-5 text-white" />
+                {store.guidedChat.messages.map((msg) => (
+                  <ChatBubble key={msg.id} message={msg} />
+                ))}
+
+                {store.guidedChat.isStreaming &&
+                  store.guidedChat.messages.length > 0 &&
+                  !store.guidedChat.messages[store.guidedChat.messages.length - 1]?.isStreaming && (
+                    <div className="text-xs text-[#9a9a98]">AI is typing…</div>
+                  )}
+
+                {showConfirmToSearch && (
+                  <div className="mt-3 flex flex-col items-center gap-2 text-center">
+                    <span className="text-sm text-[#5a5a58]">I can proceed to find plans based on your chat.</span>
+                    <Button
+                      onClick={handleConfirmChat}
+                      disabled={store.guidedChat.isStreaming}
+                      rightIcon={<ChevronRight className="w-4 h-4" />}
+                      className="mx-auto"
+                    >
+                      Confirm and continue
+                    </Button>
+                  </div>
+                )}
+
+            {(isProcessing || hasPlans) && (
+              <div className="mt-4">
+                {/* Perplexity-style Collapsible Progress Header */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    userToggledThinking.current = true
+                    setThinkingCollapsed(!thinkingCollapsed)
+                  }}
+                  className={cn(
+                    "flex items-center gap-2 text-sm transition-colors mb-4 px-2 py-1 -ml-2 rounded-lg",
+                    thinkingCollapsed 
+                      ? "text-[#5a5a58] hover:text-[#2d3436] hover:bg-[#f5f5f3]" 
+                      : "text-[#2d3436] hover:bg-[#f5f5f3]"
+                  )}
+                >
+                  <ChevronRight className={cn(
+                    "w-4 h-4 transition-transform duration-200",
+                    thinkingCollapsed ? "rotate-0" : "rotate-90"
+                  )} />
+                  <span className="font-medium">
+                    {isProcessing ? '思考中' : '已完成'} {Math.max(1, intentThoughts.length + candidateToolCalls.length + (verifierToolCalls.length > 0 ? 1 : 0))} 步
+                  </span>
+                  {isProcessing && (
+                    <Loader2 className="w-3.5 h-3.5 text-[#20b8cd] animate-spin ml-1" />
+                  )}
+                  {hasPlans && !isProcessing && (
+                    <CheckCircle className="w-3.5 h-3.5 text-green-500 ml-1" />
+                  )}
+                </button>
+
+                {/* Timeline Container - Collapsible */}
+                {!thinkingCollapsed && (
+                  <div className="space-y-6 animate-fade-in">
+                    {/* Step 1: Intent Analysis */}
+                    <div className="flex gap-4">
+                      <div className="flex flex-col items-center">
+                        <div className="w-2.5 h-2.5 rounded-full bg-[#5a5a58]" />
+                        <div className="w-0.5 flex-1 bg-[#e0e0de] mt-2" />
+                      </div>
+                      <div className="flex-1 pb-2">
+                        <p className="text-sm text-[#2d3436] leading-relaxed">
+                          我将分析您的需求并搜索「{store.query || '商品'}」相关信息。
+                        </p>
+                        {intentThoughts.length > 0 && (
+                          <div className="mt-3 space-y-1">
+                            {intentThoughts.slice(0, 3).map((thought) => (
+                              <p key={thought.id} className="text-xs text-[#6b6c6c]">
+                                - {thought.text}
+                              </p>
+                            ))}
+                          </div>
+                        )}
+                      </div>
                     </div>
-                    <div className="flex-1 max-w-[85%] rounded-2xl rounded-bl-md px-3 py-2 md:px-4 md:py-3 bg-white border border-surface-200 text-surface-800 shadow-sm">
-                      <p className="text-xs md:text-sm leading-relaxed">
-                        Hi! 👋 I&apos;m your AI shopping assistant. What would you like to buy today? Feel free to share images too!
-                      </p>
+
+                    {/* Step 2: Searching */}
+                    <div className="flex gap-4">
+                      <div className="flex flex-col items-center">
+                        <div className="w-2.5 h-2.5 rounded-full bg-[#5a5a58]" />
+                        <div className="w-0.5 flex-1 bg-[#e0e0de] mt-2" />
+                      </div>
+                      <div className="flex-1 pb-2">
+                        <p className="text-sm text-[#2d3436] mb-3">正在搜索商品信息和价格数据。</p>
+                        <p className="text-xs text-[#9a9a98] mb-2">搜索中</p>
+                        <div className="flex flex-wrap gap-2">
+                          {candidateToolCalls.length > 0 ? (
+                            candidateToolCalls.map((tool) => {
+                              const query = extractQueryFromInput(tool.input)
+                              return (
+                                <div
+                                  key={tool.id}
+                                  className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-white border border-[#e0e0de] text-sm text-[#2d3436]"
+                                >
+                                  <Search className="w-4 h-4 text-[#9a9a98]" />
+                                  <span>{truncateText(query || tool.input, 40)}</span>
+                                </div>
+                              )
+                            })
+                          ) : (
+                            <>
+                              <div className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-white border border-[#e0e0de] text-sm text-[#2d3436]">
+                                <Search className="w-4 h-4 text-[#9a9a98]" />
+                                <span>{store.query || '商品搜索'}</span>
+                              </div>
+                              <div className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-white border border-[#e0e0de] text-sm text-[#2d3436]">
+                                <Search className="w-4 h-4 text-[#9a9a98]" />
+                                <span>价格对比分析</span>
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Step 3: Reviewing Sources - Real Verifier Data */}
+                    <div className="flex gap-4">
+                      <div className="flex flex-col items-center">
+                        <div className={cn(
+                          "w-2.5 h-2.5 rounded-full",
+                          verifierToolCalls.length > 0 || candidateToolCalls.length > 0 ? "bg-[#5a5a58]" : "bg-[#e0e0de]"
+                        )} />
+                        <div className="w-0.5 flex-1 bg-[#e0e0de] mt-2" />
+                      </div>
+                      <div className="flex-1 pb-2">
+                        <p className="text-xs text-[#9a9a98] mb-3">正在审核来源</p>
+                        <div className="space-y-2">
+                          {verifierToolCalls.length > 0 ? (
+                            verifierToolCalls.map((tool) => (
+                              <div
+                                key={tool.id}
+                                className="flex items-center gap-3 py-1.5"
+                              >
+                                <Shield className="w-4 h-4 text-[#9a9a98]" />
+                                <span className="flex-1 text-sm text-[#2d3436]">
+                                  {truncateText(tool.name || tool.input || 'Verifying source', 50)}
+                                </span>
+                                <span className="text-xs text-[#9a9a98]">
+                                  {tool.status === 'success' ? 'verified' : 'verifying'}
+                                </span>
+                              </div>
+                            ))
+                          ) : (
+                            <>
+                              <div className="flex items-center gap-3 py-1.5">
+                                <ExternalLink className="w-4 h-4 text-[#9a9a98]" />
+                                <span className="flex-1 text-sm text-[#2d3436]">商品详情页数据</span>
+                                <span className="text-xs text-[#9a9a98]">xoobay.com</span>
+                              </div>
+                              <div className="flex items-center gap-3 py-1.5">
+                                <Store className="w-4 h-4 text-[#9a9a98]" />
+                                <span className="flex-1 text-sm text-[#2d3436]">店铺信誉与评分</span>
+                                <span className="text-xs text-[#9a9a98]">store.xoobay.com</span>
+                              </div>
+                              <div className="flex items-center gap-3 py-1.5">
+                                <Receipt className="w-4 h-4 text-[#9a9a98]" />
+                                <span className="flex-1 text-sm text-[#2d3436]">价格与运费信息</span>
+                                <span className="text-xs text-[#9a9a98]">price.xoobay.com</span>
+                              </div>
+                              <div className="flex items-center gap-3 py-1.5">
+                                <Clock className="w-4 h-4 text-[#9a9a98]" />
+                                <span className="flex-1 text-sm text-[#2d3436]">库存与发货时效</span>
+                                <span className="text-xs text-[#9a9a98]">logistics.xoobay.com</span>
+                              </div>
+                              <div className="flex items-center gap-3 py-1.5">
+                                <Star className="w-4 h-4 text-[#9a9a98]" />
+                                <span className="flex-1 text-sm text-[#2d3436]">用户评价分析</span>
+                                <span className="text-xs text-[#9a9a98]">reviews.xoobay.com</span>
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Step 4: Generating Plans */}
+                    <div className="flex gap-4">
+                      <div className="flex flex-col items-center">
+                        <div className={cn(
+                          "w-2.5 h-2.5 rounded-full",
+                          hasPlans ? "bg-[#5a5a58]" : store.isStreaming ? "bg-[#20b8cd] animate-pulse" : "bg-[#e0e0de]"
+                        )} />
+                      </div>
+                      <div className="flex-1">
+                        <p className="text-sm text-[#2d3436]">
+                          {hasPlans ? '已生成购物方案' : store.isStreaming ? '正在生成购物方案...' : '等待生成方案'}
+                        </p>
+                        {store.isStreaming && !hasPlans && (
+                          <div className="mt-2 flex items-center gap-2">
+                            <Loader2 className="w-4 h-4 text-[#20b8cd] animate-spin" />
+                            <span className="text-xs text-[#9a9a98]">AI 正在分析最优选择</span>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
                 )}
-                
-                {/* Chat messages */}
-                {store.guidedChat.messages.map((msg, idx) => (
-                  <ChatBubble 
-                    key={msg.id} 
-                    message={msg} 
-                    isLatest={idx === store.guidedChat.messages.length - 1}
-                  />
-                ))}
-                
-                {/* Streaming indicator */}
-                {store.guidedChat.isStreaming && store.guidedChat.messages.length > 0 && 
-                 !store.guidedChat.messages[store.guidedChat.messages.length - 1]?.isStreaming && (
-                  <div className="flex gap-3">
-                    <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-primary-500 to-accent-500 flex items-center justify-center flex-shrink-0 shadow-md">
-                      <Bot className="w-5 h-5 text-white animate-pulse" />
+
+                {store.orderState === 'WAITING_USER_INPUT' && store.lastAgentMessage && (
+                  <div className="mt-3">
+                    <div className="text-sm text-surface-700 whitespace-pre-wrap leading-relaxed bg-surface-50 rounded-lg p-3 border border-surface-200">
+                      {store.lastAgentMessage}
                     </div>
-                    <div className="flex items-center gap-1 px-4 py-3 bg-white border border-surface-200 rounded-2xl rounded-bl-md">
-                      <span className="w-2 h-2 bg-primary-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                      <span className="w-2 h-2 bg-primary-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                      <span className="w-2 h-2 bg-primary-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
-                    </div>
+                    <form onSubmit={handleFollowUpSubmit} className="flex gap-2 mt-3">
+                      <input
+                        type="text"
+                        value={followUpQuery}
+                        onChange={(e) => setFollowUpQuery(e.target.value)}
+                        placeholder="Type your response here..."
+                        className="flex-1 px-4 py-3 rounded-xl border border-surface-200 bg-white focus:outline-none focus:ring-2 focus:ring-primary-500 text-surface-800"
+                      />
+                      <Button type="submit" disabled={!followUpQuery.trim()}>
+                        <Send className="w-4 h-4 mr-2" />
+                        Send
+                      </Button>
+                    </form>
                   </div>
                 )}
               </div>
+            )}
 
-              {/* Image preview */}
-              <ImagePreview 
-                images={chatImages} 
-                onRemove={(idx) => setChatImages((prev) => prev.filter((_, i) => i !== idx))}
-              />
+            {hasPlans && (
+              <div className="mt-4">
+                <div className="flex items-center justify-between gap-3 mb-3">
+                  <div>
+                    <div className="text-sm font-semibold">Choose a plan</div>
+                    <div className="text-xs text-surface-500">We found {store.plans.length} options</div>
+                  </div>
+                  <div className="flex items-center gap-1 p-1 bg-surface-100 rounded-xl">
+                    <button
+                      onClick={() => setViewMode('cards')}
+                      className={cn(
+                        'flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all',
+                        viewMode === 'cards' ? 'bg-white text-primary-600 shadow-sm' : 'text-surface-500 hover:text-surface-700',
+                      )}
+                      type="button"
+                    >
+                      <LayoutGrid className="w-4 h-4" />
+                      <span className="hidden sm:inline">Cards</span>
+                    </button>
+                    <button
+                      onClick={() => setViewMode('table')}
+                      className={cn(
+                        'flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all',
+                        viewMode === 'table' ? 'bg-white text-primary-600 shadow-sm' : 'text-surface-500 hover:text-surface-700',
+                      )}
+                      type="button"
+                    >
+                      <Table2 className="w-4 h-4" />
+                      <span className="hidden sm:inline">Compare</span>
+                    </button>
+                  </div>
+                </div>
 
-              {/* Chat input */}
-              <form onSubmit={handleChatSubmit} className="p-2 md:p-3 border-t border-surface-100 bg-surface-50 flex-shrink-0">
-                <div className="flex items-end gap-2">
-                  {/* Image upload button */}
+                {store.aiRecommendation && (
+                  <div className="mb-3 rounded-xl border border-surface-200 bg-surface-50 px-4 py-3">
+                    <div className="flex items-center gap-2 mb-1">
+                      <Sparkles className="w-4 h-4 text-primary-600" />
+                      <span className="text-sm font-semibold text-primary-700">AI Recommendation</span>
+                      <Badge variant="success" className="text-xs">
+                        {Math.round(store.aiRecommendation.confidence * 100)}%
+                      </Badge>
+                    </div>
+                    <div className="text-sm text-surface-600">{store.aiRecommendation.reason}</div>
+                  </div>
+                )}
+
+                {viewMode === 'table' ? (
+                  <ComparisonTable plans={store.plans} onSelectPlan={handleSelectPlan} />
+                ) : (
+                  <div className="grid gap-3">
+                    {store.plans.map((plan) => (
+                      <Card
+                        key={plan.name}
+                        interactive
+                        onClick={() => handleSelectPlan(plan)}
+                        className={cn('p-4 relative', plan.recommended && 'ring-2 ring-primary-200')}
+                      >
+                        {plan.recommended && (
+                          <div className="absolute -top-3 left-4 px-3 py-1.5 bg-gradient-to-r from-primary-500 to-accent-500 rounded-full text-xs text-white font-semibold flex items-center gap-1.5 shadow-lg shadow-primary-500/20">
+                            <Sparkles className="w-3 h-3" />
+                            AI Recommended
+                          </div>
+                        )}
+
+                        <div className="flex items-start gap-4">
+                          <ProductImage
+                            imageUrl={plan.product.imageUrl}
+                            fallbackEmoji={plan.emoji}
+                            alt={plan.product.title}
+                            size="lg"
+                          />
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-1">
+                              <div className="font-semibold text-surface-800 truncate">{plan.name}</div>
+                              <Badge variant={plan.type === 'cheapest' ? 'success' : plan.type === 'fastest' ? 'info' : 'warning'} className="text-[10px]">
+                                {plan.type.replace('_', ' ')}
+                              </Badge>
+                              {plan.recommended && <Star className="w-4 h-4 text-warning-500 fill-warning-500" />}
+                            </div>
+                            <div className="text-xs text-surface-500 truncate">{plan.product.title}</div>
+                            <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-surface-600">
+                              <span className="font-semibold text-surface-800">${plan.total}</span>
+                              <span className={cn('font-semibold', plan.shipping === 0 ? 'text-success-600' : 'text-surface-700')}>
+                                {plan.shipping === 0 ? 'FREE shipping' : `$${plan.shipping} shipping`}
+                              </span>
+                              <span className={cn('font-semibold', getTaxConfidenceColor(plan.tax.confidence))}>${plan.tax.amount} tax</span>
+                              <span className="text-surface-500">{plan.deliveryDays}</span>
+                            </div>
+                            {plan.product.productUrl && (
+                              <div className="mt-2">
+                                <ProductLink url={plan.product.productUrl} storeName={plan.product.storeName} />
+                              </div>
+                            )}
+                            {plan.product.complianceRisks.length > 0 && (
+                              <div className="mt-2 flex flex-wrap gap-2">
+                                {plan.product.complianceRisks.slice(0, 4).map((risk, i) => (
+                                  <span key={i} className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-warning-50 border border-warning-200 rounded-lg text-[11px]">
+                                    <span>{getComplianceIcon(risk.type)}</span>
+                                    <span className="text-warning-700 font-medium">{risk.message}</span>
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                          <ChevronRight className="w-5 h-5 text-surface-300 mt-1" />
+                        </div>
+                      </Card>
+                    ))}
+                  </div>
+                )}
+
+                <div className="mt-4">
+                  <Button variant="outline" onClick={handleReset} className="w-full">
+                    Start Over
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {isConfirmation && store.draftOrder && (
+              <div className="mt-4">
+                <div className="flex items-center justify-between gap-3 mb-3">
+                  <div className="text-sm font-semibold">Draft order</div>
+                  <Badge variant="info" className="text-xs">
+                    Created
+                  </Badge>
+                </div>
+
+                <Card className="overflow-hidden">
+                    <div className="p-4 border-b border-surface-100 bg-surface-50">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <span className="text-surface-400 text-xs font-medium">Order ID</span>
+                          <p className="text-surface-800 font-mono font-semibold">{store.draftOrder.id}</p>
+                        </div>
+                        <div className="flex items-center gap-2 px-3 py-1.5 bg-warning-50 border border-warning-200 rounded-lg">
+                          <Clock className="w-4 h-4 text-warning-600" />
+                          <span className="text-warning-700 text-sm font-medium">
+                            Expires: {new Date(store.draftOrder.expiresAt).toLocaleString()}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="p-4 border-b border-surface-100">
+                      <div className="flex items-center gap-4">
+                        <ProductImage
+                          imageUrl={store.draftOrder.plan.product.imageUrl}
+                          fallbackEmoji={store.draftOrder.plan.product.image}
+                          alt={store.draftOrder.plan.product.title}
+                          size="xl"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <h3 className="text-surface-800 font-semibold text-base truncate">{store.draftOrder.plan.product.title}</h3>
+                          <p className="text-surface-500 text-sm">
+                            {store.draftOrder.plan.product.brand} · ★ {store.draftOrder.plan.product.rating}
+                          </p>
+                          {store.draftOrder.plan.product.shortDescription && (
+                            <p className="text-surface-400 text-xs mt-1">{store.draftOrder.plan.product.shortDescription}</p>
+                          )}
+                          {store.draftOrder.plan.product.productUrl && (
+                            <div className="mt-2">
+                              <ProductLink url={store.draftOrder.plan.product.productUrl} storeName={store.draftOrder.plan.product.storeName} />
+                            </div>
+                          )}
+                        </div>
+                        <div className="text-surface-800 font-bold text-lg">${store.draftOrder.plan.product.price}</div>
+                      </div>
+                    </div>
+
+                    <div className="p-4 border-b border-surface-100">
+                      <h4 className="text-surface-800 font-semibold mb-3 flex items-center gap-2 text-sm">
+                        <Receipt className="w-4 h-4" />
+                        Tax & Duty Estimate
+                      </h4>
+                      <div className="space-y-2 text-sm">
+                        <div className="flex justify-between">
+                          <span className="text-surface-500">VAT/GST</span>
+                          <span className="text-surface-700 font-medium">${store.draftOrder.plan.tax.breakdown.vat.toFixed(2)}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-surface-500">Import Duty</span>
+                          <span className="text-surface-700 font-medium">${store.draftOrder.plan.tax.breakdown.duty.toFixed(2)}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-surface-500">Handling Fee</span>
+                          <span className="text-surface-700 font-medium">${store.draftOrder.plan.tax.breakdown.handling.toFixed(2)}</span>
+                        </div>
+                        <div className="flex justify-between pt-2 border-t border-surface-100">
+                          <span className="text-surface-700 font-medium">Total Tax</span>
+                          <div className="flex items-center gap-2">
+                            <span className="text-surface-800 font-bold">${store.draftOrder.plan.tax.amount}</span>
+                            <Badge
+                              variant={
+                                store.draftOrder.plan.tax.confidence === 'high'
+                                  ? 'success'
+                                  : store.draftOrder.plan.tax.confidence === 'medium'
+                                    ? 'warning'
+                                    : 'danger'
+                              }
+                            >
+                              {store.draftOrder.plan.tax.confidence}
+                            </Badge>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {store.draftOrder.plan.product.complianceRisks.length > 0 && (
+                      <div className="p-4 border-b border-surface-100 bg-warning-50/50">
+                        <h4 className="text-surface-800 font-semibold mb-3 flex items-center gap-2 text-sm">
+                          <Shield className="w-4 h-4 text-warning-600" />
+                          Compliance Information
+                        </h4>
+                        <div className="space-y-2">
+                          {store.draftOrder.plan.product.complianceRisks.map((risk, i) => (
+                            <div key={i} className="flex items-start gap-2 p-3 rounded-xl border border-warning-200 bg-white">
+                              <span className="text-xl">{getComplianceIcon(risk.type)}</span>
+                              <div>
+                                <p className="text-warning-700 font-semibold capitalize text-sm">{risk.type}</p>
+                                <p className="text-surface-600 text-sm">{risk.message}</p>
+                                {risk.mitigation && <p className="text-success-600 text-sm mt-1 font-medium">✓ {risk.mitigation}</p>}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="p-4 space-y-2 border-b border-surface-100">
+                      <div className="flex justify-between text-surface-500 text-sm">
+                        <span>Subtotal</span>
+                        <span className="font-medium">${store.draftOrder.plan.product.price}</span>
+                      </div>
+                      <div className="flex justify-between text-surface-500 text-sm">
+                        <span>Shipping</span>
+                        <span className="font-medium">
+                          {store.draftOrder.plan.shipping === 0 ? 'FREE' : `$${store.draftOrder.plan.shipping}`}
+                        </span>
+                      </div>
+                      <div className="flex justify-between text-surface-500 text-sm">
+                        <span>Tax & Duty</span>
+                        <span className="font-medium">${store.draftOrder.plan.tax.amount}</span>
+                      </div>
+                      <div className="h-px bg-surface-200 my-3" />
+                      <div className="flex justify-between text-lg font-bold text-surface-800">
+                        <span>Total</span>
+                        <span>${store.draftOrder.plan.total}</span>
+                      </div>
+                    </div>
+
+                    <div className="p-4 border-b border-surface-100">
+                      <h4 className="text-surface-800 font-semibold mb-3 flex items-center gap-2 text-sm">
+                        <CheckCircle className="w-4 h-4 text-primary-500" />
+                        Required Confirmations
+                      </h4>
+                      <div className="space-y-3">
+                        {store.draftOrder.confirmationItems.map((item) => (
+                          <div
+                            key={item.id}
+                            className={cn(
+                              'p-3 rounded-xl border',
+                              item.checked ? 'border-success-200 bg-success-50/40' : 'border-surface-200 bg-white',
+                            )}
+                          >
+                            <div className="flex items-start gap-3">
+                              <Checkbox id={item.id} checked={item.checked} onCheckedChange={() => store.toggleConfirmation(item.id)} />
+                              <div className="flex-1">
+                                <label htmlFor={item.id} className="text-surface-800 font-medium cursor-pointer flex items-center gap-2">
+                                  {item.title}
+                                  {item.required && <span className="text-danger-500 text-xs font-semibold">*Required</span>}
+                                </label>
+                                <p className="text-surface-500 text-sm mt-1">{item.description}</p>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="p-4 bg-surface-50">
+                      <div className="flex items-center gap-2 text-surface-400 text-sm">
+                        <Info className="w-4 h-4" />
+                        <span>
+                          Evidence: <code className="text-primary-600 font-mono">{store.draftOrder.evidenceSnapshotId}</code>
+                        </span>
+                      </div>
+                    </div>
+                  </Card>
+
+                <Alert variant="warning" className="mt-4">
+                    <AlertTriangle className="w-5 h-5" />
+                    <AlertTitle>Payment Not Captured</AlertTitle>
+                    <AlertDescription>Check all required boxes to proceed to payment.</AlertDescription>
+                </Alert>
+
+                <div className="mt-4 flex gap-3">
+                  <Button variant="outline" onClick={handleReset} className="flex-1">
+                    Start New Search
+                  </Button>
+                  <Button disabled={!store.canProceedToPayment()} className="flex-1" leftIcon={<ShoppingCart className="w-5 h-5" />}>
+                    Proceed to Payment
+                  </Button>
+                </div>
+              </div>
+            )}
+          </div>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* Fixed Bottom Input Bar - Chat View Only */}
+      {!isLanding && (
+        <div className="fixed bottom-0 left-0 right-0 bg-[#f8f8f6]/95 backdrop-blur-xl border-t border-[#e0e0de]">
+          <div className="max-w-3xl mx-auto px-4 py-3">
+            <ImagePreview images={chatImages} onRemove={(idx) => setChatImages((prev) => prev.filter((_, i) => i !== idx))} />
+
+            <form onSubmit={handleChatSubmit} className="w-full">
+              <div className="rounded-2xl border border-[#e0e0de] bg-white shadow-sm overflow-hidden">
+                <div className="flex items-end gap-2 p-3">
                   <input
                     ref={fileInputRef}
                     type="file"
@@ -1118,21 +1293,7 @@ export default function Home() {
                     onChange={handleImageUpload}
                     className="hidden"
                   />
-                  <button
-                    type="button"
-                    onClick={() => fileInputRef.current?.click()}
-                    disabled={chatImages.length >= 4 || store.guidedChat.isStreaming}
-                    className={cn(
-                      "p-2 md:p-2.5 rounded-xl border transition-colors flex-shrink-0",
-                      chatImages.length >= 4 || store.guidedChat.isStreaming
-                        ? "bg-surface-100 border-surface-200 text-surface-400 cursor-not-allowed"
-                        : "bg-white border-surface-200 text-surface-600 hover:bg-surface-50 hover:text-primary-600"
-                    )}
-                  >
-                    <ImagePlus className="w-4 h-4 md:w-5 md:h-5" />
-                  </button>
-                  
-                  {/* Text input */}
+
                   <div className="flex-1 min-w-0">
                     <Textarea
                       ref={chatInputRef}
@@ -1144,974 +1305,57 @@ export default function Home() {
                           handleChatSubmit(e)
                         }
                       }}
-                      placeholder="Type your message..."
-                      disabled={store.guidedChat.isStreaming}
-                      className="min-h-[40px] max-h-[80px] resize-none text-sm"
+                      placeholder={store.orderState === 'IDLE' ? '输入您的问题...' : '处理中，请等待完成后继续'}
+                      disabled={store.guidedChat.isStreaming || store.orderState !== 'IDLE'}
+                      className="min-h-[44px] max-h-[120px] resize-none text-sm bg-transparent border-0 focus-visible:ring-0 px-0"
                     />
                   </div>
-                  
-                  {/* Send button */}
-                  <Button
-                    type="submit"
-                    disabled={(!chatInput.trim() && chatImages.length === 0) || store.guidedChat.isStreaming}
-                    className="h-10 px-3 md:h-11 md:px-4 flex-shrink-0"
-                  >
-                    {store.guidedChat.isStreaming ? (
-                      <Loader2 className="w-4 h-4 md:w-5 md:h-5 animate-spin" />
-                    ) : (
-                      <Send className="w-4 h-4 md:w-5 md:h-5" />
-                    )}
-                  </Button>
-                </div>
-              </form>
-            </Card>
 
-            {/* Extracted mission confirmation */}
-            {store.guidedChat.readyToSearch && store.guidedChat.extractedMission && (
-              <Card className={cn(
-                "mb-3 shadow-lg relative overflow-hidden",
-                isEditingMission 
-                  ? "border-2 border-warning-400 shadow-warning-100/40" 
-                  : "border-primary-200 shadow-primary-100/40"
-              )}>
-                <div className={cn(
-                  "absolute inset-0 pointer-events-none",
-                  isEditingMission 
-                    ? "bg-gradient-to-br from-warning-50 via-white to-orange-50"
-                    : "bg-gradient-to-br from-primary-50 via-white to-accent-50"
-                )} />
-                <CardHeader className="relative pb-2">
-                  <div className={cn(
-                    "flex items-center gap-2",
-                    isEditingMission ? "text-warning-700" : "text-primary-700"
-                  )}>
-                    {isEditingMission ? <Wrench className="w-5 h-5" /> : <Table2 className="w-5 h-5" />}
-                    <CardTitle className="text-base md:text-lg">
-                      {isEditingMission ? 'Edit your request' : 'Please confirm your request'}
-                    </CardTitle>
-                  </div>
-                  <p className="text-xs text-surface-500 mt-1">
-                    {isEditingMission 
-                      ? '直接修改下方字段，完成后点击"保存修改"'
-                      : '已整理出的需求，请确认是否准确。点击"需要修改"可直接编辑。'}
-                  </p>
-                </CardHeader>
-                <CardContent className="relative">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <EditableInfoRow 
-                      label="What to buy" 
-                      value={isEditingMission ? editableMission.search_query : (store.guidedChat.extractedMission.search_query || '')}
-                      isEditing={isEditingMission}
-                      onChange={(v) => setEditableMission(prev => ({ ...prev, search_query: v }))}
-                      placeholder="e.g. black casual jacket"
-                    />
-                    <EditableInfoRow 
-                      label="Primary type" 
-                      value={isEditingMission ? editableMission.primary_product_type : (store.guidedChat.extractedMission.primary_product_type || store.guidedChat.extractedMission.primary_product_type_en || '')}
-                      isEditing={isEditingMission}
-                      onChange={(v) => setEditableMission(prev => ({ ...prev, primary_product_type: v }))}
-                      placeholder="e.g. jacket, coat"
-                    />
-                    <EditableInfoRow 
-                      label="Ship to" 
-                      value={isEditingMission ? editableMission.destination_country : (store.guidedChat.extractedMission.destination_country || '')}
-                      isEditing={isEditingMission}
-                      onChange={(v) => setEditableMission(prev => ({ ...prev, destination_country: v }))}
-                      placeholder="e.g. Singapore, US, Germany"
-                    />
-                    <div className="grid grid-cols-2 gap-2">
-                      <EditableInfoRow 
-                        label="Budget" 
-                        value={isEditingMission 
-                          ? editableMission.budget_amount 
-                          : (store.guidedChat.extractedMission.budget_amount?.toString() || '')}
-                        isEditing={isEditingMission}
-                        onChange={(v) => setEditableMission(prev => ({ ...prev, budget_amount: v }))}
-                        type="number"
-                        placeholder="e.g. 500"
-                      />
-                      <EditableInfoRow 
-                        label="Currency" 
-                        value={isEditingMission 
-                          ? editableMission.budget_currency 
-                          : (store.guidedChat.extractedMission.budget_currency || 'USD')}
-                        isEditing={isEditingMission}
-                        onChange={(v) => setEditableMission(prev => ({ ...prev, budget_currency: v }))}
-                        placeholder="USD, EUR, SGD"
-                      />
-                    </div>
-                    <EditableInfoRow 
-                      label="Quantity" 
-                      value={isEditingMission 
-                        ? editableMission.quantity 
-                        : (store.guidedChat.extractedMission.quantity?.toString() || '1')}
-                      isEditing={isEditingMission}
-                      onChange={(v) => setEditableMission(prev => ({ ...prev, quantity: v }))}
-                      type="number"
-                      placeholder="1"
-                    />
-                    <InfoRow label="Language" value={store.guidedChat.extractedMission.detected_language || '—'} />
-                    {!isEditingMission && (
-                      <>
-                        <InfoRow label="Hard constraints" value={renderConstraints(store.guidedChat.extractedMission.hard_constraints)} />
-                        <InfoRow label="Preferences" value={renderConstraints(store.guidedChat.extractedMission.soft_preferences)} />
-                      </>
-                    )}
-                  </div>
-
-                  {!isEditingMission && store.guidedChat.extractedMission.purchase_context && Object.values(store.guidedChat.extractedMission.purchase_context).some(Boolean) && (
-                    <div className="mt-3 p-3 rounded-xl border border-surface-200 bg-white/70">
-                      <div className="text-xs font-semibold text-surface-600 mb-2">Purchase context</div>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs text-surface-600">
-                        {store.guidedChat.extractedMission.purchase_context.occasion && (
-                          <span className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-primary-50 text-primary-700 border border-primary-100">
-                            <Sparkles className="w-3 h-3" /> {store.guidedChat.extractedMission.purchase_context.occasion}
-                          </span>
-                        )}
-                        {store.guidedChat.extractedMission.purchase_context.recipient && (
-                          <span className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-accent-50 text-accent-700 border border-accent-100">
-                            <User className="w-3 h-3" /> {store.guidedChat.extractedMission.purchase_context.recipient}
-                          </span>
-                        )}
-                        {store.guidedChat.extractedMission.purchase_context.urgency && (
-                          <span className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-warning-50 text-warning-700 border border-warning-100">
-                            <Clock className="w-3 h-3" /> {store.guidedChat.extractedMission.purchase_context.urgency}
-                          </span>
-                        )}
-                        {store.guidedChat.extractedMission.purchase_context.style_preference && (
-                          <span className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-success-50 text-success-700 border border-success-100">
-                            <LayoutGrid className="w-3 h-3" /> {store.guidedChat.extractedMission.purchase_context.style_preference}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  )}
-
-                  <div className="mt-4 flex flex-col sm:flex-row gap-2">
-                    {isEditingMission ? (
-                      <>
-                        <Button
-                          onClick={() => {
-                            // Save edits back to store
-                            const updatedMission = {
-                              ...store.guidedChat.extractedMission,
-                              search_query: editableMission.search_query,
-                              primary_product_type: editableMission.primary_product_type,
-                              primary_product_type_en: editableMission.primary_product_type,
-                              destination_country: editableMission.destination_country,
-                              budget_amount: editableMission.budget_amount ? parseFloat(editableMission.budget_amount) : null,
-                              budget_currency: editableMission.budget_currency || 'USD',
-                              quantity: parseInt(editableMission.quantity, 10) || 1,
-                            }
-                            // Update the store's extracted mission (via Zustand setter to ensure reactivity)
-                            store.updateGuidedChatMission(updatedMission as Mission)
-                            setIsEditingMission(false)
-                          }}
-                          rightIcon={<CheckCircle className="w-4 h-4" />}
-                          className="sm:flex-1"
-                        >
-                          保存修改 / Save Changes
-                        </Button>
-                        <Button
-                          variant="outline"
-                          onClick={() => {
-                            setIsEditingMission(false)
-                          }}
-                        >
-                          取消 / Cancel
-                        </Button>
-                      </>
-                    ) : (
-                      <>
-                        <Button
-                          onClick={handleConfirmChat}
-                          disabled={store.guidedChat.isStreaming}
-                          rightIcon={<ChevronRight className="w-4 h-4" />}
-                          className="sm:flex-1"
-                        >
-                          Looks good, proceed
-                        </Button>
-                        <Button
-                          variant="outline"
-                          onClick={() => {
-                            // Initialize editable values from current mission
-                            const m = store.guidedChat.extractedMission
-                            setEditableMission({
-                              search_query: m?.search_query || '',
-                              primary_product_type: m?.primary_product_type || m?.primary_product_type_en || '',
-                              destination_country: m?.destination_country || '',
-                              budget_amount: m?.budget_amount?.toString() || '',
-                              budget_currency: m?.budget_currency || 'USD',
-                              quantity: m?.quantity?.toString() || '1',
-                            })
-                            setIsEditingMission(true)
-                          }}
-                        >
-                          Need changes
-                        </Button>
-                      </>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-
-            {/* Action buttons (hide when confirmation table is present to avoid duplicate CTAs) */}
-            {!(store.guidedChat.readyToSearch && store.guidedChat.extractedMission) && (
-              <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 flex-shrink-0 mt-2">
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    store.resetGuidedChat()
-                    setChatInput('')
-                    setChatImages([])
-                  }}
-                  disabled={store.guidedChat.messages.length === 0}
-                  leftIcon={<RotateCcw className="w-4 h-4" />}
-                  className="text-sm"
-                >
-                  Start Over
-                </Button>
-                
-                <div className="flex items-center gap-2 sm:gap-3">
-                  {store.guidedChat.extractedMission && (
-                    <div className="text-xs text-surface-500 max-w-[120px] sm:max-w-xs truncate hidden sm:block">
-                      <span className="font-medium">Ready: </span>
-                      {store.guidedChat.extractedMission.search_query || 'Your request'}
-                    </div>
-                  )}
-                  <Button
-                    onClick={handleConfirmChat}
-                    disabled={!store.guidedChat.readyToSearch || store.guidedChat.isStreaming}
-                    rightIcon={<ChevronRight className="w-4 h-4" />}
-                    className={cn(
-                      "flex-1 sm:flex-none text-sm",
-                      store.guidedChat.readyToSearch && "animate-pulse"
-                    )}
-                  >
-                    Find Products
-                  </Button>
-                </div>
-              </div>
-            )}
-
-            {/* Quick start examples */}
-            {store.guidedChat.messages.length === 0 && (
-              <div className="mt-4 flex-shrink-0">
-                <p className="text-surface-500 text-xs mb-2 font-medium">Quick start:</p>
-                <div className="flex flex-wrap gap-1.5 md:gap-2">
-                  {[
-                    'Gift for my mom',
-                    'Laptop bag',
-                    'Dress for wedding',
-                  ].map((example) => (
-                    <button
-                      key={example}
-                      onClick={() => {
-                        setChatInput(example)
-                      }}
-                      className="px-2.5 py-1 md:px-3 md:py-1.5 bg-white hover:bg-surface-50 border border-surface-200 rounded-lg text-surface-600 text-xs transition-all hover:border-primary-300 hover:text-primary-600"
-                    >
-                      {example}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Processing View - Light theme */}
-        {currentView === 'processing' && (
-          <div className="animate-fade-in">
-            <div className="text-center mb-8">
-              <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-br from-primary-500 to-accent-500 mb-4 shadow-tech">
-                {store.isStreaming ? (
-                  <Loader2 className="w-8 h-8 text-white animate-spin" />
-                ) : (
-                  <Bot className="w-8 h-8 text-white" />
-                )}
-              </div>
-              {/* Extra "system is running" motion: animated progress bar */}
-              <div className="max-w-xl mx-auto mb-4">
-                <div className="h-2 rounded-full bg-surface-100 border border-surface-200 overflow-hidden">
-                  <div className="h-full w-1/2 bg-gradient-to-r from-primary-500 via-accent-500 to-primary-500 animate-gradient-x animate-progress" />
-                </div>
-              </div>
-              <h2 className="text-2xl font-bold text-surface-800 mb-2">
-                {store.isStreaming ? 'AI Agents are working...' : 'Processing your request...'}
-              </h2>
-              <p className="text-surface-500 max-w-md mx-auto">&quot;{store.query}&quot;</p>
-            </div>
-
-            {/* Agent needs more input - inline input box */}
-            {store.orderState === 'WAITING_USER_INPUT' && store.lastAgentMessage && (
-              <Card variant="gradient" className="mb-6 ring-2 ring-primary-200">
-                <CardContent className="p-5">
-                  <div className="flex items-start gap-4 mb-4">
-                    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary-500 to-accent-500 flex items-center justify-center flex-shrink-0 shadow-md animate-pulse">
-                      <Bot className="w-6 h-6 text-white" />
-                    </div>
-                    <div className="flex-1">
-                      <h3 className="text-lg font-bold text-surface-800 mb-2">🤔 I need a bit more information</h3>
-                      <div className="text-surface-600 whitespace-pre-wrap leading-relaxed bg-white/50 rounded-lg p-3 border border-surface-100">
-                        {store.lastAgentMessage}
-                      </div>
-                    </div>
-                  </div>
-                  <form onSubmit={handleFollowUpSubmit} className="flex gap-3">
-                    <input
-                      type="text"
-                      value={followUpQuery}
-                      onChange={(e) => setFollowUpQuery(e.target.value)}
-                      placeholder="Type your response here..."
-                      className="flex-1 px-4 py-3 rounded-xl border border-surface-200 bg-white focus:outline-none focus:ring-2 focus:ring-primary-500 text-surface-800"
-                      autoFocus
-                    />
-                    <Button type="submit" disabled={!followUpQuery.trim()}>
-                      <Send className="w-4 h-4 mr-2" />
-                      Send
-                    </Button>
-                  </form>
-                </CardContent>
-              </Card>
-            )}
-
-            {/* Parsed Mission - Light theme */}
-            {store.mission && (
-              <Card className="mb-6">
-                <CardContent className="p-5">
-                  <h3 className="text-surface-700 text-sm font-semibold mb-3 flex items-center gap-2">
-                    <span className="w-6 h-6 rounded-md bg-primary-100 flex items-center justify-center">
-                      <Sparkles className="w-3.5 h-3.5 text-primary-600" />
-                    </span>
-                    Parsed Mission
-                  </h3>
-                  <div className="flex flex-wrap gap-3 text-sm">
-                    <Badge variant="info">🌍 {store.mission.destination_country}</Badge>
-                    {store.mission.budget_amount != null && (
-                    <Badge variant="success">💰 ${store.mission.budget_amount}</Badge>
-                    )}
-                    {store.mission.detected_language && (
-                      <Badge variant="default">🗣️ {store.mission.detected_language}</Badge>
-                    )}
-                    {store.mission.hard_constraints.map((c) => (
-                      <Badge key={c.value} variant="default">{c.value}</Badge>
-                    ))}
-                  </div>
-
-                  {/* Purchase Context */}
-                  {store.mission.purchase_context && (
-                    <div className="mt-4 flex flex-wrap gap-2 text-xs">
-                      {store.mission.purchase_context.occasion && (
-                        <Badge variant="accent">🎯 {store.mission.purchase_context.occasion}</Badge>
-                      )}
-                      {store.mission.purchase_context.recipient && (
-                        <Badge variant="accent">🎁 {store.mission.purchase_context.recipient}</Badge>
-                      )}
-                      {store.mission.purchase_context.style_preference && (
-                        <Badge variant="accent">✨ {store.mission.purchase_context.style_preference}</Badge>
-                      )}
-                      {store.mission.purchase_context.budget_sensitivity && (
-                        <Badge variant="accent">💡 {store.mission.purchase_context.budget_sensitivity}</Badge>
-                      )}
-                      {(store.mission.purchase_context.special_requirements || []).slice(0, 4).map((r) => (
-                        <Badge key={r} variant="default">{r}</Badge>
-                      ))}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            )}
-
-            {/* Current thinking step - Light theme */}
-            {store.currentThinkingStep && (
-              <Card variant="gradient" className="mb-6 animate-pulse-slow ring-2 ring-primary-100">
-                <CardContent className="p-4">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary-500 to-accent-500 flex items-center justify-center shadow-md">
-                      <Brain className="w-5 h-5 text-white animate-pulse" />
-                    </div>
-                    <div className="flex-1">
-                      <span className="text-xs text-primary-500 font-semibold uppercase tracking-wide">Current Thought</span>
-                      <p className="text-primary-700 font-medium">{store.currentThinkingStep}</p>
-                    </div>
-                    <div className="flex gap-1">
-                      <span className="w-2 h-2 bg-primary-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                      <span className="w-2 h-2 bg-primary-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                      <span className="w-2 h-2 bg-primary-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-
-            {/* Agent Progress - Light theme */}
-            <div className="space-y-4">
-              {store.agentSteps.map((step, index) => (
-                <Card
-                  key={step.id}
-                  variant={
-                    step.status === 'completed' ? 'success' :
-                    step.status === 'running' ? 'gradient' : 'default'
-                  }
-                  className={cn(
-                    "transition-all duration-500 overflow-hidden",
-                    step.status === 'running' && "ring-2 ring-primary-300 shadow-lg shadow-primary-100",
-                    step.status === 'pending' && "opacity-50"
-                  )}
-                >
-                  {/* Running indicator bar */}
-                  {step.status === 'running' && (
-                    <div className="h-1 bg-gradient-to-r from-primary-400 via-accent-400 to-primary-400 animate-gradient-x" />
-                  )}
-                  
-                  <CardContent className="p-0">
-                    <button
-                      onClick={() => step.status !== 'pending' && toggleStepExpansion(index)}
-                      className="w-full p-5 flex items-center gap-4"
-                      disabled={step.status === 'pending'}
-                    >
-                      <div className={cn(
-                        "text-3xl transition-transform duration-300",
-                        step.status === 'running' && "animate-bounce-slow"
-                      )}>
-                        {step.icon}
-                      </div>
-                      <div className="flex-1 text-left">
-                        <div className="flex items-center gap-2">
-                          <h3 className={cn(
-                            "font-semibold",
-                            step.status === 'running' ? "text-primary-700" : "text-surface-800"
-                          )}>
-                            {step.name}
-                          </h3>
-                          {step.status === 'running' && (
-                            <Badge variant="info" className="animate-pulse">Running</Badge>
-                          )}
-                          {step.status === 'completed' && step.duration && (
-                            <span className="text-xs text-surface-400">
-                              {(step.duration / 1000).toFixed(1)}s
-                            </span>
-                          )}
-                        </div>
-                        <p className={cn(
-                          "text-sm",
-                          step.status === 'running' ? "text-primary-600" : "text-surface-500"
-                        )}>
-                          {step.description}
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        {step.status === 'completed' ? (
-                          <div className="w-10 h-10 rounded-xl bg-success-100 flex items-center justify-center shadow-sm">
-                            <CheckCircle className="w-6 h-6 text-success-600" />
-                          </div>
-                        ) : step.status === 'running' ? (
-                          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary-500 to-accent-500 flex items-center justify-center shadow-md">
-                            <Loader2 className="w-6 h-6 text-white animate-spin" />
-                          </div>
-                        ) : (
-                          <div className="w-10 h-10 rounded-xl border-2 border-surface-200 border-dashed flex items-center justify-center">
-                            <span className="text-surface-300 text-sm font-medium">{index + 1}</span>
-                          </div>
-                        )}
-                        {step.status !== 'pending' && (
-                          expandedStep === index ? (
-                            <ChevronUp className="w-5 h-5 text-surface-400" />
-                          ) : (
-                            <ChevronDown className="w-5 h-5 text-surface-400" />
-                          )
-                        )}
-                      </div>
-                    </button>
-                    
-                    {/* Expanded details */}
-                    {expandedStep === index && (
-                      <div className="px-5 pb-5 border-t border-surface-100 bg-surface-50/50">
-                        <AgentStepDetail step={step} isActive={step.status === 'running'} />
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-            
-            {/* Processing status footer */}
-            {store.isStreaming && (
-              <div className="mt-6 text-center">
-                <p className="text-sm text-surface-500 font-medium">
-                  <span className="inline-flex items-center gap-2">
-                    <span className="w-2 h-2 bg-primary-500 rounded-full animate-pulse" />
-                    Multi-agent system is analyzing your request...
-                  </span>
-                </p>
-                <p className="text-xs text-surface-400 mt-1">
-                  This usually takes 10-30 seconds depending on complexity
-                </p>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Plans View - Light theme */}
-        {currentView === 'plans' && (
-          <div className="animate-fade-in">
-            <div className="text-center mb-8">
-              <h2 className="text-2xl font-bold text-surface-800 mb-2">Choose Your Plan</h2>
-              <p className="text-surface-500">We found {store.plans.length} options for you</p>
-            </div>
-
-            {/* AI Recommendation Card - Light theme */}
-            {store.aiRecommendation && (
-              <Card variant="gradient" className="mb-6">
-                <CardContent className="p-5">
-                  <div className="flex items-start gap-4">
-                    <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-primary-500 to-accent-500 flex items-center justify-center flex-shrink-0 shadow-lg shadow-primary-500/20">
-                      <Bot className="w-6 h-6 text-white" />
-                    </div>
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-1.5">
-                        <span className="text-primary-700 font-bold">AI Recommendation</span>
-                        <Badge variant="success">
-                          {Math.round(store.aiRecommendation.confidence * 100)}% confidence
-                        </Badge>
-                      </div>
-                      <p className="text-surface-600 text-sm">{store.aiRecommendation.reason}</p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-
-            {/* Stats & View Toggle */}
-            <Card className="mb-6">
-              <CardContent className="flex items-center justify-between p-4">
-                <div className="flex items-center gap-2 text-sm">
-                  <div className="w-7 h-7 rounded-lg bg-success-100 flex items-center justify-center">
-                    <DollarSign className="w-3.5 h-3.5 text-success-600" />
-                  </div>
-                  <span className="text-surface-700 font-semibold">{store.plans.length}</span>
-                  <span className="text-surface-400">plans</span>
-                </div>
-                
-                {/* View Mode Toggle */}
-                <div className="flex items-center gap-1 p-1 bg-surface-100 rounded-xl">
-                  <button
-                    onClick={() => setViewMode('cards')}
-                    className={cn(
-                      "flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all",
-                      viewMode === 'cards' 
-                        ? "bg-white text-primary-600 shadow-sm" 
-                        : "text-surface-500 hover:text-surface-700"
-                    )}
-                  >
-                    <LayoutGrid className="w-4 h-4" />
-                    <span className="hidden sm:inline">Cards</span>
-                  </button>
-                  <button
-                    onClick={() => setViewMode('table')}
-                    className={cn(
-                      "flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all",
-                      viewMode === 'table' 
-                        ? "bg-white text-primary-600 shadow-sm" 
-                        : "text-surface-500 hover:text-surface-700"
-                    )}
-                  >
-                    <Table2 className="w-4 h-4" />
-                    <span className="hidden sm:inline">Compare</span>
-                  </button>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Comparison Table View */}
-            {viewMode === 'table' && (
-              <div className="mb-6">
-                <ComparisonTable plans={store.plans} onSelectPlan={handleSelectPlan} />
-              </div>
-            )}
-
-            {/* Cards View */}
-            {viewMode === 'cards' && (
-              <div className="grid gap-4">
-                {store.plans.map((plan) => (
-                  <Card
-                    key={plan.name}
-                    interactive
-                    onClick={() => handleSelectPlan(plan)}
-                    className={cn(
-                      "p-6 relative",
-                      plan.recommended && "ring-2 ring-primary-200"
-                    )}
-                  >
-                    {plan.recommended && (
-                      <div className="absolute -top-3 left-4 px-3 py-1.5 bg-gradient-to-r from-primary-500 to-accent-500 rounded-full text-xs text-white font-semibold flex items-center gap-1.5 shadow-lg shadow-primary-500/20">
-                        <Sparkles className="w-3 h-3" />
-                        AI Recommended
-                      </div>
-                    )}
-                    
-                    <div className="flex items-start gap-5">
-                      <ProductImage 
-                        imageUrl={plan.product.imageUrl}
-                        fallbackEmoji={plan.emoji}
-                        alt={plan.product.title}
-                        size="lg"
-                      />
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2 mb-1.5">
-                          <h3 className="text-xl font-bold text-surface-800">{plan.name}</h3>
-                          <Badge variant={
-                            plan.type === 'cheapest' ? 'success' :
-                            plan.type === 'fastest' ? 'info' : 'warning'
-                          }>
-                            {plan.type.replace('_', ' ')}
-                          </Badge>
-                          {plan.product.source === 'xoobay' && (
-                            <Badge variant="accent" className="text-[10px]">XOOBAY</Badge>
-                          )}
-                        </div>
-                        <p className="text-surface-700 font-medium mb-1">{plan.product.title}</p>
-                        {plan.product.shortDescription && (
-                          <p className="text-surface-500 text-xs mb-2">{plan.product.shortDescription}</p>
-                        )}
-                        <p className="text-surface-500 text-sm mb-3">{plan.reason}</p>
-
-                        {/* AI Recommendation Reason (per plan) */}
-                        {(plan.aiRecommendation?.main_reason || (plan.productHighlights && plan.productHighlights.length > 0)) && (
-                          <div className="mb-3 rounded-xl border border-surface-200 bg-surface-50 px-4 py-3">
-                            {plan.aiRecommendation?.main_reason && (
-                              <div className="flex items-start gap-2">
-                                <Bot className="w-4 h-4 text-primary-600 mt-0.5" />
-                                <div className="text-sm text-surface-700 leading-relaxed">
-                                  <span className="font-semibold text-surface-800">AI 推荐：</span>
-                                  {plan.aiRecommendation.main_reason}
-                                  {plan.aiRecommendation.seasonal_relevance && (
-                                    <div className="mt-1 text-xs text-surface-500">
-                                      <span className="font-semibold">季节/节日：</span>{plan.aiRecommendation.seasonal_relevance}
-                                    </div>
-                                  )}
-                                  {plan.aiRecommendation.value_proposition && (
-                                    <div className="mt-1 text-xs text-surface-500">
-                                      <span className="font-semibold">价值点：</span>{plan.aiRecommendation.value_proposition}
-                                    </div>
-                                  )}
-                                  {plan.aiRecommendation.personalized_tip && (
-                                    <div className="mt-1 text-xs text-surface-500">
-                                      <span className="font-semibold">小建议：</span>{plan.aiRecommendation.personalized_tip}
-                                    </div>
-                                  )}
-                                </div>
-                              </div>
-                            )}
-
-                            {plan.productHighlights && plan.productHighlights.length > 0 && (
-                              <div className={cn("mt-2 flex flex-wrap gap-2", !plan.aiRecommendation?.main_reason && "mt-0")}>
-                                {plan.productHighlights.slice(0, 6).map((h, idx) => (
-                                  <Badge key={`${plan.name}-hl-${idx}`} variant="default">{h}</Badge>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        )}
-                        
-                        {/* Product Link */}
-                        {plan.product.productUrl && (
-                          <div className="mb-3">
-                            <ProductLink url={plan.product.productUrl} storeName={plan.product.storeName} />
-                          </div>
-                        )}
-                        
-                        {/* Tax Confidence */}
-                        <div className="flex items-center gap-4 mb-3">
-                          <div className="flex items-center gap-1.5">
-                            <Receipt className="w-4 h-4 text-surface-400" />
-                            <span className="text-sm text-surface-500">Tax:</span>
-                            <span className={cn("text-sm font-semibold", getTaxConfidenceColor(plan.tax.confidence))}>
-                              ${plan.tax.amount} ({plan.tax.confidence})
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-1.5">
-                            <Truck className="w-4 h-4 text-surface-400" />
-                            <span className="text-sm text-surface-500">{plan.deliveryDays} days</span>
-                          </div>
-                        </div>
-
-                        {/* Compliance Risks */}
-                        {plan.product.complianceRisks.length > 0 && (
-                          <div className="flex flex-wrap gap-2 mb-3">
-                            {plan.product.complianceRisks.map((risk, i) => (
-                              <div key={i} className="flex items-center gap-1.5 px-2.5 py-1 bg-warning-50 border border-warning-200 rounded-lg text-xs">
-                                <span>{getComplianceIcon(risk.type)}</span>
-                                <span className="text-warning-700 font-medium">{risk.message}</span>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                        
-                        <div className="grid grid-cols-4 gap-4 text-sm mt-4 pt-4 border-t border-surface-100">
-                          <div>
-                            <span className="text-surface-400 block text-xs font-medium mb-1">Product</span>
-                            <span className="text-surface-800 font-bold">${plan.product.price}</span>
-                          </div>
-                          <div>
-                            <span className="text-surface-400 block text-xs font-medium mb-1">Shipping</span>
-                            <span className="text-surface-800 font-bold">{plan.shipping === 0 ? 'FREE' : `$${plan.shipping}`}</span>
-                          </div>
-                          <div>
-                            <span className="text-surface-400 block text-xs font-medium mb-1">Tax Est.</span>
-                            <span className={cn("font-bold", getTaxConfidenceColor(plan.tax.confidence))}>
-                              ${plan.tax.amount}
-                            </span>
-                          </div>
-                          <div>
-                            <span className="text-surface-400 block text-xs font-medium mb-1">Delivery</span>
-                            <span className="text-surface-800 font-bold">{plan.deliveryDays} days</span>
-                          </div>
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <span className="text-surface-400 text-xs font-medium block">Total</span>
-                        <span className="text-3xl font-bold text-surface-800">${plan.total}</span>
-                        <ChevronRight className="w-5 h-5 text-surface-300 ml-auto mt-2 group-hover:text-primary-500 transition-colors" />
-                      </div>
-                    </div>
-                  </Card>
-                ))}
-              </div>
-            )}
-
-            <Button
-              variant="outline"
-              onClick={handleReset}
-              className="mt-6 w-full"
-            >
-              Start Over
-            </Button>
-          </div>
-        )}
-
-        {/* Confirmation View - Light theme */}
-        {currentView === 'confirmation' && store.draftOrder && (
-          <div className="animate-fade-in">
-            <div className="text-center mb-8">
-              <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-success-100 mb-4">
-                <Package className="w-8 h-8 text-success-600" />
-              </div>
-              <h2 className="text-2xl font-bold text-surface-800 mb-2">Draft Order Created!</h2>
-              <p className="text-surface-500">Review and confirm before proceeding to payment</p>
-            </div>
-
-            <Card className="overflow-hidden">
-              {/* Order Header */}
-              <div className="p-6 border-b border-surface-100 bg-surface-50">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <span className="text-surface-400 text-xs font-medium">Order ID</span>
-                    <p className="text-surface-800 font-mono font-semibold">{store.draftOrder.id}</p>
-                  </div>
-                  <div className="flex items-center gap-2 px-3 py-1.5 bg-warning-50 border border-warning-200 rounded-lg">
-                    <Clock className="w-4 h-4 text-warning-600" />
-                    <span className="text-warning-700 text-sm font-medium">
-                      Expires: {new Date(store.draftOrder.expiresAt).toLocaleString()}
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Order Items */}
-              <div className="p-6 border-b border-surface-100">
-                <div className="flex items-center gap-5">
-                  <ProductImage 
-                    imageUrl={store.draftOrder.plan.product.imageUrl}
-                    fallbackEmoji={store.draftOrder.plan.product.image}
-                    alt={store.draftOrder.plan.product.title}
-                    size="xl"
-                  />
-                  <div className="flex-1">
-                    <h3 className="text-surface-800 font-semibold text-lg">{store.draftOrder.plan.product.title}</h3>
-                    <p className="text-surface-500 text-sm">
-                      {store.draftOrder.plan.product.brand} · ★ {store.draftOrder.plan.product.rating}
-                    </p>
-                    {store.draftOrder.plan.product.shortDescription && (
-                      <p className="text-surface-400 text-xs mt-1">{store.draftOrder.plan.product.shortDescription}</p>
-                    )}
-                    {store.draftOrder.plan.product.productUrl && (
-                      <div className="mt-2">
-                        <ProductLink 
-                          url={store.draftOrder.plan.product.productUrl} 
-                          storeName={store.draftOrder.plan.product.storeName} 
-                        />
-                      </div>
-                    )}
-                  </div>
-                  <div className="text-surface-800 font-bold text-xl">${store.draftOrder.plan.product.price}</div>
-                </div>
-              </div>
-
-              {/* Tax Breakdown */}
-              <div className="p-6 border-b border-surface-100">
-                <h4 className="text-surface-800 font-semibold mb-4 flex items-center gap-2">
-                  <Receipt className="w-4 h-4" />
-                  Tax & Duty Estimate
-                </h4>
-                <div className="space-y-3 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-surface-500">VAT/GST</span>
-                    <span className="text-surface-700 font-medium">${store.draftOrder.plan.tax.breakdown.vat.toFixed(2)}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-surface-500">Import Duty</span>
-                    <span className="text-surface-700 font-medium">${store.draftOrder.plan.tax.breakdown.duty.toFixed(2)}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-surface-500">Handling Fee</span>
-                    <span className="text-surface-700 font-medium">${store.draftOrder.plan.tax.breakdown.handling.toFixed(2)}</span>
-                  </div>
-                  <div className="flex justify-between pt-3 border-t border-surface-100">
-                    <span className="text-surface-700 font-medium">Total Tax Estimate</span>
-                    <div className="flex items-center gap-2">
-                      <span className="text-surface-800 font-bold">${store.draftOrder.plan.tax.amount}</span>
-                      <Badge variant={
-                        store.draftOrder.plan.tax.confidence === 'high' ? 'success' :
-                        store.draftOrder.plan.tax.confidence === 'medium' ? 'warning' : 'danger'
-                      }>
-                        {store.draftOrder.plan.tax.confidence}
-                      </Badge>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Compliance Risks */}
-              {store.draftOrder.plan.product.complianceRisks.length > 0 && (
-                <div className="p-6 border-b border-surface-100 bg-warning-50/50">
-                  <h4 className="text-surface-800 font-semibold mb-4 flex items-center gap-2">
-                    <Shield className="w-4 h-4 text-warning-600" />
-                    Compliance Information
-                  </h4>
-                  <div className="space-y-3">
-                    {store.draftOrder.plan.product.complianceRisks.map((risk, i) => (
-                      <Card key={i} variant="warning" className="p-4">
-                        <div className="flex items-start gap-3">
-                          <span className="text-2xl">{getComplianceIcon(risk.type)}</span>
-                          <div>
-                            <p className="text-warning-700 font-semibold capitalize">{risk.type} Warning</p>
-                            <p className="text-surface-600 text-sm">{risk.message}</p>
-                            {risk.mitigation && (
-                              <p className="text-success-600 text-sm mt-1 font-medium">✓ {risk.mitigation}</p>
-                            )}
-                          </div>
-                        </div>
-                      </Card>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Order Summary */}
-              <div className="p-6 space-y-3 border-b border-surface-100">
-                <div className="flex justify-between text-surface-500">
-                  <span>Subtotal</span>
-                  <span className="font-medium">${store.draftOrder.plan.product.price}</span>
-                </div>
-                <div className="flex justify-between text-surface-500">
-                  <span>Shipping</span>
-                  <span className="font-medium">{store.draftOrder.plan.shipping === 0 ? 'FREE' : `$${store.draftOrder.plan.shipping}`}</span>
-                </div>
-                <div className="flex justify-between text-surface-500">
-                  <span>Tax & Duty</span>
-                  <span className="font-medium">${store.draftOrder.plan.tax.amount}</span>
-                </div>
-                <div className="h-px bg-surface-200 my-4" />
-                <div className="flex justify-between text-xl font-bold text-surface-800">
-                  <span>Total</span>
-                  <span>${store.draftOrder.plan.total}</span>
-                </div>
-              </div>
-
-              {/* Confirmation Items */}
-              <div className="p-6 border-b border-surface-100">
-                <h4 className="text-surface-800 font-semibold mb-4 flex items-center gap-2">
-                  <CheckCircle className="w-4 h-4 text-primary-500" />
-                  Required Confirmations
-                </h4>
-                <div className="space-y-4">
-                  {store.draftOrder.confirmationItems.map((item) => (
-                    <Card 
-                      key={item.id} 
-                      variant={item.checked ? 'success' : 'default'}
-                      className="p-4"
-                    >
-                      <div className="flex items-start gap-4">
-                        <Checkbox
-                          id={item.id}
-                          checked={item.checked}
-                          onCheckedChange={() => store.toggleConfirmation(item.id)}
-                        />
-                        <div className="flex-1">
-                          <label 
-                            htmlFor={item.id} 
-                            className="text-surface-800 font-medium cursor-pointer flex items-center gap-2"
+                  <div className="flex items-center gap-1 flex-shrink-0">
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button
+                            type="button"
+                            onClick={() => fileInputRef.current?.click()}
+                            disabled={chatImages.length >= 4 || store.guidedChat.isStreaming || store.orderState !== 'IDLE'}
+                            className="w-9 h-9 rounded-lg flex items-center justify-center text-[#6b6c6c] hover:bg-[#f5f5f3] hover:text-[#2d3436] transition-colors disabled:opacity-50"
                           >
-                            {item.title}
-                            {item.required && <span className="text-danger-500 text-xs font-semibold">*Required</span>}
-                          </label>
-                          <p className="text-surface-500 text-sm mt-1">{item.description}</p>
-                        </div>
-                      </div>
-                    </Card>
-                  ))}
+                            <ImagePlus className="w-5 h-5" />
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent side="top">上传图片</TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+
+                    <button
+                      type="submit"
+                      disabled={store.orderState !== 'IDLE' || (!chatInput.trim() && chatImages.length === 0) || store.guidedChat.isStreaming}
+                      className="w-9 h-9 rounded-lg flex items-center justify-center bg-[#20b8cd] text-white hover:bg-[#1aa3b6] transition-colors disabled:opacity-50"
+                    >
+                      {store.guidedChat.isStreaming ? (
+                        <Loader2 className="w-5 h-5 animate-spin" />
+                      ) : (
+                        <Send className="w-5 h-5" />
+                      )}
+                    </button>
+                  </div>
                 </div>
               </div>
-
-              {/* Evidence */}
-              <div className="p-4 bg-surface-50">
-                <div className="flex items-center gap-2 text-surface-400 text-sm">
-                  <Info className="w-4 h-4" />
-                  <span>Evidence: <code className="text-primary-600 font-mono">{store.draftOrder.evidenceSnapshotId}</code></span>
-                </div>
-              </div>
-            </Card>
-
-            {/* Important Notice */}
-            <Alert variant="warning" className="mt-6">
-              <AlertTriangle className="w-5 h-5" />
-              <AlertTitle>Payment Not Captured</AlertTitle>
-              <AlertDescription>
-                Check all required boxes to proceed to payment.
-              </AlertDescription>
-            </Alert>
-
-            {/* Actions */}
-            <div className="mt-6 flex gap-4">
-              <Button
-                variant="outline"
-                onClick={handleReset}
-                className="flex-1"
-              >
-                Start New Search
-              </Button>
-              <Button
-                disabled={!store.canProceedToPayment()}
-                className="flex-1"
-                leftIcon={<ShoppingCart className="w-5 h-5" />}
-              >
-                Proceed to Payment
-              </Button>
-            </div>
+            </form>
           </div>
-        )}
-      </div>
-
-      {/* Footer - Light theme */}
-      <footer className="fixed bottom-0 left-0 right-0 py-4 border-t border-surface-200 bg-white/90 backdrop-blur-xl">
-        <div className="max-w-6xl mx-auto px-4 flex items-center justify-between text-surface-400 text-sm">
-          <span className="font-medium">Multi-AI-Agent4OnlineShopping © 2024</span>
-          <span className="text-surface-500 font-medium">Powered by Multi-Agent Shopping</span>
         </div>
-      </footer>
+      )}
+
+      {/* Footer - Landing Page Only */}
+      {isLanding && (
+        <footer className="fixed bottom-0 left-0 right-0 py-4 border-t border-[#e0e0de] bg-[#f8f8f6]/90 backdrop-blur-xl">
+          <div className="max-w-6xl mx-auto px-4 flex items-center justify-between text-sm text-[#9a9a98]">
+            <span className="font-medium">Multi-AI-Agent4OnlineShopping © 2024</span>
+            <span className="font-medium text-[#6b6c6c]">Powered by Multi-Agent Shopping</span>
+          </div>
+        </footer>
+      )}
     </main>
   )
 }

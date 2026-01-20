@@ -1,4 +1,5 @@
 import type { Metadata } from 'next'
+import Script from 'next/script'
 import { Plus_Jakarta_Sans, JetBrains_Mono } from 'next/font/google'
 import './globals.css'
 
@@ -20,6 +21,8 @@ export const metadata: Metadata = {
   keywords: ['AI', 'Shopping', 'Multi-Agent', 'LangGraph', 'E-commerce'],
 }
 
+const useMockApi = process.env.NEXT_PUBLIC_MOCK_API === '1'
+
 export default function RootLayout({
   children,
 }: {
@@ -27,7 +30,10 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" className={`${plusJakarta.variable} ${jetbrainsMono.variable}`}>
-      <body className="font-sans antialiased bg-surface-50">{children}</body>
+      <body className="font-sans antialiased bg-surface-50">
+        {useMockApi && <Script src="/mock-api.js" strategy="beforeInteractive" />}
+        {children}
+      </body>
     </html>
   )
 }

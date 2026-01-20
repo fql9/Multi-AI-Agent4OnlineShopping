@@ -111,7 +111,8 @@ services:
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:28004,http://web-app:3001}
       # XOOBAY API 配置
       XOOBAY_ENABLED: ${XOOBAY_ENABLED:-false}
-      XOOBAY_API_KEY: ${XOOBAY_API_KEY:-}
+      XOOBAY_FALLBACK_ON_EMPTY: ${XOOBAY_FALLBACK_ON_EMPTY:-true}
+      XOOBAY_API_KEY: ${XOOBAY_API_KEY:-xoobay_api_ai_geo}
       XOOBAY_BASE_URL: ${XOOBAY_BASE_URL:-https://www.xoobay.com}
       XOOBAY_LANG: ${XOOBAY_LANG:-en}
       # 日志配置

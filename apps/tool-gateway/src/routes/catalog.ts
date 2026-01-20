@@ -49,6 +49,17 @@ function extractSearchTokens(input: string): string[] {
   return deduped;
 }
 
+function resolveAppEnv(): string {
+  return process.env.APP_ENV ?? process.env.NODE_ENV ?? 'development';
+}
+
+function shouldAllowXoobayFallback(): boolean {
+  const flag = process.env.XOOBAY_FALLBACK_ON_EMPTY;
+  if (flag === 'true') return true;
+  if (flag === 'false') return false;
+  return resolveAppEnv() !== 'production';
+}
+
 // Product type definitions (Enhanced for AROC v0.2)
 interface OfferRow {
   id: string;
@@ -221,10 +232,15 @@ export async function catalogRoutes(app: FastifyInstance): Promise<void> {
       // XOOBAY API integration: supplement data if results are insufficient or XOOBAY is enabled
       let xoobayOffers: Array<{ id: string; score: number }> = [];
       const xoobayEnabled = process.env.XOOBAY_ENABLED === 'true';
+      const xoobayFallbackOnEmpty = shouldAllowXoobayFallback();
       const minResults = Math.max(limit, 10); // Minimum required results
+      const fallbackNeeded = xoobayFallbackOnEmpty && offers.length === 0;
+      const shouldUseXoobay = xoobayEnabled || fallbackNeeded;
 
       logger.info({ 
         xoobay_enabled: xoobayEnabled,
+        xoobay_fallback_on_empty: xoobayFallbackOnEmpty,
+        xoobay_fallback_used: fallbackNeeded,
         offers_count: offers.length,
         min_results: minResults,
         has_query: !!searchQuery,
@@ -232,12 +248,30 @@ export async function catalogRoutes(app: FastifyInstance): Promise<void> {
       }, 'XOOBAY integration check');
 
       // Call XOOBAY API if enabled and has search query, or if results are insufficient
-      if (xoobayEnabled && (offers.length < minResults || searchQuery)) {
+      if (shouldUseXoobay && (offers.length < minResults || searchQuery)) {
         logger.info({ searchQuery, offers_count: offers.length }, 'Attempting to fetch from XOOBAY API');
         try {
           const xoobayClient = getXOOBAYClient();
-          logger.info({ searchQuery }, 'Calling XOOBAY searchProducts');
-          const xoobayResult = await xoobayClient.searchProducts(searchQuery || '', 1);
+          
+          // XOOBAY API doesn't support multi-word search well
+          // Try with individual keywords if the full query returns no results
+          const searchTerms = (searchQuery || '').split(/\s+/).filter(t => t.length > 0);
+          let xoobaySearchQuery = searchQuery || '';
+          
+          logger.info({ searchQuery, searchTerms }, 'Calling XOOBAY searchProducts');
+          let xoobayResult = await xoobayClient.searchProducts(xoobaySearchQuery, 1);
+          
+          // If no results with full query, try individual keywords (prioritize last keyword which is often the product type)
+          if (xoobayResult.list.length === 0 && searchTerms.length > 1) {
+            // Try the last word first (often the product type: "black jacket" -> "jacket")
+            for (let i = searchTerms.length - 1; i >= 0 && xoobayResult.list.length === 0; i--) {
+              const term = searchTerms[i];
+              if (term.length >= 3) { // Only try words with 3+ characters
+                logger.info({ term, original_query: searchQuery }, 'Retrying XOOBAY with single keyword');
+                xoobayResult = await xoobayClient.searchProducts(term, 1);
+              }
+            }
+          }
           
           logger.info({ 
             xoobay_total: xoobayResult.list.length,
@@ -264,7 +298,7 @@ export async function catalogRoutes(app: FastifyInstance): Promise<void> {
         }
       } else {
         logger.info({ 
-          reason: !xoobayEnabled ? 'XOOBAY disabled' : 
+          reason: !shouldUseXoobay ? 'XOOBAY disabled' : 
                   offers.length >= minResults && !searchQuery ? 'Enough DB results and no query' : 
                   'Unknown reason'
         }, 'Skipping XOOBAY API call');
@@ -281,7 +315,7 @@ export async function catalogRoutes(app: FastifyInstance): Promise<void> {
         }
       }
 
-      const finalTotal = totalCount + (xoobayEnabled ? xoobayOffers.length : 0);
+      const finalTotal = totalCount + (shouldUseXoobay ? xoobayOffers.length : 0);
 
       logger.info({ 
         query: searchQuery, 
@@ -295,7 +329,8 @@ export async function catalogRoutes(app: FastifyInstance): Promise<void> {
         createSuccessResponse({
           offer_ids: mergedOffers.map(o => o.id),
           scores: mergedOffers.map(o => o.score / 5), // 归一化到 0-1
-          total_count: finalTotal,
+          total: finalTotal,  // Frontend expects 'total' not 'total_count'
+          total_count: finalTotal,  // Keep for backward compatibility
           has_more: offset + mergedOffers.length < finalTotal,
         }, {
           ttl_seconds: 60, // Cache search results for 60 seconds
@@ -332,16 +367,21 @@ export async function catalogRoutes(app: FastifyInstance): Promise<void> {
         `SELECT * FROM agent.offers WHERE id = $1`,
         [offerId]
       );
+      const xoobayEnabled = process.env.XOOBAY_ENABLED === 'true';
+      const xoobayFallbackOnEmpty = shouldAllowXoobayFallback();
+      const shouldUseXoobay = xoobayEnabled || xoobayFallbackOnEmpty;
+      let fetchedFromXoobay = false;
 
       // If not in database and is XOOBAY product, fetch from API
-      if (!offer && offerId.startsWith('xoobay_') && process.env.XOOBAY_ENABLED === 'true') {
-        logger.info({ offer_id: offerId, xoobay_enabled: true }, 'Fetching from XOOBAY API');
+      if (!offer && offerId.startsWith('xoobay_') && shouldUseXoobay) {
+        logger.info({ offer_id: offerId, xoobay_enabled: xoobayEnabled, xoobay_fallback_on_empty: xoobayFallbackOnEmpty }, 'Fetching from XOOBAY API');
         try {
           const xoobayId = offerId.replace('xoobay_', '');
           logger.info({ xoobay_id: xoobayId }, 'Calling XOOBAY getProductInfo');
           const xoobayClient = getXOOBAYClient();
           const xoobayProduct = await xoobayClient.getProductInfo(xoobayId);
           logger.info({ product_name: xoobayProduct.name }, 'XOOBAY product fetched successfully');
+          fetchedFromXoobay = true;
 
           // Convert to database format
           // Fix price parsing: ensure correct conversion to number
@@ -351,6 +391,18 @@ export async function catalogRoutes(app: FastifyInstance): Promise<void> {
             const priceNum = parseFloat(priceStr)
             basePrice = isNaN(priceNum) ? 0 : Math.round(priceNum * 100) / 100 // Keep 2 decimal places
           }
+          
+          // Generate product URL from product name (slug format)
+          const productSlug = xoobayProduct.name
+            .toLowerCase()
+            .normalize('NFKD')
+            .replace(/['"]/g, '')
+            .replace(/&/g, ' and ')
+            .replace(/[^a-z0-9]+/g, '-')
+            .replace(/-+/g, '-')
+            .replace(/^-|-$/g, '')
+            .slice(0, 180);
+          const productUrl = productSlug ? `https://www.xoobay.com/products/${productSlug}` : undefined;
           
           offer = {
             id: offerId,
@@ -371,6 +423,7 @@ export async function catalogRoutes(app: FastifyInstance): Promise<void> {
               category: xoobayProduct.category,
               store_name: xoobayProduct.store_name,
               source: 'xoobay',
+              product_url: productUrl,  // Add product URL for frontend
             },
             weight_g: 0,
             dimensions_mm: { l: 0, w: 0, h: 0 },
@@ -407,6 +460,88 @@ export async function catalogRoutes(app: FastifyInstance): Promise<void> {
         return reply.status(404).send(
           createErrorResponse('NOT_FOUND', `Offer ${offerId} not found`)
         );
+      }
+
+      if (fetchedFromXoobay) {
+        try {
+          await query(
+            `INSERT INTO agent.categories (id, name_en, name_zh, level)
+             VALUES ($1, $2, $3, $4)
+             ON CONFLICT (id) DO NOTHING`,
+            ['cat_other', 'Other', '其他', 0]
+          );
+
+          const basePrice = typeof offer.base_price === 'number'
+            ? offer.base_price
+            : parseFloat(String(offer.base_price || 0));
+
+          await query(
+            `INSERT INTO agent.offers (
+              id, spu_id, merchant_id, category_id,
+              title_en, title_zh, brand_name, brand_id,
+              base_price, currency, attributes,
+              weight_g, dimensions_mm, risk_tags, certifications,
+              return_policy, warranty_months, rating, reviews_count
+            ) VALUES (
+              $1, $2, $3, $4,
+              $5, $6, $7, $8,
+              $9, $10, $11,
+              $12, $13, $14, $15,
+              $16, $17, $18, $19
+            )
+            ON CONFLICT (id) DO UPDATE SET
+              title_en = EXCLUDED.title_en,
+              title_zh = EXCLUDED.title_zh,
+              brand_name = EXCLUDED.brand_name,
+              brand_id = EXCLUDED.brand_id,
+              base_price = EXCLUDED.base_price,
+              currency = EXCLUDED.currency,
+              attributes = EXCLUDED.attributes,
+              updated_at = NOW()`,
+            [
+              offer.id,
+              offer.spu_id,
+              offer.merchant_id,
+              offer.category_id,
+              offer.title_en,
+              offer.title_zh,
+              offer.brand_name,
+              offer.brand_id,
+              basePrice,
+              offer.currency,
+              offer.attributes ?? {},
+              offer.weight_g ?? 0,
+              offer.dimensions_mm ?? {},
+              offer.risk_tags ?? [],
+              offer.certifications ?? [],
+              offer.return_policy ?? {},
+              offer.warranty_months ?? 0,
+              offer.rating ?? 0,
+              offer.reviews_count ?? 0,
+            ]
+          );
+
+          const xoobayId = offer.id.replace('xoobay_', '');
+          await query(
+            `INSERT INTO agent.skus (id, offer_id, options, price, currency, stock)
+             VALUES ($1, $2, $3, $4, $5, $6)
+             ON CONFLICT (id) DO UPDATE SET
+               price = EXCLUDED.price,
+               currency = EXCLUDED.currency,
+               stock = EXCLUDED.stock,
+               updated_at = NOW()`,
+            [
+              `sku_${xoobayId}`,
+              offer.id,
+              JSON.stringify({}),
+              basePrice,
+              offer.currency,
+              100,
+            ]
+          );
+        } catch (error) {
+          logger.warn({ error, offer_id: offer.id }, 'Failed to persist XOOBAY offer in database');
+        }
       }
 
       // Query SKU variants
@@ -481,8 +616,8 @@ export async function catalogRoutes(app: FastifyInstance): Promise<void> {
           product_count: category?.product_count,
         },
         titles: [
-          { lang: 'en', text: offer.title_en },
-          { lang: 'zh', text: offer.title_zh },
+          { locale: 'en', lang: 'en', text: offer.title_en },
+          { locale: 'zh', lang: 'zh', text: offer.title_zh },
         ],
         brand: {
           name: offer.brand_name,
@@ -503,7 +638,32 @@ export async function catalogRoutes(app: FastifyInstance): Promise<void> {
           amount: typeof offer.base_price === 'number' ? Math.round(offer.base_price * 100) / 100 : parseFloat(String(offer.base_price || 0)),
           currency: offer.currency,
         },
-        attributes: offer.attributes ?? [],
+        // Ensure attributes is an object with expected fields for frontend
+        attributes: (() => {
+          const attrs = offer.attributes as Record<string, unknown> | null | undefined;
+          if (attrs && typeof attrs === 'object' && !Array.isArray(attrs)) {
+            return {
+              image_url: attrs.image_url as string | undefined,
+              gallery_images: attrs.gallery_images as string[] | undefined,
+              description: attrs.description as string | undefined,
+              short_description: attrs.short_description as string | undefined,
+              store_name: attrs.store_name as string | undefined,
+              source: (attrs.source as string) || (offer.id?.startsWith('xoobay_') ? 'xoobay' : 'database'),
+              product_url: attrs.product_url as string | undefined,
+            };
+          }
+          return {
+            source: offer.id?.startsWith('xoobay_') ? 'xoobay' : 'database',
+          };
+        })(),
+        // Add product_url at top level for easier frontend access
+        product_url: (() => {
+          const attrs = offer.attributes as Record<string, unknown> | null | undefined;
+          if (attrs && typeof attrs === 'object' && !Array.isArray(attrs)) {
+            return attrs.product_url as string | undefined;
+          }
+          return undefined;
+        })(),
         variants: {
           axes: extractVariantAxes(skus),
           skus: skus.map(sku => ({

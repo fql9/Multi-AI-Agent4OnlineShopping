@@ -11,6 +11,25 @@ const AGENT_API_BASE =
 const TOOL_GATEWAY_BASE =
   process.env.NEXT_PUBLIC_TOOL_GATEWAY_URL || 'http://localhost:28000'
 
+const MOCK_ENABLED = process.env.NEXT_PUBLIC_MOCK_API === '1'
+
+type MockApi = Partial<{
+  sendChatMessage: (request: ChatRequest) => Promise<ChatResponse>
+  getAgentHealth: () => Promise<HealthStatus>
+  sendGuidedChatMessage: (request: GuidedChatRequest) => Promise<GuidedChatResponse>
+  streamGuidedChat: (request: GuidedChatRequest) => AsyncGenerator<StreamChunk>
+  searchOffers: (params: SearchOffersParams) => Promise<SearchOffersResult>
+  getOfferCard: (offerId: string) => Promise<OfferCard>
+  checkConnectionStatus: () => Promise<ConnectionStatus>
+}>
+
+function getMockApi(): MockApi | null {
+  if (!MOCK_ENABLED) return null
+  if (typeof window === 'undefined') return null
+  const globalAny = window as unknown as { __MOCK_API__?: MockApi }
+  return globalAny.__MOCK_API__ || null
+}
+
 // ========================================
 // 类型定义
 // ========================================
@@ -202,6 +221,10 @@ async function handleResponse<T>(response: Response): Promise<T> {
  * 发送聊天请求到 Agent
  */
 export async function sendChatMessage(request: ChatRequest): Promise<ChatResponse> {
+  const mock = getMockApi()
+  if (mock?.sendChatMessage) {
+    return mock.sendChatMessage(request)
+  }
   const response = await fetch(`${AGENT_API_BASE}/api/v1/chat`, {
     method: 'POST',
     headers: {
@@ -217,6 +240,10 @@ export async function sendChatMessage(request: ChatRequest): Promise<ChatRespons
  * 获取 Agent 健康状态
  */
 export async function getAgentHealth(): Promise<HealthStatus> {
+  const mock = getMockApi()
+  if (mock?.getAgentHealth) {
+    return mock.getAgentHealth()
+  }
   const response = await fetch(`${AGENT_API_BASE}/health`)
   return handleResponse<HealthStatus>(response)
 }
@@ -315,6 +342,10 @@ export interface OfferCard {
  * 搜索产品
  */
 export async function searchOffers(params: SearchOffersParams): Promise<SearchOffersResult> {
+  const mock = getMockApi()
+  if (mock?.searchOffers) {
+    return mock.searchOffers(params)
+  }
   const response = await fetch(`${TOOL_GATEWAY_BASE}/tools/catalog/search_offers`, {
     method: 'POST',
     headers: {
@@ -335,6 +366,10 @@ export async function searchOffers(params: SearchOffersParams): Promise<SearchOf
  * 获取产品详情
  */
 export async function getOfferCard(offerId: string): Promise<OfferCard> {
+  const mock = getMockApi()
+  if (mock?.getOfferCard) {
+    return mock.getOfferCard(offerId)
+  }
   const response = await fetch(`${TOOL_GATEWAY_BASE}/tools/catalog/get_offer_card`, {
     method: 'POST',
     headers: {
@@ -366,6 +401,10 @@ export interface ConnectionStatus {
  * 检查所有服务的连接状态
  */
 export async function checkConnectionStatus(): Promise<ConnectionStatus> {
+  const mock = getMockApi()
+  if (mock?.checkConnectionStatus) {
+    return mock.checkConnectionStatus()
+  }
   const status: ConnectionStatus = {
     agent: 'unknown',
     toolGateway: 'unknown',
@@ -442,10 +481,124 @@ export interface StreamChunk {
   }
 }
 
+// ========================================
+// Agent Process Streaming Types
+// ========================================
+
+export type AgentId = 'intent' | 'candidate' | 'verifier' | 'plan' | 'execution'
+
+export interface AgentStreamEvent {
+  type: 'agent_start' | 'thinking' | 'tool_call' | 'tool_result' | 'agent_complete' | 'plans' | 'error' | 'done'
+  agent?: AgentId
+  data?: {
+    // thinking event
+    thinking_id?: string
+    thinking_text?: string
+    thinking_type?: 'thinking' | 'decision' | 'action' | 'result'
+    
+    // tool_call event
+    tool_id?: string
+    tool_name?: string
+    tool_input?: string
+    
+    // tool_result event
+    tool_output?: string
+    tool_status?: 'success' | 'error'
+    tool_duration?: number
+    
+    // agent_complete event
+    agent_output?: string
+    agent_tokens?: number
+    agent_duration?: number
+    
+    // plans event
+    plans?: PlanOption[]
+    ai_recommendation?: {
+      plan_id: string
+      confidence: number
+      reason: string
+    }
+    
+    // error event
+    error_message?: string
+    error_code?: string
+    
+    // done event
+    session_id?: string
+    final_response?: ChatResponse
+  }
+  timestamp?: number
+}
+
+/**
+ * Stream agent process with real-time thinking steps and tool calls
+ * Returns an async generator that yields AgentStreamEvent objects
+ */
+export async function* streamAgentProcess(request: ChatRequest): AsyncGenerator<AgentStreamEvent> {
+  const response = await fetch(`${AGENT_API_BASE}/api/v1/chat/stream`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(request),
+  })
+  
+  if (!response.ok) {
+    // If streaming endpoint is not available, fall back to non-streaming
+    if (response.status === 404) {
+      // Emit a single done event with the non-streaming response
+      const fallbackResponse = await sendChatMessage(request)
+      yield {
+        type: 'done',
+        data: {
+          session_id: fallbackResponse.session_id,
+          final_response: fallbackResponse,
+        },
+      }
+      return
+    }
+    throw new ApiError(`HTTP error ${response.status}`, response.status)
+  }
+  
+  const reader = response.body?.getReader()
+  if (!reader) {
+    throw new ApiError('No response body', 500)
+  }
+  
+  const decoder = new TextDecoder()
+  let buffer = ''
+  
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    
+    buffer += decoder.decode(value, { stream: true })
+    
+    // Parse SSE events
+    const lines = buffer.split('\n')
+    buffer = lines.pop() || ''
+    
+    for (const line of lines) {
+      if (line.startsWith('data: ')) {
+        try {
+          const data = JSON.parse(line.slice(6))
+          yield data as AgentStreamEvent
+        } catch {
+          // Skip invalid JSON
+        }
+      }
+    }
+  }
+}
+
 /**
  * Send a message to guided chat (non-streaming)
  */
 export async function sendGuidedChatMessage(request: GuidedChatRequest): Promise<GuidedChatResponse> {
+  const mock = getMockApi()
+  if (mock?.sendGuidedChatMessage) {
+    return mock.sendGuidedChatMessage(request)
+  }
   const response = await fetch(`${AGENT_API_BASE}/api/v1/guided-chat`, {
     method: 'POST',
     headers: {
@@ -462,6 +615,13 @@ export async function sendGuidedChatMessage(request: GuidedChatRequest): Promise
  * Returns an async generator that yields StreamChunk objects
  */
 export async function* streamGuidedChat(request: GuidedChatRequest): AsyncGenerator<StreamChunk> {
+  const mock = getMockApi()
+  if (mock?.streamGuidedChat) {
+    for await (const chunk of mock.streamGuidedChat(request)) {
+      yield chunk
+    }
+    return
+  }
   const response = await fetch(`${AGENT_API_BASE}/api/v1/guided-chat/stream`, {
     method: 'POST',
     headers: {

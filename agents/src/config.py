@@ -24,7 +24,7 @@ class Settings(BaseSettings):
 
     # Tool Gateway
     tool_gateway_url: str = Field(
-        default="http://localhost:18000",
+        default="http://localhost:28000",
         alias="TOOL_GATEWAY_URL",
     )
 
