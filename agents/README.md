@@ -1,10 +1,10 @@
-# Shopping Agents
+# Shopping Copilot - Agents
 
-Multi-AI-Agent for Online Shopping - Agent Orchestration Layer
+Shopping Copilot 智能体编排层 - 基于多智能体架构的全球购物助手
 
 ## Overview
 
-This package contains the LangGraph-based agent orchestration system for the shopping platform.
+本模块包含基于 LangGraph 的智能体编排系统，为 Shopping Copilot 提供核心 AI 能力。
 
 ## Features
 

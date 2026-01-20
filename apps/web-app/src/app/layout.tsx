@@ -16,9 +16,9 @@ const jetbrainsMono = JetBrains_Mono({
 })
 
 export const metadata: Metadata = {
-  title: 'AI Shopping Agent | Multi-AI-Agent4OnlineShopping',
-  description: 'Shopping like prompting! AI-powered delegated buying platform with real-time agent visualization.',
-  keywords: ['AI', 'Shopping', 'Multi-Agent', 'LangGraph', 'E-commerce'],
+  title: 'Shopping Copilot - 你的全球购物智能助手',
+  description: '像对话一样购物！Shopping Copilot 帮你全球比价、找同款、推荐最优购买方案。',
+  keywords: ['Shopping Copilot', 'AI购物', '全球比价', '找同款', '智能购物助手', 'Multi-Agent'],
 }
 
 const useMockApi = process.env.NEXT_PUBLIC_MOCK_API === '1'

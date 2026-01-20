@@ -592,8 +592,8 @@ export default function Home() {
             <div className="min-h-screen flex flex-col items-center justify-center gap-8">
               {/* Logo and Title - Perplexity Style */}
               <div className="flex items-center gap-2">
-                <span className="text-4xl md:text-5xl font-light text-[#2d3436] tracking-tight">AI Shopping</span>
-                <span className="text-4xl md:text-5xl font-medium text-[#20b8cd] tracking-tight">Agent</span>
+                <span className="text-4xl md:text-5xl font-light text-[#2d3436] tracking-tight">Shopping</span>
+                <span className="text-4xl md:text-5xl font-medium text-[#20b8cd] tracking-tight">Copilot</span>
               </div>
 
               {/* Main Input Box - Perplexity Style */}
@@ -611,7 +611,7 @@ export default function Home() {
                           handleChatSubmit(e)
                         }
                       }}
-                      placeholder="询问任何事。输入 @ 以提及和 / 以使用快捷方式。"
+                      placeholder="告诉我你想买什么，我来帮你全球比价、找同款、推荐最优方案..."
                       disabled={store.guidedChat.isStreaming || store.orderState !== 'IDLE'}
                       className="min-h-[60px] resize-none text-base bg-transparent border-0 focus-visible:ring-0 px-0 text-[#2d3436] placeholder:text-[#9a9a98]"
                     />
@@ -754,7 +754,7 @@ export default function Home() {
               <div ref={chatContainerRef} className="pb-40 space-y-4">
                 {store.guidedChat.messages.length === 0 && !isProcessing && (
                   <div className="text-sm text-[#6b6c6c] leading-relaxed">
-                    Hi! I&apos;m your AI shopping assistant. What would you like to buy today? Feel free to share images too!
+                    你好！我是你的 Shopping Copilot，帮你全球比价、找同款、推荐最优购买方案。告诉我你想买什么，也可以上传商品图片让我帮你找同款！
                   </div>
                 )}
 
@@ -1026,7 +1026,7 @@ export default function Home() {
                         type="text"
                         value={followUpQuery}
                         onChange={(e) => setFollowUpQuery(e.target.value)}
-                        placeholder="Type your response here..."
+                        placeholder="输入您的回复..."
                         className="flex-1 px-4 py-3 rounded-xl border border-surface-200 bg-white focus:outline-none focus:ring-2 focus:ring-primary-500 text-surface-800"
                       />
                       <Button type="submit" disabled={!followUpQuery.trim()}>
@@ -1380,7 +1380,7 @@ export default function Home() {
                           handleChatSubmit(e)
                         }
                       }}
-                      placeholder={store.orderState === 'IDLE' ? '输入您的问题...' : '处理中，请等待完成后继续'}
+                      placeholder={store.orderState === 'IDLE' ? '继续对话或输入新的购物需求...' : '处理中，请等待完成后继续'}
                       disabled={store.guidedChat.isStreaming || store.orderState !== 'IDLE'}
                       className="min-h-[44px] max-h-[120px] resize-none text-sm bg-transparent border-0 focus-visible:ring-0 px-0"
                     />
@@ -1426,8 +1426,8 @@ export default function Home() {
       {isLanding && (
         <footer className="fixed bottom-0 left-0 right-0 py-4 border-t border-[#e0e0de] bg-[#f8f8f6]/90 backdrop-blur-xl">
           <div className="max-w-6xl mx-auto px-4 flex items-center justify-between text-sm text-[#9a9a98]">
-            <span className="font-medium">Multi-AI-Agent4OnlineShopping © 2024</span>
-            <span className="font-medium text-[#6b6c6c]">Powered by Multi-Agent Shopping</span>
+            <span className="font-medium">Shopping Copilot © 2024</span>
+            <span className="font-medium text-[#6b6c6c]">Powered by Multi-Agent AI</span>
           </div>
         </footer>
       )}
