@@ -48,7 +48,6 @@ export interface ChatRequest {
  */
 export interface IntentReasoning {
   thinking: string  // 简洁的思维链文本（2-3句话）
-  summary: string   // 提取结果摘要（如：🏷️ 产品 · 📍 国家 · 💰 预算）
 }
 
 export interface ChatResponse {
@@ -499,13 +498,16 @@ export interface StreamChunk {
 export type AgentId = 'intent' | 'candidate' | 'verifier' | 'plan' | 'execution'
 
 export interface AgentStreamEvent {
-  type: 'agent_start' | 'thinking' | 'tool_call' | 'tool_result' | 'agent_complete' | 'plans' | 'error' | 'done'
+  type: 'agent_start' | 'thinking' | 'tool_call' | 'tool_result' | 'agent_complete' | 'intent_reasoning' | 'plans' | 'error' | 'done'
   agent?: AgentId
   data?: {
     // thinking event
     thinking_id?: string
     thinking_text?: string
     thinking_type?: 'thinking' | 'decision' | 'action' | 'result'
+    
+    // intent_reasoning event (Intent Agent 思维链)
+    thinking?: string
     
     // tool_call event
     tool_id?: string

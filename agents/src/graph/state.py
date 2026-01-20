@@ -14,7 +14,6 @@ class IntentReasoning(TypedDict):
     仅包含一段简洁的思考文本，类似 DeepSeek 的思维链风格。
     """
     thinking: str  # 简洁的思维链文本（2-3句话）
-    summary: str   # 提取结果摘要（如：产品、目的地、预算）
 
 
 class AgentState(TypedDict):

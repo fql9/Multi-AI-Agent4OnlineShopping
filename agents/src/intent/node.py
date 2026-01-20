@@ -328,20 +328,8 @@ def _build_intent_reasoning(
     
     thinking = " ".join(thinking_parts)
     
-    # 构建简洁的摘要（用于快速展示）
-    summary_parts = []
-    if product_type:
-        summary_parts.append(f"🏷️ {product_type}")
-    if destination_country:
-        summary_parts.append(f"📍 {destination_country}")
-    if budget_display != "不限":
-        summary_parts.append(f"💰 {budget_display}")
-    
-    summary = " · ".join(summary_parts) if summary_parts else "购物任务已就绪"
-    
     return {
         "thinking": thinking,
-        "summary": summary,
     }
 
 

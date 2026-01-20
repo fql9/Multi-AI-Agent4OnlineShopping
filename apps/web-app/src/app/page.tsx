@@ -759,9 +759,6 @@ export default function Home() {
                         {intentReasoning && intentReasoning.thinking && (
                           <div className="mt-3 bg-[#f9f9f7] rounded-lg p-3 border border-[#e8e8e6]">
                             <p className="text-xs text-[#6b6c6c] leading-relaxed">{intentReasoning.thinking}</p>
-                            {intentReasoning.summary && (
-                              <p className="mt-2 text-xs font-medium text-[#5a5a58]">{intentReasoning.summary}</p>
-                            )}
                           </div>
                         )}
                       </div>

@@ -158,7 +158,6 @@ export type ThinkingStep = {
  */
 export type IntentReasoning = {
   thinking: string  // 简洁的思维链文本（2-3句话）
-  summary: string   // 提取结果摘要（如：🏷️ 产品 · 📍 国家 · 💰 预算）
 }
 
 // Agent 步骤
@@ -385,6 +384,16 @@ async function processAgentStream(
             }
             addThinkingStep(agentIndex, thinking)
             set({ currentThinkingStep: event.data.thinking_text })
+          }
+          break
+        
+        // Intent Agent 思维链 - 实时接收并立即展示
+        case 'intent_reasoning':
+          if (event.data?.thinking) {
+            console.log('[DEBUG] Received intent_reasoning (streaming):', event.data.thinking)
+            set({
+              intentReasoning: { thinking: event.data.thinking },
+            })
           }
           break
           

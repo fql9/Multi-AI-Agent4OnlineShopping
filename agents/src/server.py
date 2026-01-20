@@ -123,7 +123,6 @@ class IntentReasoningModel(BaseModel):
     仅包含简洁的思考文本，类似 DeepSeek 的思维链风格。
     """
     thinking: str = ""  # 简洁的思维链文本（2-3句话）
-    summary: str = ""   # 提取结果摘要（如：产品、目的地、预算）
 
 
 class ChatResponse(BaseModel):
@@ -292,7 +291,6 @@ async def chat(request: ChatRequest):
         if intent_reasoning_data:
             intent_reasoning_model = IntentReasoningModel(
                 thinking=intent_reasoning_data.get("thinking", ""),
-                summary=intent_reasoning_data.get("summary", ""),
             )
         
         return ChatResponse(
@@ -319,6 +317,208 @@ async def chat(request: ChatRequest):
     except Exception as e:
         logger.error("chat.error", error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
+
+
+class StreamEventModel(BaseModel):
+    """流式事件模型"""
+    type: str  # agent_start, intent_reasoning, agent_complete, plans, error, done
+    agent: str | None = None
+    data: dict | None = None
+    timestamp: int | None = None
+
+
+@app.post("/api/v1/chat/stream")
+async def chat_stream(request: ChatRequest):
+    """
+    流式运行 Agent 处理用户请求
+    
+    在每个 Agent 完成时立即返回事件，特别是 Intent Agent 的思维链。
+    使用 Server-Sent Events (SSE) 格式。
+    """
+    import json
+    import time
+    
+    global session_manager, agent_graph
+    
+    if not session_manager or not agent_graph:
+        raise HTTPException(status_code=503, detail="Server not ready")
+    
+    logger.info("chat_stream.request", message=request.message[:50], session_id=request.session_id)
+    
+    async def event_generator():
+        try:
+            # 获取或创建会话
+            if request.session_id:
+                session = session_manager.get_session(request.session_id)
+                if not session:
+                    error_event = StreamEventModel(
+                        type="error",
+                        data={"error_message": "Session not found", "error_code": "SESSION_NOT_FOUND"},
+                        timestamp=int(time.time() * 1000),
+                    )
+                    yield f"data: {json.dumps(error_event.model_dump())}\n\n"
+                    return
+            else:
+                session = session_manager.create_session(
+                    user_id=request.user_id,
+                    token_budget=settings.token_budget_total,
+                )
+            
+            session.touch()
+            
+            # 初始状态
+            mission_to_use = request.mission
+            if mission_to_use:
+                mission_to_use = await translate_mission_to_english(mission_to_use)
+            
+            initial_state: AgentState = {
+                "messages": [HumanMessage(content=request.message)],
+                "mission": mission_to_use,
+                "intent_reasoning": None,
+                "candidates": [],
+                "verified_candidates": [],
+                "plans": [],
+                "selected_plan": None,
+                "cart_id": None,
+                "draft_order_id": None,
+                "draft_order": None,
+                "evidence_snapshot_id": None,
+                "tool_call_records": [],
+                "token_budget": session.token_budget,
+                "token_used": session.token_used,
+                "current_step": "start",
+                "needs_user_input": False,
+                "needs_clarification": False,
+                "user_confirmation": None,
+                "error": None,
+                "error_code": None,
+                "recoverable": True,
+            }
+            
+            config = {
+                "configurable": {"thread_id": session.session_id},
+                "recursion_limit": 50,
+            }
+            
+            # 使用 astream_events 来获取实时事件
+            # 同时收集最终结果（避免重复调用 ainvoke）
+            intent_reasoning_sent = False
+            final_result = None
+            
+            async for event in agent_graph.astream_events(initial_state, config, version="v2"):
+                event_kind = event.get("event")
+                event_name = event.get("name", "")
+                
+                # 检测 Agent 节点开始
+                if event_kind == "on_chain_start" and event_name in ["intent", "candidate", "verifier", "plan", "execution"]:
+                    start_event = StreamEventModel(
+                        type="agent_start",
+                        agent=event_name,
+                        timestamp=int(time.time() * 1000),
+                    )
+                    yield f"data: {json.dumps(start_event.model_dump())}\n\n"
+                
+                # 检测 Agent 节点完成
+                elif event_kind == "on_chain_end" and event_name in ["intent", "candidate", "verifier", "plan", "execution"]:
+                    output = event.get("data", {}).get("output", {})
+                    
+                    # Intent Agent 完成时，立即发送思维链
+                    if event_name == "intent" and not intent_reasoning_sent:
+                        intent_reasoning = output.get("intent_reasoning")
+                        if intent_reasoning:
+                            reasoning_event = StreamEventModel(
+                                type="intent_reasoning",
+                                agent="intent",
+                                data={"thinking": intent_reasoning.get("thinking", "")},
+                                timestamp=int(time.time() * 1000),
+                            )
+                            yield f"data: {json.dumps(reasoning_event.model_dump())}\n\n"
+                            intent_reasoning_sent = True
+                    
+                    # 发送 Agent 完成事件
+                    complete_event = StreamEventModel(
+                        type="agent_complete",
+                        agent=event_name,
+                        data={"agent_tokens": output.get("token_used", 0)},
+                        timestamp=int(time.time() * 1000),
+                    )
+                    yield f"data: {json.dumps(complete_event.model_dump())}\n\n"
+                
+                # 捕获整个 Graph 完成时的最终结果
+                elif event_kind == "on_chain_end" and event_name == "LangGraph":
+                    final_result = event.get("data", {}).get("output", {})
+            
+            # 如果没有从 astream_events 获取到最终结果，则回退到 ainvoke
+            if final_result is None:
+                final_result = await agent_graph.ainvoke(initial_state, config)
+            
+            result = final_result
+            
+            # 更新会话
+            session.add_tokens(result.get("token_used", 0) - session.token_used)
+            
+            # 构建最终响应
+            intent_reasoning_data = result.get("intent_reasoning")
+            intent_reasoning_model = None
+            if intent_reasoning_data:
+                intent_reasoning_model = IntentReasoningModel(
+                    thinking=intent_reasoning_data.get("thinking", ""),
+                )
+            
+            final_response = ChatResponse(
+                session_id=session.session_id,
+                current_step=result.get("current_step", "unknown"),
+                message=_extract_message(result),
+                mission=result.get("mission"),
+                intent_reasoning=intent_reasoning_model,
+                candidates=result.get("candidates", []),
+                verified_candidates=result.get("verified_candidates", []),
+                plans=result.get("plans", []),
+                selected_plan=result.get("selected_plan"),
+                draft_order_id=result.get("draft_order_id"),
+                draft_order=result.get("draft_order"),
+                evidence_snapshot_id=result.get("evidence_snapshot_id"),
+                needs_user_input=result.get("needs_user_input", False),
+                error=result.get("error"),
+                error_code=result.get("error_code"),
+                token_used=result.get("token_used", 0),
+            )
+            
+            # 发送 done 事件
+            done_event = StreamEventModel(
+                type="done",
+                data={
+                    "session_id": session.session_id,
+                    "final_response": final_response.model_dump(),
+                },
+                timestamp=int(time.time() * 1000),
+            )
+            yield f"data: {json.dumps(done_event.model_dump())}\n\n"
+            
+            logger.info(
+                "chat_stream.complete",
+                session_id=session.session_id,
+                current_step=result.get("current_step"),
+            )
+            
+        except Exception as e:
+            logger.error("chat_stream.error", error=str(e))
+            error_event = StreamEventModel(
+                type="error",
+                data={"error_message": str(e), "error_code": "INTERNAL_ERROR"},
+                timestamp=int(time.time() * 1000),
+            )
+            yield f"data: {json.dumps(error_event.model_dump())}\n\n"
+    
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @app.get("/api/v1/sessions/{session_id}", response_model=SessionResponse)
