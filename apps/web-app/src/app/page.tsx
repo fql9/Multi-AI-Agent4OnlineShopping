@@ -784,7 +784,13 @@ export default function Home() {
                     thinkingCollapsed ? "rotate-0" : "rotate-90"
                   )} />
                   <span className="font-medium">
-                    {isProcessing ? '思考中' : '已完成'} {Math.max(1, intentThoughts.length + candidateToolCalls.length + (verifierToolCalls.length > 0 ? 1 : 0))} 步
+                    {isProcessing ? '思考中' : '已完成'} {(() => {
+                      // 优先根据 agentSteps 的 completed 状态计算完成步骤数
+                      const completedSteps = store.agentSteps.filter(s => s.status === 'completed').length
+                      if (completedSteps > 0) return completedSteps
+                      // 如果没有完成的步骤，fallback 到旧逻辑
+                      return Math.max(1, intentThoughts.length + candidateToolCalls.length + (verifierToolCalls.length > 0 ? 1 : 0))
+                    })()} 步
                   </span>
                   {isProcessing && (
                     <Loader2 className="w-3.5 h-3.5 text-[#20b8cd] animate-spin ml-1" />

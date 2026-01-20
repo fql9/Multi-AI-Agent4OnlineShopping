@@ -44,7 +44,7 @@ XOOBAY_BASE_URL=https://www.xoobay.com
 XOOBAY_LANG=en
 ```
 
-> 生产环境强烈建议 `XOOBAY_ENABLED=true`，否则当数据库为空/数据不足时会“搜不到商品”。
+> 默认已开启 `XOOBAY_ENABLED=true`，确保商品搜索正常工作。
 
 ### 2) 本地私有说明（不入库）
 
@@ -87,7 +87,7 @@ PowerShell 示例请看：`doc/quick_start_windows.md`
 
 ## 🔄 可选：批量同步（XOOBAY → PostgreSQL）
 
-权威命令以 `doc/19_ops_runbook.md` 的 “XOOBAY 同步” 一节为准。核心入口：
+权威命令以 `doc/19_ops_runbook.md` 的 "XOOBAY 同步" 一节为准。核心入口：
 
 ```bash
 docker compose -f docker-compose.full.yml --profile sync run --rm xoobay-sync
@@ -112,4 +112,3 @@ docker logs agent-tool-gateway | grep -i xoobay || true
 ```
 
 - 若遇到 `/health` 频繁 429 或容器 unhealthy，优先排查 Rate Limit 配置：`doc/18_deployment.md` / `doc/19_ops_runbook.md`
-

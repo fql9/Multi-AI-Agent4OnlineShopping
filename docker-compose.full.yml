@@ -109,8 +109,8 @@ services:
       MCP_CHECKOUT_URL: http://checkout-mcp:3011
       # CORS 配置
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:28004,http://web-app:3001}
-      # XOOBAY API 配置
-      XOOBAY_ENABLED: ${XOOBAY_ENABLED:-false}
+      # XOOBAY API 配置（默认开启，否则数据库为空时无法搜索商品）
+      XOOBAY_ENABLED: ${XOOBAY_ENABLED:-true}
       XOOBAY_FALLBACK_ON_EMPTY: ${XOOBAY_FALLBACK_ON_EMPTY:-true}
       XOOBAY_API_KEY: ${XOOBAY_API_KEY:-xoobay_api_ai_geo}
       XOOBAY_BASE_URL: ${XOOBAY_BASE_URL:-https://www.xoobay.com}

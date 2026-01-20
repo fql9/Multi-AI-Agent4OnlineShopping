@@ -70,7 +70,8 @@ async def execution_node(state: AgentState) -> AgentState:
                 "current_step": "execution",
             }
 
-        cart_id = cart_result.get("data", {}).get("cart_id")
+        cart_data = cart_result.get("data") or {}
+        cart_id = cart_data.get("cart_id")
         logger.info("execution_node.cart_created", cart_id=cart_id)
 
         tool_calls.append({
@@ -113,7 +114,8 @@ async def execution_node(state: AgentState) -> AgentState:
         if not total_result.get("ok"):
             logger.warning("execution_node.compute_total_failed")
 
-        computed_total = total_result.get("data", {}).get("total", 0)
+        total_data = total_result.get("data") or {}
+        computed_total = total_data.get("total", 0)
         tool_calls.append({
             "tool_name": "checkout.compute_total",
             "request": {"cart_id": cart_id, "destination_country": destination_country},
@@ -135,16 +137,18 @@ async def execution_node(state: AgentState) -> AgentState:
         )
 
         if not draft_result.get("ok"):
-            error_msg = draft_result.get("error", {}).get("message", "Failed to create draft order")
+            error_obj = draft_result.get("error") or {}
+            error_msg = error_obj.get("message", "Failed to create draft order") if isinstance(error_obj, dict) else str(error_obj)
+            error_code = error_obj.get("code", "INTERNAL_ERROR") if isinstance(error_obj, dict) else "INTERNAL_ERROR"
             return {
                 **state,
                 "error": error_msg,
-                "error_code": draft_result.get("error", {}).get("code", "INTERNAL_ERROR"),
+                "error_code": error_code,
                 "current_step": "execution",
                 "tool_calls": tool_calls,
             }
 
-        draft_data = draft_result.get("data", {})
+        draft_data = draft_result.get("data") or {}
         draft_order_id = draft_data.get("draft_order_id")
         payable_amount = draft_data.get("payable_amount")
         expires_at = draft_data.get("expires_at")
@@ -185,7 +189,8 @@ async def execution_node(state: AgentState) -> AgentState:
 
         evidence_snapshot_id = None
         if evidence_result.get("ok"):
-            evidence_snapshot_id = evidence_result.get("data", {}).get("snapshot_id")
+            evidence_data = evidence_result.get("data") or {}
+            evidence_snapshot_id = evidence_data.get("snapshot_id")
             logger.info("execution_node.evidence_created", snapshot_id=evidence_snapshot_id)
 
         # 构建执行结果
@@ -225,9 +230,9 @@ async def execution_node(state: AgentState) -> AgentState:
 
 
 def _generate_summary(plan: dict, payable_amount: dict | float, expires_at: str) -> str:
-    """生成执行摘要"""
-    items = plan.get("items", [])
-    item_count = sum(item.get("quantity", 1) for item in items)
+    """生成执行摘要（防御性处理）"""
+    items = plan.get("items") or []
+    item_count = sum(item.get("quantity", 1) for item in items if isinstance(item, dict))
 
     # 处理 payable_amount 可能是 dict 或 float
     if isinstance(payable_amount, dict):

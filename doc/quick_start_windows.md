@@ -20,9 +20,7 @@ cp .env.example .env
 # 2) 开发环境：关闭限流（避免健康检查被 429 拦截）
 #   RATE_LIMIT_ENABLED=false
 #
-# 3) 生产环境：开启 XOOBAY（否则数据库为空时容易"搜不到商品"）
-#   XOOBAY_ENABLED=true
-#   XOOBAY_API_KEY=your_key
+# 3) XOOBAY 已默认开启，确保商品搜索正常工作
 
 docker compose -f docker-compose.full.yml up -d
 docker compose -f docker-compose.full.yml ps

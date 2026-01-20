@@ -119,15 +119,17 @@ async def compliance_node(state: AgentState) -> AgentState:
             offer_id = candidate.get("offer_id", "")
             sku_id = None
 
-            # 获取默认 SKU
-            skus = candidate.get("variants", {}).get("skus", [])
-            if skus:
+            # 获取默认 SKU（防御性处理：variants 可能为 None）
+            variants = candidate.get("variants") or {}
+            skus = variants.get("skus") or []
+            if skus and isinstance(skus[0], dict):
                 sku_id = skus[0].get("sku_id")
 
-            # 获取产品的风险标签
-            risk_tags = candidate.get("risk_tags", [])
-            certifications = candidate.get("certifications", [])
-            category_id = candidate.get("category", {}).get("id", "")
+            # 获取产品的风险标签（防御性处理）
+            risk_tags = candidate.get("risk_tags") or []
+            certifications = candidate.get("certifications") or []
+            category = candidate.get("category") or {}
+            category_id = category.get("id", "") if isinstance(category, dict) else ""
 
             logger.info(
                 "compliance_node.checking",

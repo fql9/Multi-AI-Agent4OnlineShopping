@@ -154,6 +154,11 @@ async def intent_node(state: AgentState) -> AgentState:
             }
 
         # 构建 Mission 字典（包含购买上下文用于 AI 推荐）
+        # 获取英文搜索查询：优先使用 LLM 结果，其次使用预处理翻译
+        search_query_en = result.search_query_en or ""
+        if not search_query_en and translated_en:
+            search_query_en = translated_en
+        
         mission_dict = {
             "destination_country": result.destination_country,
             "budget_amount": result.budget_amount,
@@ -164,6 +169,7 @@ async def intent_node(state: AgentState) -> AgentState:
             "soft_preferences": [p.model_dump() for p in result.soft_preferences],
             "objective_weights": result.objective_weights.model_dump(),
             "search_query": result.search_query or user_message,
+            "search_query_en": search_query_en,  # 英文翻译，用于产品搜索
             "primary_product_type": result.primary_product_type or "",
             "primary_product_type_en": result.primary_product_type_en or "",
             "detected_language": result.detected_language or (preprocess_result.detected_language if preprocess_result else "en"),

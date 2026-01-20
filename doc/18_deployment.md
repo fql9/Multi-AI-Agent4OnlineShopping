@@ -10,10 +10,7 @@
 # 复制环境变量模板
 cp .env.example .env
 # 编辑 .env 填入 OpenAI Key
-# 生产环境强烈建议启用 XOOBAY（否则数据库为空/数据量不足时很容易“搜不到商品”）：
-#   XOOBAY_ENABLED=true
-#   XOOBAY_API_KEY=your_key
-#   XOOBAY_BASE_URL=https://www.xoobay.com
+# XOOBAY 已默认开启，确保商品搜索正常工作
 
 # 启动（后台运行）
 docker compose -f docker-compose.full.yml up -d
@@ -31,9 +28,9 @@ OPENAI_API_KEY=sk-...           # 必填：OpenAI API Key
 APP_ENV=production              # 环境模式
 LOG_LEVEL=info                  # 日志级别 (debug/info/warn/error)
 
-# XOOBAY（生产环境强烈建议开启：数据库为空/数据量不足时，关闭会导致“搜索很容易为空”）
+# XOOBAY（默认开启，确保商品搜索正常工作）
 XOOBAY_ENABLED=true
-XOOBAY_API_KEY=your_key
+XOOBAY_API_KEY=your_key  # 可选：使用自定义 API Key
 XOOBAY_BASE_URL=https://www.xoobay.com
 XOOBAY_LANG=en
 ```
@@ -78,7 +75,7 @@ AGENT_PORT=28003
 ```
 
 ### 外部集成 (XOOBAY)
-> 已整合到上方“核心配置”中，避免部署时遗漏。这里不再重复维护。
+> 已整合到上方"核心配置"中，避免部署时遗漏。这里不再重复维护。
 
 ## 3. 服务说明
 
@@ -93,7 +90,7 @@ AGENT_PORT=28003
 | **web-app** | agent-web-app | 28004 | Gateway | Next.js 前端界面 |
 
 > ⚠️ **容器名冲突提示**  
-> `docker-compose.full.yml` 使用固定的 `container_name: agent-...`。同一台机器上不要并行跑多套部署；如果你要“重来一遍”，请先 `docker compose -f docker-compose.full.yml down --remove-orphans`。  
+> `docker-compose.full.yml` 使用固定的 `container_name: agent-...`。同一台机器上不要并行跑多套部署；如果你要"重来一遍"，请先 `docker compose -f docker-compose.full.yml down --remove-orphans`。  
 
 > **数据库迁移保证**  
 > `docker-compose.full.yml` 内置了 `db-migrate` 一次性服务，`docker compose ... up` 时会自动在 Postgres 就绪后执行全部 SQL 迁移（幂等）。  
@@ -102,7 +99,7 @@ AGENT_PORT=28003
 
 ## 4. 常用运维命令
 
-> 本文档只保留“部署相关”的最小命令与参数说明；所有运维/排障/数据库检查命令统一收敛到：[`19_ops_runbook.md`](./19_ops_runbook.md)
+> 本文档只保留"部署相关"的最小命令与参数说明；所有运维/排障/数据库检查命令统一收敛到：[`19_ops_runbook.md`](./19_ops_runbook.md)
 
 ### 最小常用命令（部署后自检）
 
@@ -113,7 +110,7 @@ docker compose -f docker-compose.full.yml ps
 # 查看网关健康
 curl -fsS http://localhost:28000/health && echo
 
-# 确认 XOOBAY 已启用（重要）
+# 确认 XOOBAY 已启用（默认应为 true）
 docker exec agent-tool-gateway env | grep -E '^XOOBAY_ENABLED=|^XOOBAY_BASE_URL=|^XOOBAY_API_KEY=' || true
 ```
 

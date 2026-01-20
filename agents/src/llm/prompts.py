@@ -48,9 +48,10 @@ BE PRECISE - Do NOT generalize:
 6. **soft_preferences**: Nice-to-have preferences with weights
 7. **objective_weights**: Priority between price/speed/risk (sum = 1.0)
 8. **search_query**: Product keywords in USER'S ORIGINAL LANGUAGE
-9. **primary_product_type**: EXACT product type in user's language (CRITICAL!)
-10. **primary_product_type_en**: English translation of primary product type (CRITICAL!)
-11. **detected_language**: User's language code (zh, en, ja, es, etc.)
+9. **search_query_en**: ENGLISH translation of search_query for product search (CRITICAL!)
+10. **primary_product_type**: EXACT product type in user's language (CRITICAL!)
+11. **primary_product_type_en**: English translation of primary product type (CRITICAL!)
+12. **detected_language**: User's language code (zh, en, ja, es, etc.)
 12. **purchase_context**: IMPORTANT - Extract shopping context for AI recommendations:
     - **occasion**: gift, self_use, business, event, holiday
     - **recipient**: girlfriend, boyfriend, parent, friend, colleague, child, self
@@ -107,6 +108,7 @@ Return ONLY a JSON object:
   ],
   "objective_weights": {"price": 0.3, "speed": 0.3, "risk": 0.4},
   "search_query": "裙子",
+  "search_query_en": "dress",
   "primary_product_type": "裙子",
   "primary_product_type_en": "dress",
   "detected_language": "zh",
@@ -132,6 +134,7 @@ Output:
 ```json
 {
   "search_query": "charger iPhone",
+  "search_query_en": "charger iPhone",
   "primary_product_type": "charger",
   "primary_product_type_en": "charger",
   "hard_constraints": [{"type": "product_type", "value": "charger", "operator": "eq"}, {"type": "compatibility", "value": "iPhone", "operator": "eq"}],
@@ -144,6 +147,7 @@ Output:
 ```json
 {
   "search_query": "充电器",
+  "search_query_en": "charger",
   "primary_product_type": "充电器",
   "primary_product_type_en": "charger",
   "detected_language": "zh",

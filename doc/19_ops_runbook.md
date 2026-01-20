@@ -29,7 +29,7 @@
 ### 1.1 首次部署（或重建数据库）推荐流程
 
 ```bash
-# 0) 确认 XOOBAY 已启用（生产强烈建议开启，否则 DB 为空时将完全无商品可搜）
+# 0) 确认 XOOBAY 已启用（默认开启，确保商品搜索正常工作）
 docker exec agent-tool-gateway env | grep -E '^XOOBAY_ENABLED=|^XOOBAY_BASE_URL=|^XOOBAY_API_KEY=' || true
 
 # 1) 启动基础依赖（含自动迁移）
@@ -719,7 +719,7 @@ docker exec -it agent-postgres psql -U agent -d agent_db -c "SELECT COUNT(*) AS 
 
 #### 8.4.4 XOOBAY 是否启用（用于补充结果）
 
-> 截图里这种情况：`XOOBAY_ENABLED=false`，当 DB 匹配不到时就会“真的搜不到”。
+> 默认已开启 `XOOBAY_ENABLED=true`。如被手动关闭，当 DB 匹配不到时就会"真的搜不到"。
 
 ```bash
 docker exec agent-tool-gateway env | grep -E '^XOOBAY_ENABLED=|^XOOBAY_BASE_URL=|^XOOBAY_API_KEY=' || true

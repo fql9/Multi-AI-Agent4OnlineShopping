@@ -544,18 +544,9 @@ export async function* streamAgentProcess(request: ChatRequest): AsyncGenerator<
   })
   
   if (!response.ok) {
-    // If streaming endpoint is not available, fall back to non-streaming
+    // Streaming endpoint not supported; let caller fall back and simulate progress.
     if (response.status === 404) {
-      // Emit a single done event with the non-streaming response
-      const fallbackResponse = await sendChatMessage(request)
-      yield {
-        type: 'done',
-        data: {
-          session_id: fallbackResponse.session_id,
-          final_response: fallbackResponse,
-        },
-      }
-      return
+      throw new ApiError('STREAM_NOT_SUPPORTED', 404)
     }
     throw new ApiError(`HTTP error ${response.status}`, response.status)
   }

@@ -60,9 +60,10 @@ async def verifier_node(state: AgentState) -> AgentState:
             offer_id = candidate.get("offer_id")
             sku_id = None
 
-            # 获取默认 SKU
-            skus = candidate.get("variants", {}).get("skus", [])
-            if skus:
+            # 获取默认 SKU（防御性处理：variants 可能为 None）
+            variants = candidate.get("variants") or {}
+            skus = variants.get("skus") or []
+            if skus and isinstance(skus[0], dict):
                 sku_id = skus[0].get("sku_id")
 
             logger.info("verifier_node.checking", offer_id=offer_id, sku_id=sku_id)
@@ -95,8 +96,8 @@ async def verifier_node(state: AgentState) -> AgentState:
                         "stock": price_data.get("stock_available"),
                     }
 
-                    # 检查是否超预算
-                    if total_price > budget_amount:
+                    # 检查是否超预算（防御性处理：budget_amount 可能为 None）
+                    if budget_amount is not None and total_price > budget_amount:
                         verification_result["passed"] = False
                         verification_result["rejection_reason"] = f"Price ${total_price} exceeds budget ${budget_amount}"
 
@@ -242,12 +243,23 @@ async def _llm_rank_candidates(mission: dict, candidates: list) -> dict | None:
         # 简化候选信息
         simplified_candidates = []
         for c in candidates:
+            # 防御性处理：titles 可能为 None 或空数组
+            candidate_data = c.get("candidate") or {}
+            titles = candidate_data.get("titles") or []
+            title_text = ""
+            if titles and isinstance(titles[0], dict):
+                title_text = titles[0].get("text", "")
+            
+            checks = c.get("checks") or {}
+            pricing = checks.get("pricing") or {}
+            shipping = checks.get("shipping") or {}
+            
             simplified_candidates.append({
                 "offer_id": c.get("offer_id"),
-                "title": c.get("candidate", {}).get("titles", [{}])[0].get("text", ""),
-                "price": c.get("checks", {}).get("pricing", {}).get("total_price"),
-                "shipping_days": c.get("checks", {}).get("shipping", {}).get("fastest_days"),
-                "warnings": c.get("warnings", []),
+                "title": title_text,
+                "price": pricing.get("total_price"),
+                "shipping_days": shipping.get("fastest_days"),
+                "warnings": c.get("warnings") or [],
             })
 
         messages = [

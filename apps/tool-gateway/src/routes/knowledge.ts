@@ -427,7 +427,8 @@ export async function knowledgeRoutes(app: FastifyInstance): Promise<void> {
 
       for (let page = pageStart; page <= pageEnd; page++) {
         try {
-          const productList = await client.getProductList({ pageNo: page, lang: language });
+          // Use searchProducts (replaces deprecated getProductList)
+          const productList = await client.searchProducts({ pageNo: page, pageSize: 20, lang: language });
           
           if (!productList.list || productList.list.length === 0) {
             continue;
@@ -435,9 +436,9 @@ export async function knowledgeRoutes(app: FastifyInstance): Promise<void> {
 
           for (const product of productList.list) {
             try {
-              // Get product details
-              const detail = await client.getProductInfo(product.id, language);
-              const offerId = `xoobay_${product.id}`;
+              // Get product details using goods_id (numeric ID from search results)
+              const detail = await client.getProductInfo(product.goods_id, language);
+              const offerId = `xoobay_${product.goods_id}`;
               
               // Create content
               const description = [
@@ -466,7 +467,7 @@ export async function knowledgeRoutes(app: FastifyInstance): Promise<void> {
 
               results.products_indexed++;
             } catch (productError) {
-              results.errors.push(`Product ${product.id}: ${productError instanceof Error ? productError.message : String(productError)}`);
+              results.errors.push(`Product ${product.goods_id}: ${productError instanceof Error ? productError.message : String(productError)}`);
             }
           }
 

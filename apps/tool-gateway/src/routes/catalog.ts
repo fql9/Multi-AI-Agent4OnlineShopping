@@ -230,7 +230,7 @@ export async function catalogRoutes(app: FastifyInstance): Promise<void> {
       const offers = await query<{ id: string; score: number }>(searchSql, sqlParams);
 
       // XOOBAY API integration: supplement data if results are insufficient or XOOBAY is enabled
-      let xoobayOffers: Array<{ id: string; score: number }> = [];
+      let xoobayOffers: Array<{ id: string; score: number; sold_cnt?: number }> = [];
       const xoobayEnabled = process.env.XOOBAY_ENABLED === 'true';
       const xoobayFallbackOnEmpty = shouldAllowXoobayFallback();
       const minResults = Math.max(limit, 10); // Minimum required results
@@ -249,46 +249,40 @@ export async function catalogRoutes(app: FastifyInstance): Promise<void> {
 
       // Call XOOBAY API if enabled and has search query, or if results are insufficient
       if (shouldUseXoobay && (offers.length < minResults || searchQuery)) {
-        logger.info({ searchQuery, offers_count: offers.length }, 'Attempting to fetch from XOOBAY API');
+        logger.info({ searchQuery, offers_count: offers.length }, 'Attempting to fetch from XOOBAY API using /api-geo/product-search');
         try {
           const xoobayClient = getXOOBAYClient();
           
-          // XOOBAY API doesn't support multi-word search well
-          // Try with individual keywords if the full query returns no results
-          const searchTerms = (searchQuery || '').split(/\s+/).filter(t => t.length > 0);
-          let xoobaySearchQuery = searchQuery || '';
-          
-          logger.info({ searchQuery, searchTerms }, 'Calling XOOBAY searchProducts');
-          let xoobayResult = await xoobayClient.searchProducts(xoobaySearchQuery, 1);
-          
-          // If no results with full query, try individual keywords (prioritize last keyword which is often the product type)
-          if (xoobayResult.list.length === 0 && searchTerms.length > 1) {
-            // Try the last word first (often the product type: "black jacket" -> "jacket")
-            for (let i = searchTerms.length - 1; i >= 0 && xoobayResult.list.length === 0; i--) {
-              const term = searchTerms[i];
-              if (term.length >= 3) { // Only try words with 3+ characters
-                logger.info({ term, original_query: searchQuery }, 'Retrying XOOBAY with single keyword');
-                xoobayResult = await xoobayClient.searchProducts(term, 1);
-              }
-            }
-          }
+          // Use the new searchProductsWithFallback which handles keyword fallback automatically
+          const xoobayResult = await xoobayClient.searchProductsWithFallback({
+            query: searchQuery || '',
+            pageNo: 1,
+            pageSize: Math.min(limit, 50), // Request appropriate page size
+          });
           
           logger.info({ 
-            xoobay_total: xoobayResult.list.length,
-            pager: xoobayResult.pager
-          }, 'XOOBAY API response received');
+            xoobay_total: xoobayResult.total,
+            xoobay_list_count: xoobayResult.list.length,
+            page: xoobayResult.page,
+            limit: xoobayResult.limit
+          }, 'XOOBAY product-search API response received');
           
           // Convert XOOBAY products to offer format
+          // Using goods_id from the new API response
           xoobayOffers = xoobayResult.list
             .slice(0, Math.max(limit - offers.length, 0)) // Only take needed quantity
             .map(product => ({
-              id: `xoobay_${product.id}`,
-              score: 4.0, // Default rating
+              // Use goods_id for consistent numeric ID
+              id: `xoobay_${product.goods_id}`,
+              // Calculate score based on sold_cnt (popularity) - normalize to 0-5 range
+              score: Math.min(4.0 + (product.sold_cnt > 100 ? 0.5 : product.sold_cnt > 10 ? 0.3 : 0), 5.0),
+              sold_cnt: product.sold_cnt,
             }));
 
           logger.info({ 
             xoobay_results: xoobayOffers.length,
-            sample_ids: xoobayOffers.slice(0, 3).map(o => o.id)
+            sample_ids: xoobayOffers.slice(0, 3).map(o => o.id),
+            sample_sold_cnt: xoobayOffers.slice(0, 3).map(o => o.sold_cnt)
           }, 'XOOBAY API results added');
         } catch (error) {
           logger.error({ 

@@ -14,9 +14,9 @@ if (Test-Path ".env") {
     if ($xoobayEnabled) {
         Write-Host "✅ XOOBAY 已启用" -ForegroundColor Green
     } else {
-        Write-Host "⚠️  XOOBAY 未启用，正在启用..." -ForegroundColor Yellow
+        Write-Host "⚠️  XOOBAY 未启用（非默认状态），正在启用..." -ForegroundColor Yellow
         (Get-Content .env) -replace 'XOOBAY_ENABLED=false', 'XOOBAY_ENABLED=true' | Set-Content .env
-        Write-Host "✅ 已启用 XOOBAY" -ForegroundColor Green
+        Write-Host "✅ 已启用 XOOBAY（恢复默认状态）" -ForegroundColor Green
     }
 } else {
     Write-Host "❌ .env 文件不存在，请先创建" -ForegroundColor Red

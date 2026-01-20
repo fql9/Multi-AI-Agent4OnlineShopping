@@ -59,29 +59,35 @@ async def plan_node(state: AgentState) -> AgentState:
         # 生成方案
         plans = []
 
-        # 按价格排序找最便宜
-        by_price = sorted(
-            verified_candidates,
-            key=lambda x: x.get("checks", {}).get("pricing", {}).get("total_price", float("inf"))
-        )
+        # 按价格排序找最便宜（防御性处理：checks 可能为 None）
+        def get_total_price(x):
+            checks = x.get("checks") or {}
+            pricing = checks.get("pricing") or {}
+            return pricing.get("total_price", float("inf"))
+        
+        by_price = sorted(verified_candidates, key=get_total_price)
 
-        # 按送达时间排序找最快
-        by_speed = sorted(
-            verified_candidates,
-            key=lambda x: x.get("checks", {}).get("shipping", {}).get("fastest_days", 999)
-        )
+        # 按送达时间排序找最快（防御性处理：checks 可能为 None）
+        def get_fastest_days(x):
+            checks = x.get("checks") or {}
+            shipping = checks.get("shipping") or {}
+            return shipping.get("fastest_days", 999)
+        
+        by_speed = sorted(verified_candidates, key=get_fastest_days)
 
         # 综合评分（加权）
         weights = mission.get("objective_weights", {"price": 0.4, "speed": 0.3, "risk": 0.3})
 
         def compute_score(candidate):
-            pricing = candidate.get("checks", {}).get("pricing", {})
-            shipping = candidate.get("checks", {}).get("shipping", {})
+            # 防御性处理：checks/warnings 可能为 None
+            checks = candidate.get("checks") or {}
+            pricing = checks.get("pricing") or {}
+            shipping = checks.get("shipping") or {}
 
             # 归一化分数（简化版）
             price = pricing.get("total_price", 100)
             days = shipping.get("fastest_days", 14)
-            warnings_count = len(candidate.get("warnings", []))
+            warnings_count = len(candidate.get("warnings") or [])
 
             price_score = max(0, 1 - price / 500)  # 假设 $500 是最大值
             speed_score = max(0, 1 - days / 30)  # 假设 30 天是最大值
@@ -244,10 +250,12 @@ def _create_plan(
     """创建购买方案"""
     offer_id = candidate.get("offer_id", "")
     sku_id = candidate.get("sku_id", "")
-    candidate_info = candidate.get("candidate", {})
+    candidate_info = candidate.get("candidate") or {}
 
-    pricing = candidate.get("checks", {}).get("pricing", {})
-    shipping = candidate.get("checks", {}).get("shipping", {})
+    # 防御性处理：checks 可能为 None
+    checks = candidate.get("checks") or {}
+    pricing = checks.get("pricing") or {}
+    shipping = checks.get("shipping") or {}
 
     unit_price = pricing.get("unit_price", 0)
     total_price = pricing.get("total_price", unit_price * quantity)
@@ -261,11 +269,12 @@ def _create_plan(
     # 送达时间
     fastest_days = shipping.get("fastest_days", 7)
 
-    # 警告和确认项
-    warnings = candidate.get("warnings", [])
-    compliance = candidate.get("checks", {}).get("compliance", {})
-    if compliance.get("required_docs"):
-        warnings.append(f"Required certifications: {', '.join(compliance['required_docs'])}")
+    # 警告和确认项（防御性处理）
+    warnings = list(candidate.get("warnings") or [])  # 创建副本避免修改原始数据
+    compliance = checks.get("compliance") or {}
+    required_docs = compliance.get("required_docs") or []
+    if required_docs:
+        warnings.append(f"Required certifications: {', '.join(required_docs)}")
 
     # 提取产品亮点（基于产品信息）
     product_highlights = _extract_product_highlights(candidate_info, plan_type, mission)
@@ -310,7 +319,7 @@ def _extract_product_highlights(
     plan_type: str,
     mission: dict | None,
 ) -> list[str]:
-    """提取产品亮点"""
+    """提取产品亮点（防御性处理所有可能为 None 的字段）"""
     highlights = []
     
     # 根据方案类型添加亮点
@@ -321,29 +330,36 @@ def _extract_product_highlights(
     elif plan_type == "best_value":
         highlights.append("⭐ Best overall value")
     
-    # 从产品信息中提取亮点
-    brand = candidate_info.get("brand", {})
-    if brand.get("confidence") == "high":
+    # 从产品信息中提取亮点（防御性处理）
+    brand = candidate_info.get("brand") or {}
+    if isinstance(brand, dict) and brand.get("confidence") == "high":
         highlights.append(f"🏷️ Verified brand: {brand.get('name', 'N/A')}")
     
-    merchant = candidate_info.get("merchant", {})
-    if merchant.get("verified"):
-        highlights.append("✅ Verified seller")
-    if merchant.get("rating") and float(merchant.get("rating", 0)) >= 4.5:
-        highlights.append(f"⭐ High-rated seller: {merchant.get('rating')}/5")
+    merchant = candidate_info.get("merchant") or {}
+    if isinstance(merchant, dict):
+        if merchant.get("verified"):
+            highlights.append("✅ Verified seller")
+        rating = merchant.get("rating")
+        if rating:
+            try:
+                if float(rating) >= 4.5:
+                    highlights.append(f"⭐ High-rated seller: {rating}/5")
+            except (ValueError, TypeError):
+                pass
     
-    # 检查风险标签
-    risk_profile = candidate_info.get("risk_profile", {})
-    if risk_profile.get("counterfeit_risk") == "low":
+    # 检查风险标签（防御性处理）
+    risk_profile = candidate_info.get("risk_profile") or {}
+    if isinstance(risk_profile, dict) and risk_profile.get("counterfeit_risk") == "low":
         highlights.append("🛡️ Low counterfeit risk")
     
     # 根据购买上下文添加亮点
     if mission:
-        context = mission.get("purchase_context", {})
-        if context.get("occasion") == "gift":
-            highlights.append("🎁 Great for gifting")
-        if context.get("budget_sensitivity") == "budget_conscious":
-            highlights.append("💵 Budget-friendly choice")
+        context = mission.get("purchase_context") or {}
+        if isinstance(context, dict):
+            if context.get("occasion") == "gift":
+                highlights.append("🎁 Great for gifting")
+            if context.get("budget_sensitivity") == "budget_conscious":
+                highlights.append("💵 Budget-friendly choice")
     
     return highlights[:5]  # 最多返回 5 个亮点
 
@@ -406,13 +422,8 @@ Generate a personalized recommendation reason for this product in the user's lan
             
             if result:
                 plan.ai_recommendation = result
-                # 合并 LLM 生成的产品亮点
-                if result.product_highlights:
-                    existing = set(plan.product_highlights)
-                    for h in result.product_highlights:
-                        if h not in existing:
-                            plan.product_highlights.append(h)
-                    plan.product_highlights = plan.product_highlights[:6]
+                # 注意：AIRecommendationReason 没有 product_highlights 字段
+                # 产品亮点已在 _create_plan 中通过 _extract_product_highlights 生成
             
             updated_plans.append(plan)
             

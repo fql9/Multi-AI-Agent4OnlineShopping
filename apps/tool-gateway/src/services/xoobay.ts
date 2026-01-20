@@ -16,12 +16,19 @@ const logger = createLogger('xoobay-client');
 // Types
 // ============================================================
 
-interface XOOBAYProduct {
-  id: number;
-  name: string;
-  money: string;
-  shop_id: number;
-  img_logo: string;
+/**
+ * Product from /api-geo/product-search
+ * Returns rich product data including goods_url, sold_cnt, etc.
+ */
+interface XOOBAYSearchProduct {
+  id: string;           // Format: "4608-en"
+  goods_id: number;     // Numeric product ID
+  goods_name: string;
+  goods_logo: string;   // Image URL
+  goods_url: string;    // Product page URL
+  money: string;        // Current price
+  money_old: string;    // Original price (for discount calculation)
+  sold_cnt: number;     // Number sold
 }
 
 interface XOOBAYProductDetail {
@@ -56,13 +63,15 @@ interface XOOBAYResponse<T> {
   data: T;
 }
 
-interface XOOBAYProductListResponse {
-  list: XOOBAYProduct[];
-  pager: {
-    page: number;
-    count: number;
-    pageCount: number;
-  };
+/**
+ * Response from /api-geo/product-search
+ * Pagination structure: total/page/limit
+ */
+interface XOOBAYProductSearchResponse {
+  list: XOOBAYSearchProduct[];
+  total: number;
+  page: number;
+  limit: number;
 }
 
 // ============================================================
@@ -382,31 +391,6 @@ export class XOOBAYClient {
   }
 
   /**
-   * Get product list with pagination
-   */
-  async getProductList(params: {
-    pageNo?: number;
-    name?: string;
-    shopId?: string;
-    lang?: string;
-  } = {}): Promise<XOOBAYProductListResponse> {
-    const { pageNo = 1, name = '', shopId = '', lang = this.lang } = params;
-    
-    const cacheKey = `products:${pageNo}:${name}:${shopId}:${lang}`;
-    
-    return this.apiRequest<XOOBAYProductListResponse>(
-      '/api-geo/product-list',
-      {
-        pageNo: String(pageNo),
-        name,
-        shopId,
-        lang,
-      },
-      cacheKey
-    );
-  }
-
-  /**
    * Get product details
    */
   async getProductInfo(id: string | number, lang = this.lang): Promise<XOOBAYProductDetail> {
@@ -439,14 +423,69 @@ export class XOOBAYClient {
   }
 
   /**
-   * Search products
+   * Search products using the latest /api-geo/product-search endpoint
+   * 
+   * This endpoint provides:
+   * - Better search capabilities
+   * - pageSize parameter for controlling results per page
+   * - More product fields: goods_url, sold_cnt, money_old
+   * - Different pagination structure (total/page/limit)
    */
-  async searchProducts(
-    query: string,
-    pageNo = 1,
-    lang = this.lang
-  ): Promise<XOOBAYProductListResponse> {
-    return this.getProductList({ pageNo, name: query, lang });
+  async searchProducts(params: {
+    query?: string;
+    pageNo?: number;
+    pageSize?: number;
+    lang?: string;
+  } = {}): Promise<XOOBAYProductSearchResponse> {
+    const { 
+      query = '', 
+      pageNo = 1, 
+      pageSize = 20, 
+      lang = this.lang 
+    } = params;
+    
+    const cacheKey = `search:${query}:${pageNo}:${pageSize}:${lang}`;
+    
+    return this.apiRequest<XOOBAYProductSearchResponse>(
+      '/api-geo/product-search',
+      {
+        name: query,
+        pageNo: String(pageNo),
+        pageSize: String(pageSize),
+        lang,
+      },
+      cacheKey
+    );
+  }
+
+  /**
+   * Search products with automatic keyword fallback
+   * If no results with full query, tries individual keywords
+   */
+  async searchProductsWithFallback(params: {
+    query: string;
+    pageNo?: number;
+    pageSize?: number;
+    lang?: string;
+  }): Promise<XOOBAYProductSearchResponse> {
+    const { query, pageNo = 1, pageSize = 20, lang = this.lang } = params;
+    
+    // First try with full query
+    let result = await this.searchProducts({ query, pageNo, pageSize, lang });
+    
+    // If no results with full query, try individual keywords
+    if (result.list.length === 0 && query) {
+      const searchTerms = query.split(/\s+/).filter(t => t.length >= 3);
+      
+      // Try keywords from last to first (last word is often the product type)
+      for (let i = searchTerms.length - 1; i >= 0 && result.list.length === 0; i--) {
+        const term = searchTerms[i];
+        logger.info({ term, original_query: query }, 'Retrying search with single keyword');
+        result = await this.searchProducts({ query: term, pageNo, pageSize, lang });
+      }
+    }
+    
+    return result;
   }
 
   /**
@@ -502,22 +541,24 @@ export class XOOBAYClient {
   }
 
   /**
-   * Get all products with pagination
+   * Get all products with pagination using /api-geo/product-search
    */
   async getAllProducts(options: {
+    query?: string;
     maxPages?: number;
+    pageSize?: number;
     lang?: string;
-    onPage?: (page: number, products: XOOBAYProduct[]) => void;
-  } = {}): Promise<XOOBAYProduct[]> {
-    const { maxPages = 100, lang = this.lang, onPage } = options;
-    const allProducts: XOOBAYProduct[] = [];
+    onPage?: (page: number, products: XOOBAYSearchProduct[]) => void;
+  } = {}): Promise<XOOBAYSearchProduct[]> {
+    const { query = '', maxPages = 100, pageSize = 20, lang = this.lang, onPage } = options;
+    const allProducts: XOOBAYSearchProduct[] = [];
     
     let page = 1;
     let hasMore = true;
 
     while (hasMore && page <= maxPages) {
       try {
-        const result = await this.getProductList({ pageNo: page, lang });
+        const result = await this.searchProducts({ query, pageNo: page, pageSize, lang });
         
         if (!result.list || result.list.length === 0) {
           hasMore = false;
@@ -530,7 +571,9 @@ export class XOOBAYClient {
           onPage(page, result.list);
         }
 
-        hasMore = page < result.pager.pageCount;
+        // Check if there are more pages based on total count
+        const totalPages = Math.ceil(result.total / result.limit);
+        hasMore = page < totalPages;
         page++;
 
         // Rate limiting
@@ -609,3 +652,11 @@ export function resetXOOBAYClient(): void {
   }
   clientInstance = null;
 }
+
+// Export types for use in other modules
+export type { 
+  XOOBAYSearchProduct, 
+  XOOBAYProductSearchResponse,
+  XOOBAYProductDetail,
+  XOOBAYStore,
+};

@@ -122,14 +122,39 @@ export async function complianceRoutes(app: FastifyInstance): Promise<void> {
 
     try {
       // 获取商品信息
+      // 如果提供了 sku_id，先从 SKU 表查找对应的 offer_id
+      let resolvedOfferId = offerId;
+      if (!resolvedOfferId && skuId) {
+        const sku = await queryOne<{ offer_id: string }>(
+          `SELECT offer_id FROM agent.skus WHERE id = $1`,
+          [skuId]
+        );
+        if (sku) {
+          resolvedOfferId = sku.offer_id;
+        }
+      }
+      
       const offer = await queryOne<OfferRow>(
         `SELECT id, category_id, risk_tags, certifications, attributes 
          FROM agent.offers 
          WHERE id = $1`,
-        [offerId ?? skuId?.split('_').slice(0, 2).join('_')]
+        [resolvedOfferId]
       );
 
       if (!offer) {
+        // 如果找不到 offer，为 XOOBAY 产品返回默认合规结果
+        if (skuId?.startsWith('sku_') || offerId?.startsWith('xoobay_')) {
+          logger.info({ sku_id: skuId, offer_id: offerId }, 'Returning default compliance for XOOBAY product');
+          return reply.send(
+            createSuccessResponse({
+              allowed: true,
+              issues: [],
+              required_docs: [],
+              warnings: ['Product details not fully verified - using default compliance rules'],
+              shipping_restrictions: [],
+            })
+          );
+        }
         return reply.status(404).send(
           createErrorResponse('NOT_FOUND', 'Offer not found')
         );

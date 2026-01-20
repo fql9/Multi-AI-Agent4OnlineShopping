@@ -65,7 +65,11 @@ class MissionParseResult(BaseModel):
     hard_constraints: list[HardConstraint] = Field(default_factory=list, description="硬性约束")
     soft_preferences: list[SoftPreference] = Field(default_factory=list, description="软性偏好")
     objective_weights: ObjectiveWeights = Field(default_factory=ObjectiveWeights, description="目标权重")
-    search_query: str = Field(default="", description="搜索关键词")
+    search_query: str = Field(default="", description="搜索关键词（用户原始语言）")
+    search_query_en: str = Field(
+        default="",
+        description="English translation of search query for product search (e.g., 'black jacket', 'wireless charger')"
+    )
     primary_product_type: str = Field(
         default="",
         description="Primary product type in user's language (e.g., '充电器', 'charger', '西装外套')"

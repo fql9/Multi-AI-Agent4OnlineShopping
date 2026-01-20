@@ -5,6 +5,7 @@ Candidate Agent Node implementation.
 """
 
 from datetime import UTC
+import re
 
 import structlog
 
@@ -164,6 +165,22 @@ async def candidate_node(state: AgentState) -> AgentState:
 
         logger.info("candidate_node.fetched_candidates", count=len(candidates))
 
+        # Optional color filter: only apply when explicit color tokens exist.
+        color_query = search_query_en or original_query
+        color_tokens = _extract_color_tokens(color_query)
+        if color_tokens:
+            filtered_candidates = [
+                c for c in candidates if _candidate_matches_color_tokens(c, color_tokens)
+            ]
+            if filtered_candidates:
+                logger.info(
+                    "candidate_node.color_filter_applied",
+                    colors=color_tokens,
+                    before=len(candidates),
+                    after=len(filtered_candidates),
+                )
+                candidates = filtered_candidates
+
         # ====================================================
         # STRICT PRODUCT TYPE FILTERING
         # Use LLM to validate each candidate matches user's intent
@@ -191,7 +208,11 @@ async def candidate_node(state: AgentState) -> AgentState:
                 if is_relevant:
                     validated_candidates.append(candidate)
                 else:
-                    title = candidate.get("titles", [{}])[0].get("text", "unknown")
+                    # 防御性处理：titles 可能为 None 或空数组
+                    titles = candidate.get("titles") or []
+                    title = "unknown"
+                    if titles and isinstance(titles[0], dict):
+                        title = titles[0].get("text", "unknown")
                     filtered_out.append({"title": title, "reason": reason})
             
             logger.info(
@@ -367,6 +388,63 @@ def _extract_search_keywords(query: str) -> str:
         return " ".join(keywords[:4]) if keywords else query
 
 
+def _extract_color_tokens(query: str) -> list[str]:
+    """Extract explicit color tokens from the query (EN + ZH)."""
+    if not query:
+        return []
+
+    query_lower = query.lower()
+    colors_en = {
+        "black", "white", "red", "blue", "green", "yellow",
+        "gray", "grey", "brown", "purple", "pink", "orange",
+        "beige", "navy", "khaki", "silver", "gold",
+    }
+    tokens = re.findall(r"[a-z]+", query_lower)
+    color_tokens = [t for t in tokens if t in colors_en]
+
+    colors_zh = [
+        "黑色", "黑", "白色", "白", "红色", "红", "蓝色", "蓝",
+        "绿色", "绿", "黄色", "黄", "灰色", "灰", "棕色", "棕",
+        "粉色", "粉", "紫色", "紫", "橙色", "橙", "金色", "金",
+        "银色", "银", "米色", "卡其", "藏青",
+    ]
+    for color in colors_zh:
+        if color in query:
+            color_tokens.append(color)
+
+    # Deduplicate while preserving order
+    seen: set[str] = set()
+    unique_tokens: list[str] = []
+    for token in color_tokens:
+        if token not in seen:
+            unique_tokens.append(token)
+            seen.add(token)
+    return unique_tokens
+
+
+def _candidate_matches_color_tokens(candidate: dict, color_tokens: list[str]) -> bool:
+    """Return True if the candidate title includes all color tokens."""
+    if not color_tokens:
+        return True
+
+    titles = candidate.get("titles") or []
+    title = ""
+    if titles and isinstance(titles[0], dict):
+        title = titles[0].get("text", "")
+    if not title:
+        return False
+
+    title_lower = title.lower()
+    for color in color_tokens:
+        if any("\u4e00" <= ch <= "\u9fff" for ch in color):
+            if color not in title:
+                return False
+        else:
+            if color not in title_lower:
+                return False
+    return True
+
+
 async def _validate_candidate_relevance(
     candidate: dict,
     primary_type: str,
@@ -387,13 +465,19 @@ async def _validate_candidate_relevance(
     Returns:
         Tuple of (is_relevant, reason)
     """
-    # Extract product info
-    titles = candidate.get("titles", [])
-    title = titles[0].get("text", "") if titles else ""
+    # Extract product info（防御性处理：titles/category 可能为 None）
+    titles = candidate.get("titles") or []
+    title = ""
+    if titles and isinstance(titles[0], dict):
+        title = titles[0].get("text", "")
     title_lower = title.lower()
     
-    category_obj = candidate.get("category", {})
-    category = category_obj.get("name", "") if isinstance(category_obj, dict) else str(category_obj)
+    category_obj = candidate.get("category") or {}
+    category = ""
+    if isinstance(category_obj, dict):
+        category = category_obj.get("name", "") or ""
+    elif category_obj:
+        category = str(category_obj)
     category_lower = category.lower()
     
     # Build search terms list
@@ -411,6 +495,28 @@ async def _validate_candidate_relevance(
             search_terms.extend(["suit jacket", "sport coat", "suit blazer"])
         elif primary_type_en.lower() == "phone case":
             search_terms.extend(["case", "phone cover", "protective case"])
+    
+    # Extract core product type words from multi-word phrases
+    # E.g., "casual black leather shoes" -> also add "shoes", "leather shoes"
+    core_product_words = {"shoes", "boots", "sneakers", "sandals", "heels", "loafers", "flats",
+                          "jacket", "coat", "blazer", "sweater", "hoodie", "shirt", "blouse",
+                          "pants", "jeans", "shorts", "skirt", "dress", "gown",
+                          "bag", "backpack", "purse", "wallet", "watch", "glasses",
+                          "phone", "charger", "headphones", "earbuds", "tablet", "laptop"}
+    
+    for term in [primary_type, primary_type_en]:
+        if term:
+            words = term.lower().split()
+            # Add individual core product words found in the phrase
+            for word in words:
+                if word in core_product_words and word not in search_terms:
+                    search_terms.append(word)
+            # Add two-word combinations ending with core product word
+            if len(words) >= 2:
+                for i in range(len(words) - 1):
+                    two_word = f"{words[i]} {words[i+1]}"
+                    if words[i+1] in core_product_words and two_word not in search_terms:
+                        search_terms.append(two_word)
     
     # Remove empty terms
     search_terms = [t for t in search_terms if t]
