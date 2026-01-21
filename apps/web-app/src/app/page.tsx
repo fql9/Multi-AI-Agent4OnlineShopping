@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import {
   ShoppingCart,
   CheckCircle,
@@ -24,6 +24,9 @@ import {
   X,
   RotateCcw,
   User,
+  Truck,
+  DollarSign,
+  XCircle,
 } from 'lucide-react'
 import Image from 'next/image'
 import { useShoppingStore, type TaxEstimate, type ComplianceRisk, type GuidedChatMessage, type IntentReasoning } from '@/store/shopping'
@@ -210,14 +213,112 @@ function ImagePreview({ images, onRemove }: { images: string[]; onRemove: (index
 function extractQueryFromInput(input?: string) {
   if (!input) return ''
   try {
-    const parsed = JSON.parse(input) as { query?: string; query_en?: string; params?: { query?: string } }
-    // 优先使用 query（中文原始查询），其次使用 query_en（英文翻译）
+    const parsed = JSON.parse(input) as { query?: string; query_original?: string; query_en?: string; params?: { query?: string } }
+    // 优先使用 query_original（原始语言），其次使用 query（可能是英文翻译）
+    if (parsed.query_original) return String(parsed.query_original)
     if (parsed.query) return String(parsed.query)
     if (parsed.query_en) return String(parsed.query_en)
     if (parsed.params?.query) return String(parsed.params.query)
   } catch {}
-  const match = input.match(/"query"\s*:\s*"([^"]+)"/)
+  const match = input.match(/"query(?:_original)?"\s*:\s*"([^"]+)"/)
   return match?.[1] || input
+}
+
+/**
+ * 从工具调用输入中解析 offer_id
+ */
+function extractOfferIdFromInput(input?: string): string | null {
+  if (!input) return null
+  try {
+    const parsed = JSON.parse(input) as { offer_id?: string }
+    return parsed.offer_id ?? null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * 从 verifier 工具调用输出中解析详细结果
+ */
+function parseVerifierToolOutput(output?: string): {
+  ok: boolean
+  // pricing 字段
+  totalPrice?: number
+  unitPrice?: number
+  currency?: string
+  stockAvailable?: number
+  // compliance 字段
+  allowed?: boolean
+  rulesetVersion?: string
+  issuesCount?: number
+  warningsCount?: number
+  // shipping 字段
+  optionsCount?: number
+  fastestDays?: number
+  cheapestPrice?: number
+  // 错误字段
+  error?: string
+} | null {
+  if (!output) return null
+  try {
+    const parsed = JSON.parse(output) as Record<string, unknown>
+    return {
+      ok: (parsed.ok as boolean) ?? true,
+      // pricing
+      totalPrice: parsed.total_price as number | undefined,
+      unitPrice: parsed.unit_price as number | undefined,
+      currency: parsed.currency as string | undefined,
+      stockAvailable: parsed.stock_available as number | undefined,
+      // compliance
+      allowed: parsed.allowed as boolean | undefined,
+      rulesetVersion: parsed.ruleset_version as string | undefined,
+      issuesCount: parsed.issues_count as number | undefined,
+      warningsCount: parsed.warnings_count as number | undefined,
+      // shipping
+      optionsCount: parsed.options_count as number | undefined,
+      fastestDays: parsed.fastest_days as number | undefined,
+      cheapestPrice: parsed.cheapest_price as number | undefined,
+      // error
+      error: parsed.error as string | undefined,
+    }
+  } catch {
+    return null
+  }
+}
+
+/**
+ * 获取 verifier 工具调用的友好显示文案
+ */
+function getVerifierToolDisplayInfo(toolName: string, result: ReturnType<typeof parseVerifierToolOutput>): {
+  label: string
+  summary: string
+  icon: 'pricing' | 'compliance' | 'shipping'
+} {
+  if (toolName === 'pricing.get_realtime_quote') {
+    const summary = result?.ok
+      ? result.totalPrice != null
+        ? `${result.currency || '$'}${result.totalPrice.toFixed(2)}`
+        : '价格已核验'
+      : result?.error || '获取失败'
+    return { label: '实时价格', summary, icon: 'pricing' }
+  }
+  if (toolName === 'compliance.check_item') {
+    const summary = result?.ok
+      ? result.allowed !== false
+        ? '允许发货'
+        : `${result.issuesCount || 0} 个问题`
+      : result?.error || '检查失败'
+    return { label: '合规检查', summary, icon: 'compliance' }
+  }
+  if (toolName === 'shipping.quote_options') {
+    const summary = result?.ok
+      ? result.optionsCount
+        ? `${result.optionsCount} 个选项，最快 ${result.fastestDays ?? '?'} 天`
+        : '无可用物流'
+      : result?.error || '查询失败'
+    return { label: '物流选项', summary, icon: 'shipping' }
+  }
+  return { label: toolName, summary: result?.ok ? '已完成' : '失败', icon: 'compliance' }
 }
 
 /**
@@ -463,6 +564,42 @@ export default function Home() {
   const verifierStep = store.agentSteps.find((step) => step.id === 'verifier')
   const candidateToolCalls = candidateStep?.toolCalls ?? []
   const verifierToolCalls = verifierStep?.toolCalls ?? []
+  
+  // 计算 Top 候选的 offer_id（基于 pricing 结果中最低价格）
+  // 然后只展示该 offer 的审核来源
+  const topOfferId = useMemo(() => {
+    // 收集所有 pricing 结果及其 offer_id
+    const pricingResults: { offerId: string; totalPrice: number }[] = []
+    for (const tc of verifierToolCalls) {
+      if (tc.name === 'pricing.get_realtime_quote') {
+        const offerId = extractOfferIdFromInput(tc.input)
+        const result = parseVerifierToolOutput(tc.output)
+        if (offerId && result?.ok && result.totalPrice != null) {
+          pricingResults.push({ offerId, totalPrice: result.totalPrice })
+        }
+      }
+    }
+    // 按价格排序，取最低价格的 offer_id
+    if (pricingResults.length > 0) {
+      pricingResults.sort((a, b) => a.totalPrice - b.totalPrice)
+      return pricingResults[0].offerId
+    }
+    // 如果没有 pricing 结果，取第一个出现的 offer_id
+    for (const tc of verifierToolCalls) {
+      const offerId = extractOfferIdFromInput(tc.input)
+      if (offerId) return offerId
+    }
+    return null
+  }, [verifierToolCalls])
+
+  // 只展示 Top 候选的审核来源
+  const topOfferVerifierCalls = useMemo(() => {
+    if (!topOfferId) return verifierToolCalls
+    return verifierToolCalls.filter((tc) => {
+      const offerId = extractOfferIdFromInput(tc.input)
+      return offerId === topOfferId
+    })
+  }, [verifierToolCalls, topOfferId])
   
   // Intent Agent 推理过程（来自后端 LLM 真实推理）
   const intentReasoning = store.intentReasoning
@@ -873,59 +1010,73 @@ export default function Home() {
                       </div>
                     </div>
 
-                    {/* Step 3: Reviewing Sources - Real Verifier Data */}
+                    {/* Step 3: Reviewing Sources - Real Verifier Data (只展示 Top 候选) */}
                     <div className="flex gap-4">
                       <div className="flex flex-col items-center">
                         <div className={cn(
                           "w-2.5 h-2.5 rounded-full",
-                          verifierToolCalls.length > 0 || candidateToolCalls.length > 0 ? "bg-[#5a5a58]" : "bg-[#e0e0de]"
+                          topOfferVerifierCalls.length > 0 || candidateToolCalls.length > 0 ? "bg-[#5a5a58]" : "bg-[#e0e0de]"
                         )} />
                         <div className="w-0.5 flex-1 bg-[#e0e0de] mt-2" />
                       </div>
                       <div className="flex-1 pb-2">
                         <p className="text-xs text-[#9a9a98] mb-3">正在审核来源</p>
                         <div className="space-y-2">
-                          {verifierToolCalls.length > 0 ? (
-                            verifierToolCalls.map((tool) => (
-                              <div
-                                key={tool.id}
-                                className="flex items-center gap-3 py-1.5"
-                              >
-                                <Shield className="w-4 h-4 text-[#9a9a98]" />
-                                <span className="flex-1 text-sm text-[#2d3436]">
-                                  {truncateText(tool.name || tool.input || 'Verifying source', 50)}
-                                </span>
-                                <span className="text-xs text-[#9a9a98]">
-                                  {tool.status === 'success' ? 'verified' : 'verifying'}
-                                </span>
-                              </div>
-                            ))
+                          {topOfferVerifierCalls.length > 0 ? (
+                            topOfferVerifierCalls.map((tool) => {
+                              const result = parseVerifierToolOutput(tool.output)
+                              const displayInfo = getVerifierToolDisplayInfo(tool.name, result)
+                              const isRunning = tool.status === 'running'
+                              const isFailed = tool.status === 'error' || (result && !result.ok)
+                              
+                              // 根据工具类型选择图标
+                              const IconComponent = displayInfo.icon === 'pricing'
+                                ? DollarSign
+                                : displayInfo.icon === 'shipping'
+                                ? Truck
+                                : Shield
+                              
+                              return (
+                                <div
+                                  key={tool.id}
+                                  className="flex items-center gap-3 py-1.5"
+                                >
+                                  <IconComponent className={cn(
+                                    "w-4 h-4",
+                                    isRunning ? "text-[#20b8cd] animate-pulse" :
+                                    isFailed ? "text-red-400" :
+                                    "text-[#9a9a98]"
+                                  )} />
+                                  <span className="flex-1 text-sm text-[#2d3436]">
+                                    {displayInfo.label}
+                                  </span>
+                                  <span className={cn(
+                                    "text-xs",
+                                    isRunning ? "text-[#20b8cd]" :
+                                    isFailed ? "text-red-500" :
+                                    "text-[#9a9a98]"
+                                  )}>
+                                    {isRunning ? '核验中...' : displayInfo.summary}
+                                  </span>
+                                </div>
+                              )
+                            })
                           ) : (
                             <>
                               <div className="flex items-center gap-3 py-1.5">
-                                <ExternalLink className="w-4 h-4 text-[#9a9a98]" />
-                                <span className="flex-1 text-sm text-[#2d3436]">商品详情页数据</span>
-                                <span className="text-xs text-[#9a9a98]">xoobay.com</span>
+                                <DollarSign className="w-4 h-4 text-[#9a9a98]" />
+                                <span className="flex-1 text-sm text-[#2d3436]">实时价格</span>
+                                <span className="text-xs text-[#9a9a98]">等待核验</span>
                               </div>
                               <div className="flex items-center gap-3 py-1.5">
-                                <Store className="w-4 h-4 text-[#9a9a98]" />
-                                <span className="flex-1 text-sm text-[#2d3436]">店铺信誉与评分</span>
-                                <span className="text-xs text-[#9a9a98]">store.xoobay.com</span>
+                                <Shield className="w-4 h-4 text-[#9a9a98]" />
+                                <span className="flex-1 text-sm text-[#2d3436]">合规检查</span>
+                                <span className="text-xs text-[#9a9a98]">等待核验</span>
                               </div>
                               <div className="flex items-center gap-3 py-1.5">
-                                <Receipt className="w-4 h-4 text-[#9a9a98]" />
-                                <span className="flex-1 text-sm text-[#2d3436]">价格与运费信息</span>
-                                <span className="text-xs text-[#9a9a98]">price.xoobay.com</span>
-                              </div>
-                              <div className="flex items-center gap-3 py-1.5">
-                                <Clock className="w-4 h-4 text-[#9a9a98]" />
-                                <span className="flex-1 text-sm text-[#2d3436]">库存与发货时效</span>
-                                <span className="text-xs text-[#9a9a98]">logistics.xoobay.com</span>
-                              </div>
-                              <div className="flex items-center gap-3 py-1.5">
-                                <Star className="w-4 h-4 text-[#9a9a98]" />
-                                <span className="flex-1 text-sm text-[#2d3436]">用户评价分析</span>
-                                <span className="text-xs text-[#9a9a98]">reviews.xoobay.com</span>
+                                <Truck className="w-4 h-4 text-[#9a9a98]" />
+                                <span className="flex-1 text-sm text-[#2d3436]">物流选项</span>
+                                <span className="text-xs text-[#9a9a98]">等待核验</span>
                               </div>
                             </>
                           )}

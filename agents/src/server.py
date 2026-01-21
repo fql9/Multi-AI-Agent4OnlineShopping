@@ -503,39 +503,29 @@ async def chat_stream(request: ChatRequest):
                                 if not isinstance(response_summary, dict):
                                     response_summary = {}
                                 
-                                # 发送 tool_call 事件（展示搜索词）
-                                # 优先使用 query_original（中文）以便 UI 直接展示
-                                tool_input_data = {
-                                    "query": request_data.get("query_original") or request_data.get("query", ""),
-                                    "query_en": request_data.get("query", ""),
-                                }
+                                # 发送 tool_call 事件
+                                # 发送完整的 request 数据，前端根据 tool_name 决定如何展示
                                 tool_call_event = StreamEventModel(
                                     type="tool_call",
                                     agent=agent_id,
                                     data={
                                         "tool_id": tool_id,
                                         "tool_name": tool_name,
-                                        "tool_input": json.dumps(tool_input_data, ensure_ascii=False),
+                                        "tool_input": json.dumps(request_data, ensure_ascii=False),
                                     },
                                     timestamp=int(time.time() * 1000),
                                 )
                                 yield f"data: {json.dumps(tool_call_event.model_dump())}\n\n"
                                 await asyncio.sleep(0)
                                 
-                                # 发送 tool_result 事件（展示命中数量等）
-                                tool_output_data = {
-                                    "ok": response_summary.get("ok", True),
-                                    "count": response_summary.get("count", 0),
-                                    "total_count": response_summary.get("total_count"),
-                                    "has_more": response_summary.get("has_more"),
-                                    "error": response_summary.get("error"),
-                                }
+                                # 发送 tool_result 事件
+                                # 发送完整的 response_summary，前端根据 tool_name 决定如何展示
                                 tool_result_event = StreamEventModel(
                                     type="tool_result",
                                     agent=agent_id,
                                     data={
                                         "tool_id": tool_id,
-                                        "tool_output": json.dumps(tool_output_data, ensure_ascii=False),
+                                        "tool_output": json.dumps(response_summary, ensure_ascii=False),
                                         "tool_status": "success" if response_summary.get("ok", True) else "error",
                                         "tool_duration": 0,  # 目前不追踪耗时
                                     },

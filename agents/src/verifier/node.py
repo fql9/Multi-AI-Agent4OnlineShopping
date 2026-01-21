@@ -79,21 +79,33 @@ async def verifier_node(state: AgentState) -> AgentState:
             }
 
             # 1. 价格核验
+            quantity = mission.get("quantity", 1)
             try:
                 price_result = await get_realtime_quote(
                     sku_id=sku_id or offer_id,
-                    quantity=mission.get("quantity", 1),
+                    quantity=quantity,
                     destination_country=destination_country,
                 )
+
+                pricing_request = {
+                    "offer_id": offer_id,
+                    "sku_id": sku_id,
+                    "quantity": quantity,
+                    "destination_country": destination_country,
+                }
 
                 if price_result.get("ok"):
                     price_data = price_result.get("data", {})
                     total_price = price_data.get("total_price", 0)
+                    unit_price = price_data.get("unit_price")
+                    stock_info = price_data.get("stock", {})
+                    stock_available = stock_info.get("quantity_available") if isinstance(stock_info, dict) else stock_info
+                    
                     verification_result["checks"]["pricing"] = {
                         "passed": True,
-                        "unit_price": price_data.get("unit_price"),
+                        "unit_price": unit_price,
                         "total_price": total_price,
-                        "stock": price_data.get("stock_available"),
+                        "stock": stock_available,
                     }
 
                     # 检查是否超预算（防御性处理：budget_amount 可能为 None）
@@ -101,21 +113,54 @@ async def verifier_node(state: AgentState) -> AgentState:
                         verification_result["passed"] = False
                         verification_result["rejection_reason"] = f"Price ${total_price} exceeds budget ${budget_amount}"
 
-                    tool_calls.append({
-                        "tool_name": "pricing.get_realtime_quote",
-                        "request": {"sku_id": sku_id, "offer_id": offer_id},
-                        "response_summary": {"total_price": total_price},
-                        "called_at": _now_iso(),
-                    })
+                    tool_calls.append(_build_verifier_tool_call(
+                        tool_name="pricing.get_realtime_quote",
+                        request=pricing_request,
+                        response_summary={
+                            "ok": True,
+                            "total_price": total_price,
+                            "unit_price": unit_price,
+                            "currency": price_data.get("currency", "USD"),
+                            "stock_available": stock_available,
+                        },
+                    ))
                 else:
                     verification_result["checks"]["pricing"] = {"passed": False, "error": "Quote failed"}
                     verification_result["warnings"].append("Could not get real-time price")
+                    # 失败路径也记录 tool_call
+                    tool_calls.append(_build_verifier_tool_call(
+                        tool_name="pricing.get_realtime_quote",
+                        request=pricing_request,
+                        response_summary={
+                            "ok": False,
+                            "error": price_result.get("error", {}).get("message", "Quote failed"),
+                        },
+                    ))
 
             except Exception as e:
                 logger.warning("verifier_node.price_check_failed", offer_id=offer_id, error=str(e))
                 verification_result["checks"]["pricing"] = {"passed": False, "error": str(e)}
+                # 异常路径也记录 tool_call
+                tool_calls.append(_build_verifier_tool_call(
+                    tool_name="pricing.get_realtime_quote",
+                    request={
+                        "offer_id": offer_id,
+                        "sku_id": sku_id,
+                        "quantity": quantity,
+                        "destination_country": destination_country,
+                    },
+                    response_summary={
+                        "ok": False,
+                        "error": str(e),
+                    },
+                ))
 
             # 2. 合规检查
+            compliance_request = {
+                "offer_id": offer_id,
+                "sku_id": sku_id,
+                "destination_country": destination_country,
+            }
             try:
                 compliance_result = await check_compliance(
                     sku_id=sku_id or offer_id,
@@ -125,71 +170,132 @@ async def verifier_node(state: AgentState) -> AgentState:
                 if compliance_result.get("ok"):
                     compliance_data = compliance_result.get("data", {})
                     is_allowed = compliance_data.get("allowed", True)
+                    issues = compliance_data.get("issues", [])
+                    warnings_list = compliance_data.get("warnings", [])
+                    ruleset_version = compliance_data.get("ruleset_version", "")
+                    
                     verification_result["checks"]["compliance"] = {
                         "passed": is_allowed,
-                        "issues": compliance_data.get("issues", []),
+                        "issues": issues,
                         "required_docs": compliance_data.get("required_docs", []),
-                        "warnings": compliance_data.get("warnings", []),
+                        "warnings": warnings_list,
                     }
 
                     if not is_allowed:
                         verification_result["passed"] = False
-                        issues = compliance_data.get("issues", [])
                         reason = issues[0].get("message_en") if issues else "Compliance blocked"
                         verification_result["rejection_reason"] = reason
 
                     # 添加警告
-                    for warning in compliance_data.get("warnings", []):
+                    for warning in warnings_list:
                         verification_result["warnings"].append(warning)
 
-                    tool_calls.append({
-                        "tool_name": "compliance.check_item",
-                        "request": {"offer_id": offer_id, "destination_country": destination_country},
-                        "response_summary": {"allowed": is_allowed},
-                        "called_at": _now_iso(),
-                    })
+                    tool_calls.append(_build_verifier_tool_call(
+                        tool_name="compliance.check_item",
+                        request=compliance_request,
+                        response_summary={
+                            "ok": True,
+                            "allowed": is_allowed,
+                            "ruleset_version": ruleset_version,
+                            "issues_count": len(issues),
+                            "warnings_count": len(warnings_list),
+                        },
+                    ))
+                else:
+                    verification_result["checks"]["compliance"] = {"passed": True, "error": "Check failed"}
+                    verification_result["warnings"].append("Compliance check unavailable")
+                    # 失败路径也记录 tool_call
+                    tool_calls.append(_build_verifier_tool_call(
+                        tool_name="compliance.check_item",
+                        request=compliance_request,
+                        response_summary={
+                            "ok": False,
+                            "error": compliance_result.get("error", {}).get("message", "Check failed"),
+                        },
+                    ))
 
             except Exception as e:
                 logger.warning("verifier_node.compliance_check_failed", offer_id=offer_id, error=str(e))
                 verification_result["checks"]["compliance"] = {"passed": True, "error": str(e)}
                 verification_result["warnings"].append("Compliance check unavailable")
+                # 异常路径也记录 tool_call
+                tool_calls.append(_build_verifier_tool_call(
+                    tool_name="compliance.check_item",
+                    request=compliance_request,
+                    response_summary={
+                        "ok": False,
+                        "error": str(e),
+                    },
+                ))
 
             # 3. 运输检查
+            shipping_request = {
+                "offer_id": offer_id,
+                "sku_id": sku_id,
+                "quantity": quantity,
+                "destination_country": destination_country,
+            }
             try:
                 shipping_result = await quote_shipping_options(
-                    items=[{"sku_id": sku_id or offer_id, "qty": mission.get("quantity", 1)}],
+                    items=[{"sku_id": sku_id or offer_id, "qty": quantity}],
                     destination_country=destination_country,
                 )
 
                 if shipping_result.get("ok"):
                     shipping_data = shipping_result.get("data", {})
                     options = shipping_data.get("options", [])
+                    options_count = len(options)
+                    fastest_days = min((o.get("eta_min_days", 99) for o in options), default=99) if options else 99
+                    cheapest_price = min((o.get("price", 999) for o in options), default=999) if options else 999
+                    
                     verification_result["checks"]["shipping"] = {
-                        "passed": len(options) > 0,
-                        "options_count": len(options),
-                        "fastest_days": min((o.get("eta_min_days", 99) for o in options), default=99),
-                        "cheapest_price": min((o.get("price", 999) for o in options), default=999),
+                        "passed": options_count > 0,
+                        "options_count": options_count,
+                        "fastest_days": fastest_days,
+                        "cheapest_price": cheapest_price,
                     }
 
                     # 检查是否能在期限内送达
                     arrival_max = mission.get("arrival_days_max")
-                    if arrival_max:
-                        fastest = min((o.get("eta_min_days", 99) for o in options), default=99)
-                        if fastest > arrival_max:
-                            verification_result["warnings"].append(
-                                f"Fastest shipping ({fastest} days) exceeds deadline ({arrival_max} days)"
-                            )
+                    if arrival_max and fastest_days > arrival_max:
+                        verification_result["warnings"].append(
+                            f"Fastest shipping ({fastest_days} days) exceeds deadline ({arrival_max} days)"
+                        )
 
-                    tool_calls.append({
-                        "tool_name": "shipping.quote_options",
-                        "request": {"destination_country": destination_country},
-                        "response_summary": {"options_count": len(options)},
-                        "called_at": _now_iso(),
-                    })
+                    tool_calls.append(_build_verifier_tool_call(
+                        tool_name="shipping.quote_options",
+                        request=shipping_request,
+                        response_summary={
+                            "ok": True,
+                            "options_count": options_count,
+                            "fastest_days": fastest_days,
+                            "cheapest_price": cheapest_price,
+                        },
+                    ))
+                else:
+                    verification_result["checks"]["shipping"] = {"passed": True, "error": "Quote failed"}
+                    # 失败路径也记录 tool_call
+                    tool_calls.append(_build_verifier_tool_call(
+                        tool_name="shipping.quote_options",
+                        request=shipping_request,
+                        response_summary={
+                            "ok": False,
+                            "error": shipping_result.get("error", {}).get("message", "Quote failed"),
+                        },
+                    ))
 
             except Exception as e:
                 logger.warning("verifier_node.shipping_check_failed", offer_id=offer_id, error=str(e))
                 verification_result["checks"]["shipping"] = {"passed": True, "error": str(e)}
+                # 异常路径也记录 tool_call
+                tool_calls.append(_build_verifier_tool_call(
+                    tool_name="shipping.quote_options",
+                    request=shipping_request,
+                    response_summary={
+                        "ok": False,
+                        "error": str(e),
+                    },
+                ))
 
             # 分类结果
             if verification_result["passed"]:
@@ -287,3 +393,28 @@ def _now_iso() -> str:
     """返回当前时间的 ISO 格式"""
     from datetime import datetime
     return datetime.now(UTC).isoformat()
+
+
+def _generate_tool_id() -> str:
+    """生成唯一的工具调用 ID"""
+    import uuid
+    return f"tc_{uuid.uuid4().hex[:12]}"
+
+
+def _build_verifier_tool_call(
+    tool_name: str,
+    request: dict,
+    response_summary: dict,
+) -> dict:
+    """
+    构建 Verifier 工具调用记录（统一结构）
+    
+    确保每次核验调用都有 tool_id，便于 SSE 推送和前端展示。
+    """
+    return {
+        "tool_id": _generate_tool_id(),
+        "tool_name": tool_name,
+        "request": request,
+        "response_summary": response_summary,
+        "called_at": _now_iso(),
+    }
