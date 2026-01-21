@@ -40,6 +40,9 @@ class AgentState(TypedDict):
 
     # 候选商品列表（由 Candidate Agent 生成）
     candidates: list[dict]
+    
+    # Candidate Agent 搜索进度信息（用于前端实时展示）
+    candidate_search_info: dict | None
 
     # 核验后的候选（由 Verifier Agent 生成）
     verified_candidates: list[dict]

@@ -233,9 +233,19 @@ async def candidate_node(state: AgentState) -> AgentState:
             "called_at": _now_iso(),
         })
 
+        # 构建候选搜索进度信息（用于前端实时展示）
+        candidate_search_info = {
+            "search_query": query_original or query_en,
+            "search_query_en": query_en,
+            "total_found": len(offer_ids),
+            "fetched_count": len(candidates),
+            "status": "complete",
+        }
+
         return {
             **state,
             "candidates": candidates,
+            "candidate_search_info": candidate_search_info,
             "current_step": "candidate_complete",
             "tool_calls": tool_calls,
             "error": None,

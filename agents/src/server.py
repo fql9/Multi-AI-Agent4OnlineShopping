@@ -261,6 +261,7 @@ async def chat(request: ChatRequest):
             "mission": mission_to_use,  # 可能为 None 或已提取并翻译的 mission
             "intent_reasoning": None,  # Intent Agent 推理过程
             "candidates": [],
+            "candidate_search_info": None,  # Candidate Agent 搜索进度
             "verified_candidates": [],
             "plans": [],
             "selected_plan": None,
@@ -395,6 +396,7 @@ async def chat_stream(request: ChatRequest):
                 "mission": mission_to_use,
                 "intent_reasoning": None,
                 "candidates": [],
+                "candidate_search_info": None,  # Candidate Agent 搜索进度
                 "verified_candidates": [],
                 "plans": [],
                 "selected_plan": None,
@@ -467,6 +469,24 @@ async def chat_stream(request: ChatRequest):
                                 yield f"data: {json.dumps(reasoning_event.model_dump())}\n\n"
                                 await asyncio.sleep(0)
                                 intent_reasoning_sent = True
+                    
+                    # Candidate Agent 搜索进度 - 实时发送
+                    candidate_search_info = output.get("candidate_search_info")
+                    if candidate_search_info:
+                        search_event = StreamEventModel(
+                            type="candidate_search",
+                            agent="candidate",
+                            data={
+                                "search_query": candidate_search_info.get("search_query", ""),
+                                "search_query_en": candidate_search_info.get("search_query_en", ""),
+                                "total_found": candidate_search_info.get("total_found", 0),
+                                "fetched_count": candidate_search_info.get("fetched_count", 0),
+                                "status": candidate_search_info.get("status", "complete"),
+                            },
+                            timestamp=int(time.time() * 1000),
+                        )
+                        yield f"data: {json.dumps(search_event.model_dump())}\n\n"
+                        await asyncio.sleep(0)
                     
                     agent_id = agent_name_map.get(event_name)
                     if agent_id:

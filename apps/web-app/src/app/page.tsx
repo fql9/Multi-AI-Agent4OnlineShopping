@@ -26,7 +26,7 @@ import {
   User,
 } from 'lucide-react'
 import Image from 'next/image'
-import { useShoppingStore, type TaxEstimate, type ComplianceRisk, type GuidedChatMessage, type IntentReasoning } from '@/store/shopping'
+import { useShoppingStore, type TaxEstimate, type ComplianceRisk, type GuidedChatMessage, type IntentReasoning, type CandidateSearchInfo } from '@/store/shopping'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -432,6 +432,9 @@ export default function Home() {
   
   // Intent Agent 推理过程（来自后端 LLM 真实推理）
   const intentReasoning = store.intentReasoning
+  
+  // Candidate Agent 搜索进度信息（来自后端实时流式传输）
+  const candidateSearchInfo = store.candidateSearchInfo
 
   const hasPlans = store.plans.length > 0 && store.orderState === 'TOTAL_COMPUTED'
   const isConfirmation =
@@ -764,17 +767,45 @@ export default function Home() {
                       </div>
                     </div>
 
-                    {/* Step 2: Searching */}
+                    {/* Step 2: Searching - 实时展示 Candidate Agent 搜索进度 */}
                     <div className="flex gap-4">
                       <div className="flex flex-col items-center">
-                        <div className="w-2.5 h-2.5 rounded-full bg-[#5a5a58]" />
+                        <div className={cn(
+                          "w-2.5 h-2.5 rounded-full",
+                          candidateSearchInfo ? "bg-[#5a5a58]" : store.isStreaming ? "bg-[#20b8cd] animate-pulse" : "bg-[#5a5a58]"
+                        )} />
                         <div className="w-0.5 flex-1 bg-[#e0e0de] mt-2" />
                       </div>
                       <div className="flex-1 pb-2">
-                        <p className="text-sm text-[#2d3436] mb-3">正在搜索商品信息和价格数据。</p>
-                        <p className="text-xs text-[#9a9a98] mb-2">搜索中</p>
+                        <p className="text-sm text-[#2d3436] mb-3">
+                          {candidateSearchInfo 
+                            ? `已搜索到 ${candidateSearchInfo.totalFound} 件商品，正在分析 ${candidateSearchInfo.fetchedCount} 件符合条件的商品。`
+                            : '正在搜索商品信息和价格数据。'
+                          }
+                        </p>
+                        <p className="text-xs text-[#9a9a98] mb-2">
+                          {candidateSearchInfo?.status === 'complete' ? '搜索完成' : '搜索中'}
+                        </p>
                         <div className="flex flex-wrap gap-2">
-                          {candidateToolCalls.length > 0 ? (
+                          {/* 显示真实的搜索关键词 */}
+                          {candidateSearchInfo ? (
+                            <>
+                              <div className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-white border border-[#e0e0de] text-sm text-[#2d3436]">
+                                <Search className="w-4 h-4 text-[#9a9a98]" />
+                                <span>{candidateSearchInfo.searchQuery || candidateSearchInfo.searchQueryEn || store.query}</span>
+                                {candidateSearchInfo.status === 'complete' && (
+                                  <CheckCircle className="w-4 h-4 text-green-500" />
+                                )}
+                              </div>
+                              {candidateSearchInfo.totalFound > 0 && (
+                                <div className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-green-50 border border-green-200 text-sm text-green-700">
+                                  <span>找到 {candidateSearchInfo.totalFound} 件</span>
+                                  <span className="text-green-500">→</span>
+                                  <span>筛选出 {candidateSearchInfo.fetchedCount} 件</span>
+                                </div>
+                              )}
+                            </>
+                          ) : candidateToolCalls.length > 0 ? (
                             candidateToolCalls.map((tool) => {
                               const query = extractQueryFromInput(tool.input)
                               return (
@@ -790,11 +821,11 @@ export default function Home() {
                           ) : (
                             <>
                               <div className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-white border border-[#e0e0de] text-sm text-[#2d3436]">
-                                <Search className="w-4 h-4 text-[#9a9a98]" />
+                                <Search className="w-4 h-4 text-[#9a9a98] animate-pulse" />
                                 <span>{store.query || '商品搜索'}</span>
                               </div>
                               <div className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-white border border-[#e0e0de] text-sm text-[#2d3436]">
-                                <Search className="w-4 h-4 text-[#9a9a98]" />
+                                <Search className="w-4 h-4 text-[#9a9a98] animate-pulse" />
                                 <span>价格对比分析</span>
                               </div>
                             </>

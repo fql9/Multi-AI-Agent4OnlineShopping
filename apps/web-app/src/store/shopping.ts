@@ -160,6 +160,19 @@ export type IntentReasoning = {
   thinking: string  // 简洁的思维链文本（2-3句话）
 }
 
+/**
+ * Candidate Agent 搜索进度信息
+ * 
+ * 用于前端实时展示搜索状态
+ */
+export type CandidateSearchInfo = {
+  searchQuery: string       // 搜索关键词
+  searchQueryEn: string     // 英文搜索关键词
+  totalFound: number        // 找到的商品总数
+  fetchedCount: number      // 已获取详情的商品数
+  status: 'searching' | 'fetching' | 'complete'  // 搜索状态
+}
+
 // Agent 步骤
 export type AgentStep = {
   id: string
@@ -258,6 +271,7 @@ interface ShoppingState {
   query: string
   mission: Mission | null
   intentReasoning: IntentReasoning | null  // Intent Agent 推理过程（用于前端展示）
+  candidateSearchInfo: CandidateSearchInfo | null  // Candidate Agent 搜索进度（用于前端实时展示）
   agentSteps: AgentStep[]
   currentStepIndex: number
   isStreaming: boolean
@@ -395,6 +409,20 @@ async function processAgentStream(
               intentReasoning: { thinking: event.data.thinking },
             })
           }
+          break
+        
+        // Candidate Agent 搜索进度 - 实时接收并展示
+        case 'candidate_search':
+          console.log('[DEBUG] Received candidate_search (streaming):', event.data)
+          set({
+            candidateSearchInfo: {
+              searchQuery: event.data?.search_query || '',
+              searchQueryEn: event.data?.search_query_en || '',
+              totalFound: event.data?.total_found || 0,
+              fetchedCount: event.data?.fetched_count || 0,
+              status: event.data?.status === 'complete' ? 'complete' : 'fetching',
+            },
+          })
           break
           
         case 'tool_call':
@@ -692,6 +720,7 @@ export const useShoppingStore = create<ShoppingState>()(
       query: '',
       mission: null,
       intentReasoning: null,
+      candidateSearchInfo: null,
       agentSteps: createInitialAgentSteps(),
       currentStepIndex: -1,
       isStreaming: false,
@@ -896,6 +925,7 @@ export const useShoppingStore = create<ShoppingState>()(
                   query: '',
                   mission: null,
                   intentReasoning: null,
+                  candidateSearchInfo: null,
                   agentSteps: createInitialAgentSteps(),
                   currentStepIndex: -1,
                   isStreaming: false,
@@ -1221,6 +1251,7 @@ export const useShoppingStore = create<ShoppingState>()(
         query: '',
         mission: null,
         intentReasoning: null,
+        candidateSearchInfo: null,
         chatMessages: [],
         agentSteps: createInitialAgentSteps(),
         currentStepIndex: -1,
