@@ -108,8 +108,20 @@ async def candidate_node(state: AgentState) -> AgentState:
         if not search_result.get("ok"):
             error_msg = search_result.get("error", {}).get("message", "Search failed")
             logger.error("candidate_node.search_failed", error=error_msg)
+            
+            # 记录失败的工具调用
+            tool_calls = state.get("tool_calls", [])
+            tool_calls.append(_build_search_tool_call(
+                query_en=query_en,
+                query_original=query_original,
+                ok=False,
+                count=0,
+                error=error_msg,
+            ))
+            
             return {
                 **state,
+                "tool_calls": tool_calls,
                 "error": error_msg,
                 "error_code": "UPSTREAM_ERROR",
                 "current_step": "candidate",
@@ -120,10 +132,21 @@ async def candidate_node(state: AgentState) -> AgentState:
 
         if not offer_ids:
             # 没有找到商品，可能需要放宽搜索条件
+            # 记录无结果的工具调用
+            tool_calls = state.get("tool_calls", [])
+            tool_calls.append(_build_search_tool_call(
+                query_en=query_en,
+                query_original=query_original,
+                ok=True,  # 搜索本身成功，只是没有结果
+                count=0,
+                total_count=0,
+            ))
+            
             return {
                 **state,
                 "candidates": [],
                 "current_step": "candidate_complete",
+                "tool_calls": tool_calls,
                 "error": "No products found matching your requirements",
                 "error_code": "NOT_FOUND",
             }
@@ -214,38 +237,47 @@ async def candidate_node(state: AgentState) -> AgentState:
                     primary_type=primary_display,
                     filtered_count=len(filtered_out),
                 )
+                
+                # 记录搜索成功但过滤后无结果的工具调用
+                tool_calls = state.get("tool_calls", [])
+                tool_calls.append(_build_search_tool_call(
+                    query_en=query_en,
+                    query_original=query_original,
+                    ok=True,
+                    count=0,  # 过滤后的数量
+                    total_count=len(offer_ids),  # 搜索返回的总数
+                ))
+                
                 return {
                     **state,
                     "candidates": [],
                     "current_step": "candidate_complete",
+                    "tool_calls": tool_calls,
                     "error": f"No products matching '{primary_display}' found. The search returned related items but none matched your specific request.",
                     "error_code": "NO_EXACT_MATCH",
                 }
 
         logger.info("candidate_node.complete", candidates_count=len(candidates))
 
-        # 记录工具调用
+        # 记录工具调用（使用统一的构建函数）
+        # 从搜索结果中提取更多信息
+        search_data = search_result.get("data", {})
+        total_count = search_data.get("total_count") or len(offer_ids)
+        has_more = search_data.get("has_more")
+        
         tool_calls = state.get("tool_calls", [])
-        tool_calls.append({
-            "tool_name": "catalog.search_offers",
-            "request": {"query": query_en, "query_original": query_original},
-            "response_summary": {"count": len(offer_ids)},
-            "called_at": _now_iso(),
-        })
-
-        # 构建候选搜索进度信息（用于前端实时展示）
-        candidate_search_info = {
-            "search_query": query_original or query_en,
-            "search_query_en": query_en,
-            "total_found": len(offer_ids),
-            "fetched_count": len(candidates),
-            "status": "complete",
-        }
+        tool_calls.append(_build_search_tool_call(
+            query_en=query_en,
+            query_original=query_original,
+            ok=True,
+            count=len(candidates),  # 最终有效的候选数量
+            total_count=total_count,  # 搜索返回的总数
+            has_more=has_more,
+        ))
 
         return {
             **state,
             "candidates": candidates,
-            "candidate_search_info": candidate_search_info,
             "current_step": "candidate_complete",
             "tool_calls": tool_calls,
             "error": None,
@@ -253,8 +285,29 @@ async def candidate_node(state: AgentState) -> AgentState:
 
     except Exception as e:
         logger.error("candidate_node.error", error=str(e))
+        
+        # 尝试记录工具调用（即使在异常情况下）
+        # 如果在提取查询之前就出错，使用原始 mission 信息
+        try:
+            mission = state.get("mission") or {}
+            exc_query_en = mission.get("search_query_en", "") or mission.get("search_query", "")
+            exc_query_original = mission.get("search_query", "") or exc_query_en
+            
+            tool_calls = state.get("tool_calls", [])
+            tool_calls.append(_build_search_tool_call(
+                query_en=exc_query_en,
+                query_original=exc_query_original,
+                ok=False,
+                count=0,
+                error=str(e),
+            ))
+        except Exception:
+            # 如果构建 tool_call 也失败，就不添加
+            tool_calls = state.get("tool_calls", [])
+        
         return {
             **state,
+            "tool_calls": tool_calls,
             "error": str(e),
             "error_code": "INTERNAL_ERROR",
             "current_step": "candidate",
@@ -265,6 +318,45 @@ def _now_iso() -> str:
     """返回当前时间的 ISO 格式"""
     from datetime import datetime
     return datetime.now(UTC).isoformat()
+
+
+def _generate_tool_id() -> str:
+    """生成唯一的工具调用 ID"""
+    import uuid
+    return f"tc_{uuid.uuid4().hex[:12]}"
+
+
+def _build_search_tool_call(
+    query_en: str,
+    query_original: str,
+    *,
+    ok: bool = True,
+    count: int = 0,
+    total_count: int | None = None,
+    has_more: bool | None = None,
+    error: str | None = None,
+) -> dict:
+    """
+    构建 catalog.search_offers 工具调用记录
+    
+    无论搜索成功/失败/无结果，都用这个函数记录，保证格式一致。
+    """
+    return {
+        "tool_id": _generate_tool_id(),
+        "tool_name": "catalog.search_offers",
+        "request": {
+            "query": query_en,
+            "query_original": query_original,
+        },
+        "response_summary": {
+            "ok": ok,
+            "count": count,
+            "total_count": total_count,
+            "has_more": has_more,
+            "error": error,
+        },
+        "called_at": _now_iso(),
+    }
 
 
 def _is_meaningful_query(query: str) -> bool:

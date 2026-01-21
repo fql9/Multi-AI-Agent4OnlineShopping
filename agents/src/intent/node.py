@@ -31,7 +31,13 @@ async def intent_node(state: AgentState) -> AgentState:
     # 如果已有 mission，直接返回
     if state.get("mission") is not None:
         logger.debug("intent_node.skip", reason="mission already exists")
-        mission = state.get("mission") or {}
+        mission_raw = state.get("mission")
+        # 防御性检查：确保 mission 是字典
+        if isinstance(mission_raw, dict):
+            mission = mission_raw
+        else:
+            logger.warning("intent_node.invalid_mission_type", mission_type=type(mission_raw).__name__)
+            mission = {}
         if not state.get("intent_reasoning"):
             intent_reasoning = _build_intent_reasoning(mission)
             return {
@@ -287,6 +293,9 @@ def _build_mission_dict(result: MissionParseResult, user_message: str) -> dict[s
 
 def _format_budget(mission: dict) -> str:
     """格式化预算信息"""
+    # 防御性检查：确保 mission 是字典
+    if not isinstance(mission, dict):
+        return "不限"
     amount = mission.get("budget_amount")
     currency = mission.get("budget_currency", "USD")
     if amount is None:
@@ -304,6 +313,16 @@ def _build_intent_reasoning(
     
     生成 2-3 句话的思考过程，简洁明了。
     """
+    # 防御性类型检查：确保 mission 是字典
+    if not isinstance(mission, dict):
+        logger.warning("_build_intent_reasoning.invalid_mission_type", mission_type=type(mission).__name__)
+        mission = {}
+    
+    # 防御性类型检查：确保 preprocess_info 是字典或 None
+    if preprocess_info is not None and not isinstance(preprocess_info, dict):
+        logger.warning("_build_intent_reasoning.invalid_preprocess_info_type", preprocess_info_type=type(preprocess_info).__name__)
+        preprocess_info = None
+    
     product_type = mission.get("primary_product_type_en", "") or mission.get("primary_product_type", "") or mission.get("search_query_en", "")
     destination_country = mission.get("destination_country", "US")
     budget_display = _format_budget(mission)
@@ -317,7 +336,7 @@ def _build_intent_reasoning(
         short_msg = user_message[:30] + "..." if len(user_message) > 30 else user_message
         thinking_parts.append(f"理解需求：用户想要购买「{short_msg}」")
     
-    # 提取关键信息
+    # 提取关键信息（已确保 preprocess_info 是字典或 None）
     if preprocess_info and preprocess_info.get("normalized_query"):
         thinking_parts.append(f"关键词提取：{preprocess_info['normalized_query']} → {search_query_en}")
     else:

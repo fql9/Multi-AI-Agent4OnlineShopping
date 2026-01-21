@@ -160,19 +160,6 @@ export type IntentReasoning = {
   thinking: string  // 简洁的思维链文本（2-3句话）
 }
 
-/**
- * Candidate Agent 搜索进度信息
- * 
- * 用于前端实时展示搜索状态
- */
-export type CandidateSearchInfo = {
-  searchQuery: string       // 搜索关键词
-  searchQueryEn: string     // 英文搜索关键词
-  totalFound: number        // 找到的商品总数
-  fetchedCount: number      // 已获取详情的商品数
-  status: 'searching' | 'fetching' | 'complete'  // 搜索状态
-}
-
 // Agent 步骤
 export type AgentStep = {
   id: string
@@ -271,7 +258,6 @@ interface ShoppingState {
   query: string
   mission: Mission | null
   intentReasoning: IntentReasoning | null  // Intent Agent 推理过程（用于前端展示）
-  candidateSearchInfo: CandidateSearchInfo | null  // Candidate Agent 搜索进度（用于前端实时展示）
   agentSteps: AgentStep[]
   currentStepIndex: number
   isStreaming: boolean
@@ -409,20 +395,6 @@ async function processAgentStream(
               intentReasoning: { thinking: event.data.thinking },
             })
           }
-          break
-        
-        // Candidate Agent 搜索进度 - 实时接收并展示
-        case 'candidate_search':
-          console.log('[DEBUG] Received candidate_search (streaming):', event.data)
-          set({
-            candidateSearchInfo: {
-              searchQuery: event.data?.search_query || '',
-              searchQueryEn: event.data?.search_query_en || '',
-              totalFound: event.data?.total_found || 0,
-              fetchedCount: event.data?.fetched_count || 0,
-              status: event.data?.status === 'complete' ? 'complete' : 'fetching',
-            },
-          })
           break
           
         case 'tool_call':
@@ -720,7 +692,6 @@ export const useShoppingStore = create<ShoppingState>()(
       query: '',
       mission: null,
       intentReasoning: null,
-      candidateSearchInfo: null,
       agentSteps: createInitialAgentSteps(),
       currentStepIndex: -1,
       isStreaming: false,
@@ -846,55 +817,32 @@ export const useShoppingStore = create<ShoppingState>()(
           session_id: get().sessionId || undefined,
         }
         
-        // 声明 signalApiComplete 用于通知动画完成（在非流式回退路径中使用）
-        let signalApiComplete: () => void = () => {}
-        
         try {
-          let response: api.ChatResponse | null = null
+          // 强制使用流式 API - 不再回退到模拟进度
+          console.log('[DEBUG] Using streaming agent process (no fallback)...')
+          const response = await processAgentStream(get, set, addThinkingStep, addToolCall, updateToolCall, chatRequest)
           
-          // 尝试使用流式 API（如果后端支持）
-          console.log('[DEBUG] Trying streaming agent process...')
-          response = await processAgentStream(get, set, addThinkingStep, addToolCall, updateToolCall, chatRequest)
-          
-          // 如果流式 API 失败或返回 null，回退到模拟进度 + 普通 API
+          // 如果流式 API 失败或返回 null，直接报错
           if (!response) {
-            console.log('[DEBUG] Streaming not available, falling back to simulated progress...')
-            
-            // 创建一个可以从外部 resolve 的信号，用于通知动画 API 已完成
-            const apiCompleteSignal = new Promise<void>((resolve) => {
-              signalApiComplete = resolve
+            console.error('[ERROR] Streaming API failed or returned null')
+            set({
+              error: '流式 API 不可用。请检查后端服务是否正常运行。\n\nStreaming API is not available. Please check if the backend service is running.',
+              errorCode: 'STREAM_UNAVAILABLE',
+              isStreaming: false,
             })
-            
-            // 启动进度模拟 - 在后台运行 API 调用的同时展示进度
-            const progressPromise = simulateAgentProgress(get, set, addThinkingStep, addToolCall, updateToolCall, apiCompleteSignal)
-            
-            try {
-              response = await api.sendChatMessage(chatRequest)
-            } catch (err) {
-              // 如果是 404 错误（Session not found），清除 session 并重试
-              if (err instanceof api.ApiError && err.status === 404) {
-                set({ sessionId: null })
-                response = await api.sendChatMessage({
-                  message: query,
-                })
-              } else {
-                throw err
-              }
-            }
-            
-            // API 已返回，通知动画可以完成最后一步
-            signalApiComplete()
-            
-            // 等待进度模拟完成
-            await progressPromise
+            return
           }
             
-          // 如果响应中包含 session 错误，也处理
+          // 如果响应中包含 session 错误，清除 session（但不重试非流式）
           if (response.error?.includes('Session not found') || response.error_code === 'SESSION_NOT_FOUND') {
             set({ sessionId: null })
-            response = await api.sendChatMessage({
-              message: query,
+            // 提示用户重试
+            set({
+              error: '会话已过期，请重新搜索。\n\nSession expired, please try again.',
+              errorCode: 'SESSION_EXPIRED',
+              isStreaming: false,
             })
+            return
           }
             
           set({ sessionId: response.session_id })
@@ -925,7 +873,6 @@ export const useShoppingStore = create<ShoppingState>()(
                   query: '',
                   mission: null,
                   intentReasoning: null,
-                  candidateSearchInfo: null,
                   agentSteps: createInitialAgentSteps(),
                   currentStepIndex: -1,
                   isStreaming: false,
@@ -1200,10 +1147,9 @@ export const useShoppingStore = create<ShoppingState>()(
             
             return
           } catch (err) {
-            // 确保在错误情况下也通知动画完成，避免无限等待
-            signalApiComplete()
+            console.error('[ERROR] Agent process failed:', err)
             const errorMsg = err instanceof Error ? err.message : 'Unknown error'
-            set({ error: `Failed to call agent: ${errorMsg}`, errorCode: 'API_ERROR', isStreaming: false })
+            set({ error: `Agent 调用失败 / Failed to call agent: ${errorMsg}`, errorCode: 'API_ERROR', isStreaming: false })
             return
           }
       },
@@ -1251,7 +1197,6 @@ export const useShoppingStore = create<ShoppingState>()(
         query: '',
         mission: null,
         intentReasoning: null,
-        candidateSearchInfo: null,
         chatMessages: [],
         agentSteps: createInitialAgentSteps(),
         currentStepIndex: -1,

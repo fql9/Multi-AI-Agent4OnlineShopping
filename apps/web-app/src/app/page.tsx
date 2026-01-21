@@ -26,7 +26,7 @@ import {
   User,
 } from 'lucide-react'
 import Image from 'next/image'
-import { useShoppingStore, type TaxEstimate, type ComplianceRisk, type GuidedChatMessage, type IntentReasoning, type CandidateSearchInfo } from '@/store/shopping'
+import { useShoppingStore, type TaxEstimate, type ComplianceRisk, type GuidedChatMessage, type IntentReasoning } from '@/store/shopping'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -210,12 +210,46 @@ function ImagePreview({ images, onRemove }: { images: string[]; onRemove: (index
 function extractQueryFromInput(input?: string) {
   if (!input) return ''
   try {
-    const parsed = JSON.parse(input) as { query?: string; params?: { query?: string } }
+    const parsed = JSON.parse(input) as { query?: string; query_en?: string; params?: { query?: string } }
+    // 优先使用 query（中文原始查询），其次使用 query_en（英文翻译）
     if (parsed.query) return String(parsed.query)
+    if (parsed.query_en) return String(parsed.query_en)
     if (parsed.params?.query) return String(parsed.params.query)
   } catch {}
   const match = input.match(/"query"\s*:\s*"([^"]+)"/)
   return match?.[1] || input
+}
+
+/**
+ * 从工具调用输出中解析搜索结果摘要
+ * 返回 { ok, count, totalCount, hasMore, error } 或 null（解析失败）
+ */
+function parseToolOutput(output?: string): {
+  ok: boolean
+  count: number
+  totalCount?: number
+  hasMore?: boolean
+  error?: string
+} | null {
+  if (!output) return null
+  try {
+    const parsed = JSON.parse(output) as {
+      ok?: boolean
+      count?: number
+      total_count?: number
+      has_more?: boolean
+      error?: string
+    }
+    return {
+      ok: parsed.ok ?? true,
+      count: parsed.count ?? 0,
+      totalCount: parsed.total_count,
+      hasMore: parsed.has_more,
+      error: parsed.error,
+    }
+  } catch {
+    return null
+  }
 }
 
 function truncateText(value: string, max = 64) {
@@ -432,9 +466,6 @@ export default function Home() {
   
   // Intent Agent 推理过程（来自后端 LLM 真实推理）
   const intentReasoning = store.intentReasoning
-  
-  // Candidate Agent 搜索进度信息（来自后端实时流式传输）
-  const candidateSearchInfo = store.candidateSearchInfo
 
   const hasPlans = store.plans.length > 0 && store.orderState === 'TOTAL_COMPUTED'
   const isConfirmation =
@@ -767,54 +798,62 @@ export default function Home() {
                       </div>
                     </div>
 
-                    {/* Step 2: Searching - 实时展示 Candidate Agent 搜索进度 */}
+                    {/* Step 2: Searching - 展示真实搜索词与命中数量 */}
                     <div className="flex gap-4">
                       <div className="flex flex-col items-center">
-                        <div className={cn(
-                          "w-2.5 h-2.5 rounded-full",
-                          candidateSearchInfo ? "bg-[#5a5a58]" : store.isStreaming ? "bg-[#20b8cd] animate-pulse" : "bg-[#5a5a58]"
-                        )} />
+                        <div className="w-2.5 h-2.5 rounded-full bg-[#5a5a58]" />
                         <div className="w-0.5 flex-1 bg-[#e0e0de] mt-2" />
                       </div>
                       <div className="flex-1 pb-2">
-                        <p className="text-sm text-[#2d3436] mb-3">
-                          {candidateSearchInfo 
-                            ? `已搜索到 ${candidateSearchInfo.totalFound} 件商品，正在分析 ${candidateSearchInfo.fetchedCount} 件符合条件的商品。`
-                            : '正在搜索商品信息和价格数据。'
-                          }
-                        </p>
-                        <p className="text-xs text-[#9a9a98] mb-2">
-                          {candidateSearchInfo?.status === 'complete' ? '搜索完成' : '搜索中'}
-                        </p>
+                        <p className="text-sm text-[#2d3436] mb-3">正在搜索商品信息和价格数据。</p>
+                        {/* 动态显示搜索状态 */}
+                        {candidateToolCalls.length > 0 ? (
+                          candidateToolCalls.some(t => t.status === 'success') ? (
+                            <p className="text-xs text-[#6b9f4d] mb-2">搜索完成</p>
+                          ) : (
+                            <p className="text-xs text-[#9a9a98] mb-2">搜索中...</p>
+                          )
+                        ) : (
+                          <p className="text-xs text-[#9a9a98] mb-2">搜索中</p>
+                        )}
                         <div className="flex flex-wrap gap-2">
-                          {/* 显示真实的搜索关键词 */}
-                          {candidateSearchInfo ? (
-                            <>
-                              <div className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-white border border-[#e0e0de] text-sm text-[#2d3436]">
-                                <Search className="w-4 h-4 text-[#9a9a98]" />
-                                <span>{candidateSearchInfo.searchQuery || candidateSearchInfo.searchQueryEn || store.query}</span>
-                                {candidateSearchInfo.status === 'complete' && (
-                                  <CheckCircle className="w-4 h-4 text-green-500" />
-                                )}
-                              </div>
-                              {candidateSearchInfo.totalFound > 0 && (
-                                <div className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-green-50 border border-green-200 text-sm text-green-700">
-                                  <span>找到 {candidateSearchInfo.totalFound} 件</span>
-                                  <span className="text-green-500">→</span>
-                                  <span>筛选出 {candidateSearchInfo.fetchedCount} 件</span>
-                                </div>
-                              )}
-                            </>
-                          ) : candidateToolCalls.length > 0 ? (
+                          {candidateToolCalls.length > 0 ? (
                             candidateToolCalls.map((tool) => {
                               const query = extractQueryFromInput(tool.input)
+                              const result = parseToolOutput(tool.output)
+                              const isSearching = tool.status !== 'success'
+                              
                               return (
                                 <div
                                   key={tool.id}
-                                  className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-white border border-[#e0e0de] text-sm text-[#2d3436]"
+                                  className={cn(
+                                    "inline-flex items-center gap-2 px-3 py-2 rounded-lg border text-sm",
+                                    isSearching
+                                      ? "bg-[#f9f9f7] border-[#e0e0de] text-[#6b6c6c]"
+                                      : result?.ok === false
+                                        ? "bg-red-50 border-red-200 text-red-700"
+                                        : "bg-white border-[#e0e0de] text-[#2d3436]"
+                                  )}
                                 >
-                                  <Search className="w-4 h-4 text-[#9a9a98]" />
-                                  <span>{truncateText(query || tool.input, 40)}</span>
+                                  <Search className={cn(
+                                    "w-4 h-4",
+                                    isSearching ? "text-[#9a9a98] animate-pulse" : "text-[#9a9a98]"
+                                  )} />
+                                  <span>{truncateText(query || tool.input, 30)}</span>
+                                  {/* 显示命中数量（当搜索完成且有结果时） */}
+                                  {!isSearching && result && (
+                                    <span className={cn(
+                                      "text-xs px-1.5 py-0.5 rounded",
+                                      result.ok
+                                        ? "bg-[#e8f5e9] text-[#2e7d32]"
+                                        : "bg-red-100 text-red-600"
+                                    )}>
+                                      {result.ok
+                                        ? `${result.count}${result.totalCount && result.totalCount > result.count ? `/${result.totalCount}` : ''} 件`
+                                        : result.error || '搜索失败'
+                                      }
+                                    </span>
+                                  )}
                                 </div>
                               )
                             })

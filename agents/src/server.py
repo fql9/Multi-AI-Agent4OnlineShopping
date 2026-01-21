@@ -261,7 +261,6 @@ async def chat(request: ChatRequest):
             "mission": mission_to_use,  # 可能为 None 或已提取并翻译的 mission
             "intent_reasoning": None,  # Intent Agent 推理过程
             "candidates": [],
-            "candidate_search_info": None,  # Candidate Agent 搜索进度
             "verified_candidates": [],
             "plans": [],
             "selected_plan": None,
@@ -396,7 +395,6 @@ async def chat_stream(request: ChatRequest):
                 "mission": mission_to_use,
                 "intent_reasoning": None,
                 "candidates": [],
-                "candidate_search_info": None,  # Candidate Agent 搜索进度
                 "verified_candidates": [],
                 "plans": [],
                 "selected_plan": None,
@@ -426,6 +424,8 @@ async def chat_stream(request: ChatRequest):
             import asyncio
             intent_reasoning_sent = False
             final_result = None
+            # 跟踪已发送的 tool_call_ids，用于去重（因为后续节点可能带上之前的 tool_calls）
+            sent_tool_call_ids: set[str] = set()
             agent_name_map = {
                 "intent": "intent",
                 "candidate": "candidate",
@@ -452,7 +452,13 @@ async def chat_stream(request: ChatRequest):
                 
                 # 检测 Agent 节点完成
                 if event_kind == "on_chain_end":
-                    output = event.get("data", {}).get("output", {})
+                    # 防御性检查：确保 data 和 output 是字典
+                    event_data = event.get("data", {})
+                    if not isinstance(event_data, dict):
+                        event_data = {}
+                    output = event_data.get("output", {})
+                    if not isinstance(output, dict):
+                        output = {}
                     
                     # 只要输出中出现 intent_reasoning，就立即发送（不依赖节点名）
                     if not intent_reasoning_sent:
@@ -470,26 +476,74 @@ async def chat_stream(request: ChatRequest):
                                 await asyncio.sleep(0)
                                 intent_reasoning_sent = True
                     
-                    # Candidate Agent 搜索进度 - 实时发送
-                    candidate_search_info = output.get("candidate_search_info")
-                    if candidate_search_info:
-                        search_event = StreamEventModel(
-                            type="candidate_search",
-                            agent="candidate",
-                            data={
-                                "search_query": candidate_search_info.get("search_query", ""),
-                                "search_query_en": candidate_search_info.get("search_query_en", ""),
-                                "total_found": candidate_search_info.get("total_found", 0),
-                                "fetched_count": candidate_search_info.get("fetched_count", 0),
-                                "status": candidate_search_info.get("status", "complete"),
-                            },
-                            timestamp=int(time.time() * 1000),
-                        )
-                        yield f"data: {json.dumps(search_event.model_dump())}\n\n"
-                        await asyncio.sleep(0)
-                    
                     agent_id = agent_name_map.get(event_name)
                     if agent_id:
+                        # 为 candidate/verifier 节点发送 tool_call + tool_result 事件
+                        # 从 output["tool_calls"] 提取并去重
+                        if agent_id in ("candidate", "verifier"):
+                            tool_calls_list = output.get("tool_calls", [])
+                            # 防御性检查：确保 tool_calls_list 是列表
+                            if not isinstance(tool_calls_list, list):
+                                tool_calls_list = []
+                            for tc in tool_calls_list:
+                                # 防御性检查：确保 tc 是字典
+                                if not isinstance(tc, dict):
+                                    continue
+                                tool_id = tc.get("tool_id")
+                                if not tool_id or tool_id in sent_tool_call_ids:
+                                    continue  # 跳过已发送的或无 ID 的
+                                
+                                sent_tool_call_ids.add(tool_id)
+                                tool_name = tc.get("tool_name", "unknown")
+                                request_data = tc.get("request", {})
+                                response_summary = tc.get("response_summary", {})
+                                # 防御性检查：确保 request_data 和 response_summary 是字典
+                                if not isinstance(request_data, dict):
+                                    request_data = {}
+                                if not isinstance(response_summary, dict):
+                                    response_summary = {}
+                                
+                                # 发送 tool_call 事件（展示搜索词）
+                                # 优先使用 query_original（中文）以便 UI 直接展示
+                                tool_input_data = {
+                                    "query": request_data.get("query_original") or request_data.get("query", ""),
+                                    "query_en": request_data.get("query", ""),
+                                }
+                                tool_call_event = StreamEventModel(
+                                    type="tool_call",
+                                    agent=agent_id,
+                                    data={
+                                        "tool_id": tool_id,
+                                        "tool_name": tool_name,
+                                        "tool_input": json.dumps(tool_input_data, ensure_ascii=False),
+                                    },
+                                    timestamp=int(time.time() * 1000),
+                                )
+                                yield f"data: {json.dumps(tool_call_event.model_dump())}\n\n"
+                                await asyncio.sleep(0)
+                                
+                                # 发送 tool_result 事件（展示命中数量等）
+                                tool_output_data = {
+                                    "ok": response_summary.get("ok", True),
+                                    "count": response_summary.get("count", 0),
+                                    "total_count": response_summary.get("total_count"),
+                                    "has_more": response_summary.get("has_more"),
+                                    "error": response_summary.get("error"),
+                                }
+                                tool_result_event = StreamEventModel(
+                                    type="tool_result",
+                                    agent=agent_id,
+                                    data={
+                                        "tool_id": tool_id,
+                                        "tool_output": json.dumps(tool_output_data, ensure_ascii=False),
+                                        "tool_status": "success" if response_summary.get("ok", True) else "error",
+                                        "tool_duration": 0,  # 目前不追踪耗时
+                                    },
+                                    timestamp=int(time.time() * 1000),
+                                )
+                                yield f"data: {json.dumps(tool_result_event.model_dump())}\n\n"
+                                await asyncio.sleep(0)
+                        
                         complete_event = StreamEventModel(
                             type="agent_complete",
                             agent=agent_id,

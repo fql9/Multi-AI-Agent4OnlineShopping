@@ -498,7 +498,7 @@ export interface StreamChunk {
 export type AgentId = 'intent' | 'candidate' | 'verifier' | 'plan' | 'execution'
 
 export interface AgentStreamEvent {
-  type: 'agent_start' | 'thinking' | 'tool_call' | 'tool_result' | 'agent_complete' | 'intent_reasoning' | 'candidate_search' | 'plans' | 'error' | 'done'
+  type: 'agent_start' | 'thinking' | 'tool_call' | 'tool_result' | 'agent_complete' | 'intent_reasoning' | 'plans' | 'error' | 'done'
   agent?: AgentId
   data?: {
     // thinking event
@@ -508,13 +508,6 @@ export interface AgentStreamEvent {
     
     // intent_reasoning event (Intent Agent 思维链)
     thinking?: string
-    
-    // candidate_search event (Candidate Agent 搜索进度)
-    search_query?: string
-    search_query_en?: string
-    total_found?: number
-    fetched_count?: number
-    status?: string
     
     // tool_call event
     tool_id?: string
