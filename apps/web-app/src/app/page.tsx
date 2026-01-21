@@ -604,6 +604,10 @@ export default function Home() {
   // Intent Agent 推理过程（来自后端 LLM 真实推理）
   const intentReasoning = store.intentReasoning
 
+  const showIntentStep = Boolean(intentReasoning?.thinking)
+  const showSearchStep = candidateToolCalls.length > 0
+  const showVerifyStep = topOfferVerifierCalls.length > 0
+
   const hasPlans = store.plans.length > 0 && store.orderState === 'TOTAL_COMPUTED'
   const isConfirmation =
     (store.orderState === 'DRAFT_ORDER_CREATED' || store.orderState === 'WAIT_USER_PAYMENT_CONFIRMATION') &&
@@ -960,46 +964,44 @@ export default function Home() {
                 {!thinkingCollapsed && (
                   <div className="space-y-6 animate-fade-in">
                     {/* Step 1: Intent Analysis */}
-                    <div className="flex gap-4">
-                      <div className="flex flex-col items-center">
-                        <div className="w-2.5 h-2.5 rounded-full bg-[#5a5a58]" />
-                        <div className="w-0.5 flex-1 bg-[#e0e0de] mt-2" />
+                    {showIntentStep && (
+                      <div className="flex gap-4 animate-fade-in">
+                        <div className="flex flex-col items-center">
+                          <div className="w-2.5 h-2.5 rounded-full bg-[#5a5a58]" />
+                          <div className="w-0.5 flex-1 bg-[#e0e0de] mt-2" />
+                        </div>
+                        <div className="flex-1 pb-2">
+                          <p className="text-sm text-[#2d3436] leading-relaxed">
+                            我将分析您的需求并搜索「{store.query || '商品'}」相关信息。
+                          </p>
+                          
+                          {/* Intent Agent 思维链（简化版，类似 DeepSeek 风格） */}
+                          {intentReasoning?.thinking && (
+                            <div className="mt-3 bg-[#f9f9f7] rounded-lg p-3 border border-[#e8e8e6]">
+                              <p className="text-xs text-[#6b6c6c] leading-relaxed">{intentReasoning.thinking}</p>
+                            </div>
+                          )}
+                        </div>
                       </div>
-                      <div className="flex-1 pb-2">
-                        <p className="text-sm text-[#2d3436] leading-relaxed">
-                          我将分析您的需求并搜索「{store.query || '商品'}」相关信息。
-                        </p>
-                        
-                        {/* Intent Agent 思维链（简化版，类似 DeepSeek 风格） */}
-                        {intentReasoning && intentReasoning.thinking && (
-                          <div className="mt-3 bg-[#f9f9f7] rounded-lg p-3 border border-[#e8e8e6]">
-                            <p className="text-xs text-[#6b6c6c] leading-relaxed">{intentReasoning.thinking}</p>
-                          </div>
-                        )}
-                      </div>
-                    </div>
+                    )}
 
                     {/* Step 2: Searching - 展示真实搜索词与命中数量 */}
-                    <div className="flex gap-4">
-                      <div className="flex flex-col items-center">
-                        <div className="w-2.5 h-2.5 rounded-full bg-[#5a5a58]" />
-                        <div className="w-0.5 flex-1 bg-[#e0e0de] mt-2" />
-                      </div>
-                      <div className="flex-1 pb-2">
-                        <p className="text-sm text-[#2d3436] mb-3">正在搜索商品信息和价格数据。</p>
-                        {/* 动态显示搜索状态 */}
-                        {candidateToolCalls.length > 0 ? (
-                          candidateToolCalls.some(t => t.status === 'success') ? (
+                    {showSearchStep && (
+                      <div className="flex gap-4 animate-fade-in">
+                        <div className="flex flex-col items-center">
+                          <div className="w-2.5 h-2.5 rounded-full bg-[#5a5a58]" />
+                          <div className="w-0.5 flex-1 bg-[#e0e0de] mt-2" />
+                        </div>
+                        <div className="flex-1 pb-2">
+                          <p className="text-sm text-[#2d3436] mb-3">正在搜索商品信息和价格数据。</p>
+                          {/* 动态显示搜索状态 */}
+                          {candidateToolCalls.some((t) => t.status === 'success') ? (
                             <p className="text-xs text-[#6b9f4d] mb-2">搜索完成</p>
                           ) : (
                             <p className="text-xs text-[#9a9a98] mb-2">搜索中...</p>
-                          )
-                        ) : (
-                          <p className="text-xs text-[#9a9a98] mb-2">搜索中</p>
-                        )}
-                        <div className="flex flex-wrap gap-2">
-                          {candidateToolCalls.length > 0 ? (
-                            candidateToolCalls.map((tool) => {
+                          )}
+                          <div className="flex flex-wrap gap-2">
+                            {candidateToolCalls.map((tool) => {
                               const query = extractQueryFromInput(tool.input)
                               const result = parseToolOutput(tool.output)
                               const isSearching = tool.status !== 'success'
@@ -1037,37 +1039,26 @@ export default function Home() {
                                   )}
                                 </div>
                               )
-                            })
-                          ) : (
-                            <>
-                              <div className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-white border border-[#e0e0de] text-sm text-[#2d3436]">
-                                <Search className="w-4 h-4 text-[#9a9a98] animate-pulse" />
-                                <span>{store.query || '商品搜索'}</span>
-                              </div>
-                              <div className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-white border border-[#e0e0de] text-sm text-[#2d3436]">
-                                <Search className="w-4 h-4 text-[#9a9a98] animate-pulse" />
-                                <span>价格对比分析</span>
-                              </div>
-                            </>
-                          )}
+                            })}
+                          </div>
                         </div>
                       </div>
-                    </div>
+                    )}
 
                     {/* Step 3: Reviewing Sources - Real Verifier Data (只展示 Top 候选) */}
-                    <div className="flex gap-4">
-                      <div className="flex flex-col items-center">
-                        <div className={cn(
-                          "w-2.5 h-2.5 rounded-full",
-                          topOfferVerifierCalls.length > 0 || candidateToolCalls.length > 0 ? "bg-[#5a5a58]" : "bg-[#e0e0de]"
-                        )} />
-                        <div className="w-0.5 flex-1 bg-[#e0e0de] mt-2" />
-                      </div>
-                      <div className="flex-1 pb-2">
-                        <p className="text-xs text-[#9a9a98] mb-3">正在审核来源</p>
-                        <div className="space-y-2">
-                          {topOfferVerifierCalls.length > 0 ? (
-                            topOfferVerifierCalls.map((tool) => {
+                    {showVerifyStep && (
+                      <div className="flex gap-4 animate-fade-in">
+                        <div className="flex flex-col items-center">
+                          <div className={cn(
+                            "w-2.5 h-2.5 rounded-full",
+                            topOfferVerifierCalls.length > 0 || candidateToolCalls.length > 0 ? "bg-[#5a5a58]" : "bg-[#e0e0de]"
+                          )} />
+                          <div className="w-0.5 flex-1 bg-[#e0e0de] mt-2" />
+                        </div>
+                        <div className="flex-1 pb-2">
+                          <p className="text-xs text-[#9a9a98] mb-3">正在审核来源</p>
+                          <div className="space-y-2">
+                            {topOfferVerifierCalls.map((tool) => {
                               const result = parseVerifierToolOutput(tool.output)
                               const displayInfo = getVerifierToolDisplayInfo(tool.name, result)
                               const isRunning = tool.status === 'running'
@@ -1104,29 +1095,11 @@ export default function Home() {
                                   </span>
                                 </div>
                               )
-                            })
-                          ) : (
-                            <>
-                              <div className="flex items-center gap-3 py-1.5">
-                                <DollarSign className="w-4 h-4 text-[#9a9a98]" />
-                                <span className="flex-1 text-sm text-[#2d3436]">实时价格</span>
-                                <span className="text-xs text-[#9a9a98]">等待核验</span>
-                              </div>
-                              <div className="flex items-center gap-3 py-1.5">
-                                <Shield className="w-4 h-4 text-[#9a9a98]" />
-                                <span className="flex-1 text-sm text-[#2d3436]">合规检查</span>
-                                <span className="text-xs text-[#9a9a98]">等待核验</span>
-                              </div>
-                              <div className="flex items-center gap-3 py-1.5">
-                                <Truck className="w-4 h-4 text-[#9a9a98]" />
-                                <span className="flex-1 text-sm text-[#2d3436]">物流选项</span>
-                                <span className="text-xs text-[#9a9a98]">等待核验</span>
-                              </div>
-                            </>
-                          )}
+                            })}
+                          </div>
                         </div>
                       </div>
-                    </div>
+                    )}
 
                     {/* Step 4: Generating Plans */}
                     <div className="flex gap-4">
