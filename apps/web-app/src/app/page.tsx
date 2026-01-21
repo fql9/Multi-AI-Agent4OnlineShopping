@@ -729,6 +729,50 @@ export default function Home() {
 
   return (
     <main className="min-h-screen bg-[#f8f8f6]">
+      {/* Top Navigation Bar - 无边框设计 */}
+      <header className="sticky top-0 z-50 bg-[#f8f8f6]">
+        <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
+          {/* Left: Project Name */}
+          <button
+            type="button"
+            onClick={handleReset}
+            className="flex items-center gap-1.5 hover:opacity-80 transition-opacity"
+          >
+            <span className="text-lg font-light text-[#2d3436] tracking-tight">Shopping</span>
+            <span className="text-lg font-medium text-[#20b8cd] tracking-tight">Copilot</span>
+          </button>
+          
+          {/* Right: User Avatar */}
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  className="w-9 h-9 rounded-full bg-gradient-to-br from-[#20b8cd] to-[#1aa3b6] flex items-center justify-center text-white text-sm font-medium hover:shadow-md transition-shadow"
+                >
+                  {store.user?.avatarUrl ? (
+                    <Image
+                      src={store.user.avatarUrl}
+                      alt={store.user.name || 'User'}
+                      width={36}
+                      height={36}
+                      className="w-full h-full rounded-full object-cover"
+                    />
+                  ) : store.user?.name ? (
+                    <span>{store.user.name.charAt(0).toUpperCase()}</span>
+                  ) : (
+                    <User className="w-5 h-5" />
+                  )}
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">
+                {store.user?.name || '游客用户'}
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        </div>
+      </header>
+
       <div className={cn(
         "relative mx-auto px-4",
         isLanding ? "max-w-3xl py-0" : "max-w-4xl py-6 pb-32"
@@ -743,8 +787,8 @@ export default function Home() {
 
         <div className="space-y-4">
           {isLanding ? (
-            <div className="min-h-screen flex flex-col items-center justify-center gap-8">
-              {/* Logo and Title - Perplexity Style */}
+            <div className="min-h-[calc(100vh-120px)] flex flex-col items-center justify-center gap-8">
+              {/* Logo and Title - Landing Page Center */}
               <div className="flex items-center gap-2">
                 <span className="text-4xl md:text-5xl font-light text-[#2d3436] tracking-tight">Shopping</span>
                 <span className="text-4xl md:text-5xl font-medium text-[#20b8cd] tracking-tight">Copilot</span>
