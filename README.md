@@ -1,8 +1,8 @@
-# Shopping Copilot
+# Multi-AI-Agent4OnlineShopping
 
-> **Shopping like prompting!** 像对话一样购物！
+> **shopping like prompting!**
 
-Shopping Copilot 是一个基于多智能体架构的全球购物助手，帮你比价、找同款、推荐最优购买方案。通过自然语言对话，将用户的购物需求转化为可执行的**草稿订单**，所有决策都基于工具获取的**真实数据**（价格/库存/运费/税费/合规/政策），并保存**证据快照**用于跨境争议追溯。
+Build an auditable, tool-driven multi-agent system that turns a user's *purchase mission* into an executable **Draft Order** (without capturing payment), backed by **strong facts** (pricing/stock/shipping/tax/compliance/policies) obtained only via tools and **evidence snapshots** that can be replayed for cross-border disputes.
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 [![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?logo=docker)](docker-compose.full.yml)

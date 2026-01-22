@@ -110,8 +110,17 @@ function ProductImage({
   )
 }
 
-function ProductLink({ url, storeName }: { url?: string; storeName?: string }) {
+function ProductLink({
+  url,
+  storeName,
+  language = 'en',
+}: {
+  url?: string
+  storeName?: string
+  language?: Language
+}) {
   if (!url) return null
+  const isZh = language === 'zh'
   return (
     <a
       href={url}
@@ -121,10 +130,36 @@ function ProductLink({ url, storeName }: { url?: string; storeName?: string }) {
       className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-primary-50 hover:bg-primary-100 text-primary-700 rounded-lg text-xs font-medium transition-colors border border-primary-200"
     >
       <Store className="w-3.5 h-3.5" />
-      <span>{storeName || 'View Product'}</span>
+      <span>{storeName || (isZh ? '查看商品' : 'View Product')}</span>
       <ExternalLink className="w-3 h-3" />
     </a>
   )
+}
+
+const XOOBAY_BASE = 'https://www.xoobay.com'
+
+function normalizeXoobayUrl(raw?: string) {
+  if (!raw) return ''
+  const trimmed = raw.trim()
+  if (!trimmed) return ''
+  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) return trimmed
+  if (trimmed.startsWith('//')) return `https:${trimmed}`
+  if (trimmed.startsWith('www.xoobay.com')) return `https://${trimmed}`
+  if (trimmed.includes('xoobay.com')) return `https://${trimmed.replace(/^\/+/, '')}`
+  if (trimmed.startsWith('/')) return `${XOOBAY_BASE}${trimmed}`
+  return `${XOOBAY_BASE}/${trimmed}`
+}
+
+function buildXoobayProductUrl(product?: { productUrl?: string; title?: string; id?: string }) {
+  if (!product) return XOOBAY_BASE
+  const candidateUrl = product.productUrl || ''
+  if (candidateUrl.includes('xoobay.com')) {
+    const normalized = normalizeXoobayUrl(candidateUrl)
+    if (normalized) return normalized
+  }
+  const query = product.title || product.id || ''
+  if (!query) return XOOBAY_BASE
+  return `${XOOBAY_BASE}/search?q=${encodeURIComponent(query)}`
 }
 
 function ChatBubble({ message }: { message: GuidedChatMessage }) {
@@ -286,39 +321,46 @@ function parseVerifierToolOutput(output?: string): {
   }
 }
 
+type Language = 'en' | 'zh'
+
 /**
  * 获取 verifier 工具调用的友好显示文案
  */
-function getVerifierToolDisplayInfo(toolName: string, result: ReturnType<typeof parseVerifierToolOutput>): {
+function getVerifierToolDisplayInfo(
+  toolName: string,
+  result: ReturnType<typeof parseVerifierToolOutput>,
+  language: Language,
+): {
   label: string
   summary: string
   icon: 'pricing' | 'compliance' | 'shipping'
 } {
+  const isZh = language === 'zh'
   if (toolName === 'pricing.get_realtime_quote') {
     const summary = result?.ok
       ? result.totalPrice != null
         ? `${result.currency || '$'}${result.totalPrice.toFixed(2)}`
-        : '价格已核验'
-      : result?.error || '获取失败'
-    return { label: '实时价格', summary, icon: 'pricing' }
+        : (isZh ? '价格已核验' : 'Price verified')
+      : result?.error || (isZh ? '获取失败' : 'Failed to fetch')
+    return { label: isZh ? '实时价格' : 'Real-time price', summary, icon: 'pricing' }
   }
   if (toolName === 'compliance.check_item') {
     const summary = result?.ok
       ? result.allowed !== false
-        ? '允许发货'
-        : `${result.issuesCount || 0} 个问题`
-      : result?.error || '检查失败'
-    return { label: '合规检查', summary, icon: 'compliance' }
+        ? (isZh ? '允许发货' : 'Shipping allowed')
+        : (isZh ? `${result.issuesCount || 0} 个问题` : `${result.issuesCount || 0} issues`)
+      : result?.error || (isZh ? '检查失败' : 'Check failed')
+    return { label: isZh ? '合规检查' : 'Compliance check', summary, icon: 'compliance' }
   }
   if (toolName === 'shipping.quote_options') {
     const summary = result?.ok
       ? result.optionsCount
-        ? `${result.optionsCount} 个选项，最快 ${result.fastestDays ?? '?'} 天`
-        : '无可用物流'
-      : result?.error || '查询失败'
-    return { label: '物流选项', summary, icon: 'shipping' }
+        ? (isZh ? `${result.optionsCount} 个选项，最快 ${result.fastestDays ?? '?'} 天` : `${result.optionsCount} options, fastest ${result.fastestDays ?? '?'} days`)
+        : (isZh ? '无可用物流' : 'No shipping options')
+      : result?.error || (isZh ? '查询失败' : 'Lookup failed')
+    return { label: isZh ? '物流选项' : 'Shipping options', summary, icon: 'shipping' }
   }
-  return { label: toolName, summary: result?.ok ? '已完成' : '失败', icon: 'compliance' }
+  return { label: toolName, summary: result?.ok ? (isZh ? '已完成' : 'Completed') : (isZh ? '失败' : 'Failed'), icon: 'compliance' }
 }
 
 /**
@@ -353,13 +395,35 @@ function parseToolOutput(output?: string): {
   }
 }
 
+function getPlanTypeLabel(type: string, language: Language) {
+  const isZh = language === 'zh'
+  const labels: Record<string, { en: string; zh: string }> = {
+    cheapest: { en: 'Cheapest', zh: '最便宜' },
+    fastest: { en: 'Fastest', zh: '最快' },
+    best_value: { en: 'Best value', zh: '性价比' },
+  }
+  if (labels[type]) {
+    return isZh ? labels[type].zh : labels[type].en
+  }
+  return isZh ? type : type.replace('_', ' ')
+}
+
 function truncateText(value: string, max = 64) {
   if (value.length <= max) return value
   return `${value.slice(0, max)}…`
 }
 
 type Plan = ReturnType<typeof useShoppingStore.getState>['plans'][0]
-function ComparisonTable({ plans, onSelectPlan }: { plans: Plan[]; onSelectPlan: (plan: Plan) => void }) {
+function ComparisonTable({
+  plans,
+  onSelectPlan,
+  language,
+}: {
+  plans: Plan[]
+  onSelectPlan: (plan: Plan) => void
+  language: Language
+}) {
+  const isZh = language === 'zh'
   const [sortKey, setSortKey] = useState<'total' | 'price' | 'shipping' | 'delivery'>('total')
   const [sortAsc, setSortAsc] = useState(true)
 
@@ -407,22 +471,26 @@ function ComparisonTable({ plans, onSelectPlan }: { plans: Plan[]; onSelectPlan:
     <Card className="overflow-hidden">
       <div className="grid grid-cols-12 gap-4 p-4 bg-surface-50 border-b border-surface-200">
         <div className="col-span-4 flex items-center gap-2">
-          <span className="font-semibold text-xs uppercase tracking-wide text-surface-500">Product</span>
+          <span className="font-semibold text-xs uppercase tracking-wide text-surface-500">
+            {isZh ? '商品' : 'Product'}
+          </span>
         </div>
         <div className="col-span-2 flex justify-center">
-          <SortHeader label="Price" sortKeyName="price" />
+          <SortHeader label={isZh ? '价格' : 'Price'} sortKeyName="price" />
         </div>
         <div className="col-span-2 flex justify-center">
-          <SortHeader label="Shipping" sortKeyName="shipping" />
+          <SortHeader label={isZh ? '运费' : 'Shipping'} sortKeyName="shipping" />
         </div>
         <div className="col-span-1 flex justify-center">
-          <span className="font-semibold text-xs uppercase tracking-wide text-surface-500">Tax</span>
+          <span className="font-semibold text-xs uppercase tracking-wide text-surface-500">
+            {isZh ? '税费' : 'Tax'}
+          </span>
         </div>
         <div className="col-span-1 flex justify-center">
-          <SortHeader label="Delivery" sortKeyName="delivery" />
+          <SortHeader label={isZh ? '配送' : 'Delivery'} sortKeyName="delivery" />
         </div>
         <div className="col-span-2 flex justify-center">
-          <SortHeader label="Total" sortKeyName="total" />
+          <SortHeader label={isZh ? '总价' : 'Total'} sortKeyName="total" />
         </div>
       </div>
 
@@ -449,7 +517,7 @@ function ComparisonTable({ plans, onSelectPlan }: { plans: Plan[]; onSelectPlan:
                     variant={plan.type === 'cheapest' ? 'success' : plan.type === 'fastest' ? 'info' : 'warning'}
                     className="text-[10px]"
                   >
-                    {plan.type.replace('_', ' ')}
+                    {getPlanTypeLabel(plan.type, language)}
                   </Badge>
                   <span className="text-xs text-surface-400">★ {plan.product.rating}</span>
                   {plan.product.productUrl && (
@@ -473,7 +541,7 @@ function ComparisonTable({ plans, onSelectPlan }: { plans: Plan[]; onSelectPlan:
 
             <div className="col-span-2 flex items-center justify-center">
               <span className={cn('font-semibold', plan.shipping === 0 ? 'text-success-600' : 'text-surface-700')}>
-                {plan.shipping === 0 ? 'FREE' : `$${plan.shipping}`}
+                {plan.shipping === 0 ? (isZh ? '包邮' : 'FREE') : `$${plan.shipping}`}
               </span>
             </div>
 
@@ -499,7 +567,18 @@ function ComparisonTable({ plans, onSelectPlan }: { plans: Plan[]; onSelectPlan:
   )
 }
 
-function ErrorAlert({ error, errorCode, onDismiss }: { error: string; errorCode?: string | null; onDismiss: () => void }) {
+function ErrorAlert({
+  error,
+  errorCode,
+  onDismiss,
+  language,
+}: {
+  error: string
+  errorCode?: string | null
+  onDismiss: () => void
+  language: Language
+}) {
+  const isZh = language === 'zh'
   if (errorCode === 'NO_PRODUCTS_FOUND') {
     return (
       <Card className="mb-6 border-2 border-warning-300 bg-gradient-to-br from-warning-50 to-orange-50 shadow-lg animate-fade-in">
@@ -509,25 +588,37 @@ function ErrorAlert({ error, errorCode, onDismiss }: { error: string; errorCode?
               <span className="text-3xl">🔍</span>
             </div>
             <div className="flex-1">
-              <h3 className="text-xl font-bold text-warning-800 mb-2">未找到符合条件的商品</h3>
-              <p className="text-warning-700 mb-4">抱歉，我们没有找到匹配您需求的商品。请尝试以下建议：</p>
+              <h3 className="text-xl font-bold text-warning-800 mb-2">
+                {isZh ? '未找到符合条件的商品' : 'No matching products found'}
+              </h3>
+              <p className="text-warning-700 mb-4">
+                {isZh
+                  ? '抱歉，我们没有找到匹配您需求的商品。请尝试以下建议：'
+                  : "Sorry, we couldn't find products matching your request. Try:"}
+              </p>
               <ul className="space-y-2 text-sm text-warning-600 mb-4">
                 <li className="flex items-center gap-2">
                   <span className="w-5 h-5 rounded-full bg-warning-200 flex items-center justify-center text-xs font-bold">1</span>
-                  使用更通用的搜索词（如「夹克」而非特定品牌型号）
+                  {isZh
+                    ? '使用更通用的搜索词（如「夹克」而非特定品牌型号）'
+                    : 'Use broader keywords (e.g., "jacket" instead of a specific brand/model)'}
                 </li>
                 <li className="flex items-center gap-2">
                   <span className="w-5 h-5 rounded-full bg-warning-200 flex items-center justify-center text-xs font-bold">2</span>
-                  调整预算范围（扩大价格区间）
+                  {isZh
+                    ? '调整预算范围（扩大价格区间）'
+                    : 'Adjust your budget range (widen the price range)'}
                 </li>
                 <li className="flex items-center gap-2">
                   <span className="w-5 h-5 rounded-full bg-warning-200 flex items-center justify-center text-xs font-bold">3</span>
-                  更换目的地国家（部分商品可能有地区限制）
+                  {isZh
+                    ? '更换目的地国家（部分商品可能有地区限制）'
+                    : 'Change the destination country (some products are region-restricted)'}
                 </li>
               </ul>
               <Button onClick={onDismiss} variant="outline" className="border-warning-400 text-warning-700 hover:bg-warning-100">
                 <RotateCcw className="w-4 h-4 mr-2" />
-                重新开始搜索
+                {isZh ? '重新开始搜索' : 'Start a new search'}
               </Button>
             </div>
           </div>
@@ -538,7 +629,7 @@ function ErrorAlert({ error, errorCode, onDismiss }: { error: string; errorCode?
 
   return (
     <Alert variant="danger" onClose={onDismiss} className="mb-6">
-      <AlertTitle>Error {errorCode && `(${errorCode})`}</AlertTitle>
+      <AlertTitle>{isZh ? '错误' : 'Error'} {errorCode && `(${errorCode})`}</AlertTitle>
       <AlertDescription>{error}</AlertDescription>
     </Alert>
   )
@@ -549,13 +640,18 @@ export default function Home() {
 
   const [viewMode, setViewMode] = useState<'cards' | 'table'>('cards')
   const [followUpQuery, setFollowUpQuery] = useState('')
+  const [language, setLanguage] = useState<Language>('en')
+  const isZh = language === 'zh'
   
   const [chatInput, setChatInput] = useState('')
   const [chatImages, setChatImages] = useState<string[]>([])
   const [thinkingCollapsed, setThinkingCollapsed] = useState(false)
   const userToggledThinking = useRef(false) // Track if user manually toggled
   const [thinkingStatus, setThinkingStatus] = useState(0) // 0-3 for different status texts
-  const thinkingStatuses = ['Thinking', 'Searching', 'Analysing', 'Planning']
+  const thinkingStatuses = useMemo(
+    () => (isZh ? ['思考中', '搜索中', '分析中', '规划中'] : ['Thinking', 'Searching', 'Analysing', 'Planning']),
+    [isZh],
+  )
   const chatContainerRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const chatInputRef = useRef<HTMLTextAreaElement | null>(null)
@@ -607,6 +703,21 @@ export default function Home() {
   const showIntentStep = Boolean(intentReasoning?.thinking)
   const showSearchStep = candidateToolCalls.length > 0
   const showVerifyStep = topOfferVerifierCalls.length > 0
+  const quickStarts = useMemo(
+    () =>
+      isZh
+        ? [
+            { icon: <ShoppingCart className="w-4 h-4" />, label: '帮我比价', query: '帮我找最便宜的iPhone 15' },
+            { icon: <Search className="w-4 h-4" />, label: '找同款', query: '帮我找这张图片的同款商品' },
+            { icon: <Star className="w-4 h-4" />, label: '礼物推荐', query: '送给妈妈的生日礼物推荐' },
+          ]
+        : [
+            { icon: <ShoppingCart className="w-4 h-4" />, label: 'Compare prices', query: 'Find the cheapest iPhone 15' },
+            { icon: <Search className="w-4 h-4" />, label: 'Find similar', query: 'Find products similar to this image' },
+            { icon: <Star className="w-4 h-4" />, label: 'Gift ideas', query: 'Recommend a birthday gift for my mom' },
+          ],
+    [isZh],
+  )
 
   const hasPlans = store.plans.length > 0 && store.orderState === 'TOTAL_COMPUTED'
   const isConfirmation =
@@ -619,6 +730,17 @@ export default function Home() {
     // NOTE: avoid depending on entire zustand store object (changes often)
     useShoppingStore.getState().checkConnection()
   }, [])
+
+  useEffect(() => {
+    const stored = window.localStorage.getItem('shoppingCopilot.lang')
+    if (stored === 'en' || stored === 'zh') {
+      setLanguage(stored)
+    }
+  }, [])
+
+  useEffect(() => {
+    window.localStorage.setItem('shoppingCopilot.lang', language)
+  }, [language])
 
   useEffect(() => {
     if (chatContainerRef.current) {
@@ -718,9 +840,12 @@ export default function Home() {
 
   const handleSelectPlan = useCallback(
     (plan: typeof store.plans[0]) => {
-      store.selectPlan(plan)
+      const url = buildXoobayProductUrl(plan.product)
+      if (url) {
+        window.open(url, '_blank', 'noopener,noreferrer')
+      }
     },
-    [store],
+    [],
   )
 
   const handleReset = useCallback(() => {
@@ -742,38 +867,62 @@ export default function Home() {
             onClick={handleReset}
             className="flex items-center gap-1.5 hover:opacity-80 transition-opacity"
           >
-            <span className="text-lg font-light text-[#2d3436] tracking-tight">Shopping</span>
-            <span className="text-lg font-medium text-[#20b8cd] tracking-tight">Copilot</span>
+            <span className="text-lg font-semibold text-[#2d3436] tracking-tight">Shopping</span>
+            <span className="text-lg font-semibold text-[#2d3436] tracking-tight">Copilot</span>
           </button>
           
-          {/* Right: User Avatar */}
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  className="w-9 h-9 rounded-full bg-gradient-to-br from-[#20b8cd] to-[#1aa3b6] flex items-center justify-center text-white text-sm font-medium hover:shadow-md transition-shadow"
-                >
-                  {store.user?.avatarUrl ? (
-                    <Image
-                      src={store.user.avatarUrl}
-                      alt={store.user.name || 'User'}
-                      width={36}
-                      height={36}
-                      className="w-full h-full rounded-full object-cover"
-                    />
-                  ) : store.user?.name ? (
-                    <span>{store.user.name.charAt(0).toUpperCase()}</span>
-                  ) : (
-                    <User className="w-5 h-5" />
-                  )}
-                </button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom">
-                {store.user?.name || '游客用户'}
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
+          {/* Right: Language + User Avatar */}
+          <div className="flex items-center gap-3">
+            <div className="flex items-center rounded-full border border-[#e0e0de] bg-white p-1 shadow-sm">
+              <button
+                type="button"
+                onClick={() => setLanguage('en')}
+                className={cn(
+                  'px-2.5 py-1 rounded-full text-xs font-semibold transition-colors',
+                  language === 'en' ? 'bg-[#39C5BB] text-white' : 'text-[#6b6c6c] hover:text-[#2d3436]',
+                )}
+              >
+                EN
+              </button>
+              <button
+                type="button"
+                onClick={() => setLanguage('zh')}
+                className={cn(
+                  'px-2.5 py-1 rounded-full text-xs font-semibold transition-colors',
+                  language === 'zh' ? 'bg-[#39C5BB] text-white' : 'text-[#6b6c6c] hover:text-[#2d3436]',
+                )}
+              >
+                中文
+              </button>
+            </div>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    className="w-9 h-9 rounded-full bg-[#39C5BB] flex items-center justify-center text-white text-sm font-medium hover:shadow-md transition-shadow"
+                  >
+                    {store.user?.avatarUrl ? (
+                      <Image
+                        src={store.user.avatarUrl}
+                        alt={store.user.name || 'User'}
+                        width={36}
+                        height={36}
+                        className="w-full h-full rounded-full object-cover"
+                      />
+                    ) : store.user?.name ? (
+                      <span>{store.user.name.charAt(0).toUpperCase()}</span>
+                    ) : (
+                      <User className="w-5 h-5" />
+                    )}
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">
+                  {store.user?.name || (isZh ? '游客用户' : 'Guest user')}
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          </div>
         </div>
       </header>
 
@@ -786,6 +935,7 @@ export default function Home() {
             error={store.error}
             errorCode={store.errorCode}
             onDismiss={() => store.setError(null)}
+            language={language}
           />
         )}
 
@@ -794,8 +944,8 @@ export default function Home() {
             <div className="min-h-[calc(100vh-120px)] flex flex-col items-center justify-center gap-8">
               {/* Logo and Title - Landing Page Center */}
               <div className="flex items-center gap-2">
-                <span className="text-4xl md:text-5xl font-light text-[#2d3436] tracking-tight">Shopping</span>
-                <span className="text-4xl md:text-5xl font-medium text-[#20b8cd] tracking-tight">Copilot</span>
+            <span className="text-4xl md:text-5xl font-light text-[#2d3436] tracking-tight">Shopping</span>
+            <span className="text-4xl md:text-5xl font-medium text-[#39C5BB] tracking-tight">Copilot</span>
               </div>
 
               {/* Main Input Box - Perplexity Style */}
@@ -813,7 +963,9 @@ export default function Home() {
                           handleChatSubmit(e)
                         }
                       }}
-                      placeholder="告诉我你想买什么，我来帮你全球比价、找同款、推荐最优方案..."
+                      placeholder={isZh
+                        ? '告诉我你想买什么，我来帮你全球比价、找同款、推荐最优方案...'
+                        : 'Tell me what you want to buy. I can compare prices globally, find similar items, and recommend the best option...'}
                       disabled={store.isStreaming || store.orderState !== 'IDLE'}
                       className="min-h-[60px] resize-none text-base bg-transparent border-0 focus-visible:ring-0 px-0 text-[#2d3436] placeholder:text-[#9a9a98]"
                     />
@@ -863,14 +1015,14 @@ export default function Home() {
                             </button>
                           </TooltipTrigger>
                           <TooltipContent side="top">
-                            上传图片 (最多4张)
+                            {isZh ? '上传图片（最多4张）' : 'Upload images (max 4)'}
                           </TooltipContent>
                         </Tooltip>
 
                         <button
                           type="submit"
                           disabled={store.orderState !== 'IDLE' || (!chatInput.trim() && chatImages.length === 0) || store.isStreaming}
-                          className="w-10 h-10 rounded-xl flex items-center justify-center bg-[#20b8cd] text-white hover:bg-[#1aa3b6] transition-colors disabled:opacity-50"
+                          className="w-10 h-10 rounded-xl flex items-center justify-center bg-[#39C5BB] text-white hover:bg-[#39C5BB] transition-colors disabled:opacity-50"
                         >
                           {store.isStreaming ? (
                             <Loader2 className="w-5 h-5 animate-spin" />
@@ -886,11 +1038,7 @@ export default function Home() {
 
               {/* Quick Start Buttons - Shopping Related */}
               <div className="flex flex-wrap justify-center gap-3">
-                {[
-                  { icon: <ShoppingCart className="w-4 h-4" />, label: '帮我比价', query: '帮我找最便宜的iPhone 15' },
-                  { icon: <Search className="w-4 h-4" />, label: '找同款', query: '帮我找这张图片的同款商品' },
-                  { icon: <Star className="w-4 h-4" />, label: '礼物推荐', query: '送给妈妈的生日礼物推荐' },
-                ].map((item) => (
+                {quickStarts.map((item) => (
                   <button
                     key={item.label}
                     onClick={() => {
@@ -911,7 +1059,9 @@ export default function Home() {
               <div ref={chatContainerRef} className="pb-40 space-y-4">
                 {store.chatMessages.length === 0 && !isProcessing && (
                   <div className="text-sm text-[#6b6c6c] leading-relaxed">
-                    你好！我是你的 Shopping Copilot，帮你全球比价、找同款、推荐最优购买方案。告诉我你想买什么，也可以上传商品图片让我帮你找同款！
+                    {isZh
+                      ? '你好！我是你的 Shopping Copilot，帮你全球比价、找同款、推荐最优购买方案。告诉我你想买什么，也可以上传商品图片让我帮你找同款！'
+                      : "Hi! I'm your Shopping Copilot. I can compare prices globally, find similar items, and recommend the best purchase plan. Tell me what you'd like to buy, or upload a product image for me to find similar items!"}
                   </div>
                 )}
 
@@ -920,7 +1070,7 @@ export default function Home() {
                 ))}
 
                 {store.isStreaming && store.chatMessages.length > 0 && (
-                  <div className="text-xs text-[#9a9a98]">AI is thinking…</div>
+                  <div className="text-xs text-[#9a9a98]">{isZh ? 'AI 正在思考…' : 'AI is thinking…'}</div>
                 )}
 
             {(isProcessing || hasPlans) && (
@@ -972,7 +1122,9 @@ export default function Home() {
                         </div>
                         <div className="flex-1 pb-2">
                           <p className="text-sm text-[#2d3436] leading-relaxed">
-                            我将分析您的需求并搜索「{store.query || '商品'}」相关信息。
+                            {isZh
+                              ? `我将分析您的需求并搜索「${store.query || '商品'}」相关信息。`
+                              : `I'll analyze your request and search for “${store.query || 'products'}”.`}
                           </p>
                           
                           {/* Intent Agent 思维链（简化版，类似 DeepSeek 风格） */}
@@ -993,12 +1145,14 @@ export default function Home() {
                           <div className="w-0.5 flex-1 bg-[#e0e0de] mt-2" />
                         </div>
                         <div className="flex-1 pb-2">
-                          <p className="text-sm text-[#2d3436] mb-3">正在搜索商品信息和价格数据。</p>
+                        <p className="text-sm text-[#2d3436] mb-3">
+                          {isZh ? '正在搜索商品信息和价格数据。' : 'Searching for product information and price data.'}
+                        </p>
                           {/* 动态显示搜索状态 */}
                           {candidateToolCalls.some((t) => t.status === 'success') ? (
-                            <p className="text-xs text-[#6b9f4d] mb-2">搜索完成</p>
+                            <p className="text-xs text-[#6b9f4d] mb-2">{isZh ? '搜索完成' : 'Search complete'}</p>
                           ) : (
-                            <p className="text-xs text-[#9a9a98] mb-2">搜索中...</p>
+                            <p className="text-xs text-[#9a9a98] mb-2">{isZh ? '搜索中...' : 'Searching...'}</p>
                           )}
                           <div className="flex flex-wrap gap-2">
                             {candidateToolCalls.map((tool) => {
@@ -1032,8 +1186,8 @@ export default function Home() {
                                         : "bg-red-100 text-red-600"
                                     )}>
                                       {result.ok
-                                        ? `${result.count}${result.totalCount && result.totalCount > result.count ? `/${result.totalCount}` : ''} 件`
-                                        : result.error || '搜索失败'
+                                        ? `${result.count}${result.totalCount && result.totalCount > result.count ? `/${result.totalCount}` : ''} ${isZh ? '件' : 'items'}`
+                                        : result.error || (isZh ? '搜索失败' : 'Search failed')
                                       }
                                     </span>
                                   )}
@@ -1056,11 +1210,13 @@ export default function Home() {
                           <div className="w-0.5 flex-1 bg-[#e0e0de] mt-2" />
                         </div>
                         <div className="flex-1 pb-2">
-                          <p className="text-xs text-[#9a9a98] mb-3">正在审核来源</p>
+                          <p className="text-xs text-[#9a9a98] mb-3">
+                            {isZh ? '正在审核来源' : 'Reviewing sources'}
+                          </p>
                           <div className="space-y-2">
                             {topOfferVerifierCalls.map((tool) => {
                               const result = parseVerifierToolOutput(tool.output)
-                              const displayInfo = getVerifierToolDisplayInfo(tool.name, result)
+                              const displayInfo = getVerifierToolDisplayInfo(tool.name, result, language)
                               const isRunning = tool.status === 'running'
                               const isFailed = tool.status === 'error' || (result && !result.ok)
                               
@@ -1078,7 +1234,7 @@ export default function Home() {
                                 >
                                   <IconComponent className={cn(
                                     "w-4 h-4",
-                                    isRunning ? "text-[#20b8cd] animate-pulse" :
+                                    isRunning ? "text-[#39C5BB] animate-pulse" :
                                     isFailed ? "text-red-400" :
                                     "text-[#9a9a98]"
                                   )} />
@@ -1087,11 +1243,11 @@ export default function Home() {
                                   </span>
                                   <span className={cn(
                                     "text-xs",
-                                    isRunning ? "text-[#20b8cd]" :
+                                    isRunning ? "text-[#39C5BB]" :
                                     isFailed ? "text-red-500" :
                                     "text-[#9a9a98]"
                                   )}>
-                                    {isRunning ? '核验中...' : displayInfo.summary}
+                                    {isRunning ? (isZh ? '核验中...' : 'Verifying...') : displayInfo.summary}
                                   </span>
                                 </div>
                               )
@@ -1106,17 +1262,23 @@ export default function Home() {
                       <div className="flex flex-col items-center">
                         <div className={cn(
                           "w-2.5 h-2.5 rounded-full",
-                          hasPlans ? "bg-[#5a5a58]" : store.isStreaming ? "bg-[#20b8cd] animate-pulse" : "bg-[#e0e0de]"
+                          hasPlans ? "bg-[#5a5a58]" : store.isStreaming ? "bg-[#39C5BB] animate-pulse" : "bg-[#e0e0de]"
                         )} />
                       </div>
                       <div className="flex-1">
                         <p className="text-sm text-[#2d3436]">
-                          {hasPlans ? '已生成购物方案' : store.isStreaming ? '正在生成购物方案...' : '等待生成方案'}
+                          {hasPlans
+                            ? (isZh ? '已生成购物方案' : 'Plans generated')
+                            : store.isStreaming
+                              ? (isZh ? '正在生成购物方案...' : 'Generating plans...')
+                              : (isZh ? '等待生成方案' : 'Waiting for plans')}
                         </p>
                         {store.isStreaming && !hasPlans && (
                           <div className="mt-2 flex items-center gap-2">
-                            <Loader2 className="w-4 h-4 text-[#20b8cd] animate-spin" />
-                            <span className="text-xs text-[#9a9a98]">AI 正在分析最优选择</span>
+                            <Loader2 className="w-4 h-4 text-[#39C5BB] animate-spin" />
+                            <span className="text-xs text-[#9a9a98]">
+                              {isZh ? 'AI 正在分析最优选择' : 'AI is evaluating the best option'}
+                            </span>
                           </div>
                         )}
                       </div>
@@ -1134,12 +1296,12 @@ export default function Home() {
                         type="text"
                         value={followUpQuery}
                         onChange={(e) => setFollowUpQuery(e.target.value)}
-                        placeholder="输入您的回复..."
+                        placeholder={isZh ? '输入您的回复...' : 'Type your reply...'}
                         className="flex-1 px-4 py-3 rounded-xl border border-surface-200 bg-white focus:outline-none focus:ring-2 focus:ring-primary-500 text-surface-800"
                       />
                       <Button type="submit" disabled={!followUpQuery.trim()}>
                         <Send className="w-4 h-4 mr-2" />
-                        Send
+                        {isZh ? '发送' : 'Send'}
                       </Button>
                     </form>
                   </div>
@@ -1151,8 +1313,10 @@ export default function Home() {
               <div className="mt-4">
                 <div className="flex items-center justify-between gap-3 mb-3">
                   <div>
-                    <div className="text-sm font-semibold">Choose a plan</div>
-                    <div className="text-xs text-surface-500">We found {store.plans.length} options</div>
+                    <div className="text-sm font-semibold">{isZh ? '选择方案' : 'Choose a plan'}</div>
+                    <div className="text-xs text-surface-500">
+                      {isZh ? `我们找到了 ${store.plans.length} 个选项` : `We found ${store.plans.length} options`}
+                    </div>
                   </div>
                   <div className="flex items-center gap-1 p-1 bg-surface-100 rounded-xl">
                     <button
@@ -1164,7 +1328,7 @@ export default function Home() {
                       type="button"
                     >
                       <LayoutGrid className="w-4 h-4" />
-                      <span className="hidden sm:inline">Cards</span>
+                      <span className="hidden sm:inline">{isZh ? '卡片' : 'Cards'}</span>
                     </button>
                     <button
                       onClick={() => setViewMode('table')}
@@ -1175,7 +1339,7 @@ export default function Home() {
                       type="button"
                     >
                       <Table2 className="w-4 h-4" />
-                      <span className="hidden sm:inline">Compare</span>
+                      <span className="hidden sm:inline">{isZh ? '对比' : 'Compare'}</span>
                     </button>
                   </div>
                 </div>
@@ -1184,7 +1348,9 @@ export default function Home() {
                   <div className="mb-3 rounded-xl border border-surface-200 bg-surface-50 px-4 py-3">
                     <div className="flex items-center gap-2 mb-1">
                       <Sparkles className="w-4 h-4 text-primary-600" />
-                      <span className="text-sm font-semibold text-primary-700">AI Recommendation</span>
+                      <span className="text-sm font-semibold text-primary-700">
+                        {isZh ? 'AI 推荐理由' : 'AI Recommendation'}
+                      </span>
                       <Badge variant="success" className="text-xs">
                         {Math.round(store.aiRecommendation.confidence * 100)}%
                       </Badge>
@@ -1194,7 +1360,7 @@ export default function Home() {
                 )}
 
                 {viewMode === 'table' ? (
-                  <ComparisonTable plans={store.plans} onSelectPlan={handleSelectPlan} />
+                  <ComparisonTable plans={store.plans} onSelectPlan={handleSelectPlan} language={language} />
                 ) : (
                   <div className="grid gap-3">
                     {store.plans.map((plan) => (
@@ -1207,7 +1373,7 @@ export default function Home() {
                         {plan.recommended && (
                           <div className="absolute -top-3 left-4 px-3 py-1.5 bg-gradient-to-r from-primary-500 to-accent-500 rounded-full text-xs text-white font-semibold flex items-center gap-1.5 shadow-lg shadow-primary-500/20">
                             <Sparkles className="w-3 h-3" />
-                            AI Recommended
+                            {isZh ? 'AI 推荐' : 'AI Recommended'}
                           </div>
                         )}
 
@@ -1222,7 +1388,7 @@ export default function Home() {
                             <div className="flex items-center gap-2 mb-1">
                               <div className="font-semibold text-surface-800 truncate">{plan.name}</div>
                               <Badge variant={plan.type === 'cheapest' ? 'success' : plan.type === 'fastest' ? 'info' : 'warning'} className="text-[10px]">
-                                {plan.type.replace('_', ' ')}
+                                {getPlanTypeLabel(plan.type, language)}
                               </Badge>
                               {plan.recommended && <Star className="w-4 h-4 text-warning-500 fill-warning-500" />}
                             </div>
@@ -1230,16 +1396,20 @@ export default function Home() {
                             <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-surface-600">
                               <span className="font-semibold text-surface-800">${plan.total}</span>
                               <span className={cn('font-semibold', plan.shipping === 0 ? 'text-success-600' : 'text-surface-700')}>
-                                {plan.shipping === 0 ? 'FREE shipping' : `$${plan.shipping} shipping`}
+                                {plan.shipping === 0
+                                  ? (isZh ? '包邮' : 'FREE shipping')
+                                  : (isZh ? `运费 $${plan.shipping}` : `$${plan.shipping} shipping`)}
                               </span>
                               <span className={cn('font-semibold', getTaxConfidenceColor(plan.tax.confidence))}>${plan.tax.amount} tax</span>
                               <span className="text-surface-500">{plan.deliveryDays}</span>
                             </div>
-                            {plan.product.productUrl && (
-                              <div className="mt-2">
-                                <ProductLink url={plan.product.productUrl} storeName={plan.product.storeName} />
-                              </div>
-                            )}
+                            <div className="mt-2">
+                              <ProductLink
+                                url={buildXoobayProductUrl(plan.product)}
+                                storeName={plan.product.storeName}
+                                language={language}
+                              />
+                            </div>
                             {plan.product.complianceRisks.length > 0 && (
                               <div className="mt-2 flex flex-wrap gap-2">
                                 {plan.product.complianceRisks.slice(0, 4).map((risk, i) => (
@@ -1307,11 +1477,13 @@ export default function Home() {
                           {store.draftOrder.plan.product.shortDescription && (
                             <p className="text-surface-400 text-xs mt-1">{store.draftOrder.plan.product.shortDescription}</p>
                           )}
-                          {store.draftOrder.plan.product.productUrl && (
-                            <div className="mt-2">
-                              <ProductLink url={store.draftOrder.plan.product.productUrl} storeName={store.draftOrder.plan.product.storeName} />
-                            </div>
-                          )}
+                          <div className="mt-2">
+                            <ProductLink
+                              url={buildXoobayProductUrl(store.draftOrder.plan.product)}
+                              storeName={store.draftOrder.plan.product.storeName}
+                              language={language}
+                            />
+                          </div>
                         </div>
                         <div className="text-surface-800 font-bold text-lg">${store.draftOrder.plan.product.price}</div>
                       </div>
@@ -1384,7 +1556,7 @@ export default function Home() {
                       <div className="flex justify-between text-surface-500 text-sm">
                         <span>Shipping</span>
                         <span className="font-medium">
-                          {store.draftOrder.plan.shipping === 0 ? 'FREE' : `$${store.draftOrder.plan.shipping}`}
+                          {store.draftOrder.plan.shipping === 0 ? (isZh ? '包邮' : 'FREE') : `$${store.draftOrder.plan.shipping}`}
                         </span>
                       </div>
                       <div className="flex justify-between text-surface-500 text-sm">
@@ -1488,7 +1660,10 @@ export default function Home() {
                           handleChatSubmit(e)
                         }
                       }}
-                      placeholder={store.orderState === 'IDLE' ? '继续对话或输入新的购物需求...' : '处理中，请等待完成后继续'}
+                      placeholder={store.orderState === 'IDLE'
+                        ? (isZh ? '继续对话或输入新的购物需求...' : 'Continue the conversation or enter a new shopping request...')
+                        : (isZh ? '处理中，请等待完成后继续' : 'Processing, please wait...')
+                      }
                       disabled={store.isStreaming || store.orderState !== 'IDLE'}
                       className="min-h-[44px] max-h-[120px] resize-none text-sm bg-transparent border-0 focus-visible:ring-0 px-0"
                     />
@@ -1507,14 +1682,16 @@ export default function Home() {
                             <ImagePlus className="w-5 h-5" />
                           </button>
                         </TooltipTrigger>
-                        <TooltipContent side="top">上传图片</TooltipContent>
+                        <TooltipContent side="top">
+                          {isZh ? '上传图片' : 'Upload image'}
+                        </TooltipContent>
                       </Tooltip>
                     </TooltipProvider>
 
                     <button
                       type="submit"
                       disabled={store.orderState !== 'IDLE' || (!chatInput.trim() && chatImages.length === 0) || store.isStreaming}
-                      className="w-9 h-9 rounded-lg flex items-center justify-center bg-[#20b8cd] text-white hover:bg-[#1aa3b6] transition-colors disabled:opacity-50"
+                      className="w-9 h-9 rounded-lg flex items-center justify-center bg-[#39C5BB] text-white hover:bg-[#39C5BB] transition-colors disabled:opacity-50"
                     >
                       {store.isStreaming ? (
                         <Loader2 className="w-5 h-5 animate-spin" />
@@ -1535,7 +1712,9 @@ export default function Home() {
         <footer className="fixed bottom-0 left-0 right-0 py-4 border-t border-[#e0e0de] bg-[#f8f8f6]/90 backdrop-blur-xl">
           <div className="max-w-6xl mx-auto px-4 flex items-center justify-between text-sm text-[#9a9a98]">
             <span className="font-medium">Shopping Copilot © 2024</span>
-            <span className="font-medium text-[#6b6c6c]">Powered by Multi-Agent AI</span>
+            <span className="font-medium text-[#6b6c6c]">
+              {isZh ? '由多智能体 AI 驱动' : 'Powered by Multi-Agent AI'}
+            </span>
           </div>
         </footer>
       )}

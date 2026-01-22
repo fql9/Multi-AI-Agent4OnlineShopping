@@ -1,6 +1,6 @@
-# Shopping Copilot - 文档索引（从这里开始）
+# 文档索引（从这里开始）
 
-本目录给出 Shopping Copilot（全球购物智能助手）的**完整工程化设计**：仓库结构、技术栈、开发流程、工具目录（Tool Calls）、证据审计（Evidence Snapshot）、AROC（AI-Ready Offer Card）、知识图谱（KG）、GraphRAG、MCP 工具服务器拆分、多 Agent 编排与权限风控。
+本目录给出 "AI 生成可执行草稿订单（Draft Order）" 平台的**完整工程化设计**：仓库结构、技术栈、开发流程、工具目录（Tool Calls）、证据审计（Evidence Snapshot）、AROC（AI-Ready Offer Card）、知识图谱（KG）、GraphRAG、MCP 工具服务器拆分、多 Agent 编排与权限风控。
 
 ---
 
