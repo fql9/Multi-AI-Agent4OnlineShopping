@@ -13,6 +13,26 @@ import { getXOOBAYClient } from '../services/xoobay.js';
 
 const logger = createLogger('catalog');
 
+// Short-lived in-memory cache for XOOBAY goods_url lookups.
+const GOODS_URL_TTL_MS = 10 * 60 * 1000;
+const goodsUrlCache = new Map<string, { url: string; expiresAt: number }>();
+
+function cacheGoodsUrl(offerId: string, url?: string | null): void {
+  const trimmed = (url ?? '').trim();
+  if (!trimmed) return;
+  goodsUrlCache.set(offerId, { url: trimmed, expiresAt: Date.now() + GOODS_URL_TTL_MS });
+}
+
+function getCachedGoodsUrl(offerId: string): string | undefined {
+  const entry = goodsUrlCache.get(offerId);
+  if (!entry) return undefined;
+  if (entry.expiresAt <= Date.now()) {
+    goodsUrlCache.delete(offerId);
+    return undefined;
+  }
+  return entry.url;
+}
+
 // Product type definitions (Enhanced for AROC v0.2)
 interface OfferRow {
   id: string;
@@ -178,6 +198,13 @@ export async function catalogRoutes(app: FastifyInstance): Promise<void> {
         }, 'Price filter applied');
       }
 
+      // Cache goods_url for offer_id to avoid guessing product URLs later.
+      for (const offer of offers) {
+        if (offer.goods_url) {
+          cacheGoodsUrl(offer.id, offer.goods_url);
+        }
+      }
+
       const totalCount = xoobayResult.total;
       const hasMore = pageNo * limit < totalCount;
 
@@ -251,7 +278,8 @@ export async function catalogRoutes(app: FastifyInstance): Promise<void> {
             basePrice = isNaN(priceNum) ? 0 : Math.round(priceNum * 100) / 100 // Keep 2 decimal places
           }
           
-          // Generate product URL from product name (slug format)
+          // Prefer real goods_url from search cache; fall back to slug-based URL.
+          const cachedGoodsUrl = getCachedGoodsUrl(offerId);
           const productSlug = xoobayProduct.name
             .toLowerCase()
             .normalize('NFKD')
@@ -261,7 +289,8 @@ export async function catalogRoutes(app: FastifyInstance): Promise<void> {
             .replace(/-+/g, '-')
             .replace(/^-|-$/g, '')
             .slice(0, 180);
-          const productUrl = productSlug ? `https://www.xoobay.com/products/${productSlug}` : undefined;
+          const fallbackUrl = productSlug ? `https://www.xoobay.com/products/${productSlug}` : undefined;
+          const productUrl = cachedGoodsUrl ?? fallbackUrl;
           
           offer = {
             id: offerId,

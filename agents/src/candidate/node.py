@@ -151,17 +151,34 @@ async def candidate_node(state: AgentState) -> AgentState:
                 "error_code": "NOT_FOUND",
             }
 
+        # 去重 offer_ids，同时保留首个出现位置的分数
+        scores = search_result.get("data", {}).get("scores", [])
+        unique_offer_ids: list[str] = []
+        unique_scores: list[float] = []
+        seen_offer_ids: set[str] = set()
+        for idx, offer_id in enumerate(offer_ids):
+            if offer_id in seen_offer_ids:
+                continue
+            seen_offer_ids.add(offer_id)
+            unique_offer_ids.append(offer_id)
+            unique_scores.append(scores[idx] if idx < len(scores) else 0.5)
+
+        if len(unique_offer_ids) != len(offer_ids):
+            logger.info(
+                "candidate_node.offer_ids_deduped",
+                before=len(offer_ids),
+                after=len(unique_offer_ids),
+            )
+
         # 获取每个 offer 的详细信息（限制前 20 个以便生成多个方案）
         candidates = []
-        for offer_id in offer_ids[:20]:
+        for idx, offer_id in enumerate(unique_offer_ids[:20]):
             try:
                 aroc = await get_offer_card(offer_id=offer_id)
                 if aroc.get("ok"):
                     candidate_data = aroc.get("data", {})
                     # 添加搜索分数
-                    idx = offer_ids.index(offer_id)
-                    scores = search_result.get("data", {}).get("scores", [])
-                    candidate_data["search_score"] = scores[idx] if idx < len(scores) else 0.5
+                    candidate_data["search_score"] = unique_scores[idx] if idx < len(unique_scores) else 0.5
                     candidates.append(candidate_data)
             except Exception as e:
                 logger.warning("candidate_node.get_aroc_failed", offer_id=offer_id, error=str(e))
@@ -245,7 +262,7 @@ async def candidate_node(state: AgentState) -> AgentState:
                     query_original=query_original,
                     ok=True,
                     count=0,  # 过滤后的数量
-                    total_count=len(offer_ids),  # 搜索返回的总数
+                    total_count=len(unique_offer_ids),  # 搜索返回的总数（去重后）
                 ))
                 
                 return {
@@ -262,7 +279,7 @@ async def candidate_node(state: AgentState) -> AgentState:
         # 记录工具调用（使用统一的构建函数）
         # 从搜索结果中提取更多信息
         search_data = search_result.get("data", {})
-        total_count = search_data.get("total_count") or len(offer_ids)
+        total_count = search_data.get("total_count") or len(unique_offer_ids)
         has_more = search_data.get("has_more")
         
         tool_calls = state.get("tool_calls", [])

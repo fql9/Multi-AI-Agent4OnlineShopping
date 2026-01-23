@@ -124,11 +124,6 @@ async def plan_node(state: AgentState) -> AgentState:
             if candidate.get("offer_id") not in used_offer_ids:
                 fastest_candidate = candidate
                 break
-        # 如果所有候选都已使用，仍然使用最快的（即使是同一个产品，但用不同的 plan 类型）
-        if not fastest_candidate and by_speed:
-            # 寻找速度排序中的第二个产品
-            fastest_candidate = by_speed[1] if len(by_speed) > 1 else by_speed[0]
-        
         if fastest_candidate:
             plans.append(_create_plan(
                 candidate=fastest_candidate,
@@ -147,12 +142,6 @@ async def plan_node(state: AgentState) -> AgentState:
             if candidate.get("offer_id") not in used_offer_ids:
                 best_value_candidate = candidate
                 break
-        # 如果所有候选都已使用，仍然选择综合评分中的另一个
-        if not best_value_candidate and len(by_score) > 2:
-            best_value_candidate = by_score[2]
-        elif not best_value_candidate and len(by_score) > 1:
-            best_value_candidate = by_score[1]
-        
         if best_value_candidate:
             plans.append(_create_plan(
                 candidate=best_value_candidate,
@@ -196,6 +185,27 @@ async def plan_node(state: AgentState) -> AgentState:
                 destination_country=destination_country,
                 mission=mission,
             ))
+
+        # Defensive de-duplication by offer_id (keep first occurrence).
+        if plans:
+            seen_offer_ids = set()
+            deduped_plans = []
+            for plan in plans:
+                offer_id = ""
+                if plan.items:
+                    offer_id = plan.items[0].offer_id or ""
+                if offer_id and offer_id in seen_offer_ids:
+                    continue
+                if offer_id:
+                    seen_offer_ids.add(offer_id)
+                deduped_plans.append(plan)
+            if len(deduped_plans) != len(plans):
+                logger.info(
+                    "plan_node.deduped_plans",
+                    before=len(plans),
+                    after=len(deduped_plans),
+                )
+            plans = deduped_plans
 
         # 使用 LLM 生成 AI 推荐理由
         settings = get_settings()
